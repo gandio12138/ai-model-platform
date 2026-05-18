@@ -1,0 +1,20 @@
+{
+  "name": "ai-model-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.0.8",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @ai-platform/api-server dev",
+    "dev:admin": "pnpm --filter @ai-platform/admin-web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate": "pnpm --filter @ai-platform/api-server db:migrate",
+    "db:seed": "pnpm --filter @ai-platform/api-server db:seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
+
