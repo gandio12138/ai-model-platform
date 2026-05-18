@@ -2,19 +2,48 @@
   box-sizing: border-box;
 }
 
+:root,
+:root[data-admin-theme="light"] {
+  --app-bg: #f4f7fb;
+  --app-surface: #fff;
+  --app-surface-muted: #f8fafc;
+  --app-border: #e5eaf2;
+  --app-text: #172033;
+  --app-muted: #69768a;
+  --app-subtle: #758195;
+  --chart-grid: #e7edf5;
+  --chart-bar: #4f7cff;
+  --chart-bar-soft: #dbe7ff;
+}
+
+:root[data-admin-theme="dark"] {
+  --app-bg: #10151f;
+  --app-surface: #171d29;
+  --app-surface-muted: #1f2735;
+  --app-border: #2b3546;
+  --app-text: #eef3fb;
+  --app-muted: #a4afbf;
+  --app-subtle: #8e99aa;
+  --chart-grid: #2d384a;
+  --chart-bar: #6ea8ff;
+  --chart-bar-soft: #27364f;
+}
+
 body {
   margin: 0;
-  background: #f4f7fb;
-  color: #172033;
+  background: var(--app-bg);
+  color: var(--app-text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .admin-shell {
   min-height: 100vh;
+  background: var(--app-bg);
 }
 
 .admin-sider {
-  border-right: 1px solid #e5eaf2;
+  border-right: 1px solid var(--app-border);
+  background: var(--app-surface);
   position: sticky;
   top: 0;
   height: 100vh;
@@ -27,7 +56,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 0 18px;
-  border-bottom: 1px solid #e5eaf2;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .brand-mark {
@@ -48,7 +77,7 @@ body {
 }
 
 .brand-subtitle {
-  color: #758195;
+  color: var(--app-subtle);
   font-size: 12px;
   line-height: 1.2;
 }
@@ -56,8 +85,8 @@ body {
 .admin-header {
   height: 56px;
   padding: 0 20px;
-  background: #fff;
-  border-bottom: 1px solid #e5eaf2;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,7 +107,7 @@ body {
 }
 
 .header-hint {
-  color: #69768a;
+  color: var(--app-muted);
 }
 
 .env-tag {
@@ -114,14 +143,30 @@ body {
   bottom: 24px;
   z-index: 10;
   padding: 10px;
-  border: 1px solid #dce3ef;
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-surface);
   box-shadow: 0 12px 32px rgba(23, 32, 51, 0.14);
 }
 
 .full-width {
   width: 100%;
+}
+
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+.inline-panel {
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+}
+
+.tenant-select {
+  min-width: 220px;
 }
 
 .floating-select {
@@ -150,7 +195,7 @@ body {
 
 .login-copy p {
   max-width: 520px;
-  color: #526071;
+  color: var(--app-muted);
   font-size: 15px;
 }
 
@@ -161,19 +206,126 @@ body {
 
 .login-default {
   margin-top: 16px;
-  color: #758195;
+  color: var(--app-subtle);
   font-size: 12px;
 }
 
 .ant-table-wrapper {
-  background: #fff;
-  border: 1px solid #e5eaf2;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   overflow: hidden;
 }
 
 .ant-card {
-  border-color: #e5eaf2;
+  border-color: var(--app-border);
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-panel {
+  min-height: 286px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 8px;
+  color: var(--app-muted);
+  font-size: 12px;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.trend-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-grid-line {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+
+.chart-axis-text {
+  fill: var(--app-subtle);
+  font-size: 11px;
+}
+
+.request-bar {
+  fill: var(--chart-bar);
+}
+
+.top-list {
+  display: grid;
+  gap: 14px;
+}
+
+.top-list-row {
+  display: grid;
+  gap: 6px;
+}
+
+.top-list-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.top-list-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text);
+}
+
+.top-list-value {
+  color: var(--app-text);
+  font-weight: 700;
+}
+
+.top-list-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--chart-bar-soft);
+}
+
+.top-list-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--chart-bar);
+}
+
+.top-list-sub {
+  color: var(--app-subtle);
+  font-size: 12px;
+}
+
+.status-tags {
+  margin-top: 12px;
+}
+
+:root[data-admin-theme="dark"] .login-page {
+  background: linear-gradient(135deg, #0d1420 0%, #111827 52%, #182033 100%);
 }
 
 @media (max-width: 860px) {

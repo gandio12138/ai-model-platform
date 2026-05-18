@@ -5,6 +5,8 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
+import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { PoolClient } from "pg";
 import { DatabaseService } from "../database/database.service.js";
 import { AuditActor, AuditService } from "../common/audit.service.js";
@@ -82,6 +84,169 @@ const resourceMap: Record<string, ResourceConfig> = {
     tenantScopeColumn: "tenant_id",
     createTenantScoped: true
   },
+  tenantPlans: {
+    table: "tenant_plans",
+    readPermission: "tenant.billing.read",
+    writePermission: "tenant.billing.write",
+    searchable: ["plan_code", "name", "billing_cycle", "support_level", "status"],
+    writable: [
+      "plan_code",
+      "name",
+      "billing_cycle",
+      "base_fee_amount",
+      "currency",
+      "included_credit",
+      "included_token_budget",
+      "max_projects",
+      "max_customers",
+      "max_members",
+      "log_retention_days",
+      "support_level",
+      "status",
+      "metadata"
+    ]
+  },
+  tenantSubscriptions: {
+    table: "tenant_subscriptions",
+    readPermission: "tenant.billing.read",
+    writePermission: "tenant.billing.write",
+    searchable: ["subscription_no", "status", "billing_mode"],
+    writable: [
+      "tenant_id",
+      "plan_id",
+      "subscription_no",
+      "status",
+      "billing_mode",
+      "current_period_start",
+      "current_period_end",
+      "next_billing_at",
+      "cancel_at",
+      "seat_count",
+      "base_fee_amount",
+      "included_credit",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
+  tenantInvoices: {
+    table: "tenant_invoices",
+    readPermission: "tenant.billing.read",
+    writePermission: "tenant.billing.write",
+    searchable: ["invoice_no", "status", "currency"],
+    writable: [
+      "tenant_id",
+      "subscription_id",
+      "invoice_no",
+      "period_start",
+      "period_end",
+      "status",
+      "currency",
+      "subtotal_amount",
+      "discount_amount",
+      "tax_amount",
+      "total_amount",
+      "paid_amount",
+      "due_at",
+      "paid_at",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
+  tenantInvoiceItems: {
+    table: "tenant_invoice_items",
+    readPermission: "tenant.billing.read",
+    writePermission: "tenant.billing.write",
+    searchable: ["item_type", "description"],
+    writable: ["invoice_id", "item_type", "description", "quantity", "unit_amount", "amount", "metadata"]
+  },
+  tenantBillingRules: {
+    table: "tenant_billing_rules",
+    readPermission: "tenant.billing.read",
+    writePermission: "tenant.billing.write",
+    searchable: ["rule_code", "rule_version", "status", "billing_mode", "price_type"],
+    writable: [
+      "tenant_id",
+      "rule_code",
+      "rule_version",
+      "status",
+      "billing_mode",
+      "price_type",
+      "base_fee_amount",
+      "included_credit",
+      "included_token_budget",
+      "min_commit_amount",
+      "cost_plus_markup_rate",
+      "min_margin_multiplier",
+      "revenue_share_rate",
+      "revenue_share_base",
+      "payment_service_fee_rate",
+      "effective_from",
+      "effective_to",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
+  tenantModelAuthorizations: {
+    table: "tenant_model_authorizations",
+    readPermission: "tenant.model.read",
+    writePermission: "tenant.model.write",
+    searchable: ["status"],
+    writable: [
+      "tenant_id",
+      "model_id",
+      "status",
+      "max_context_tokens",
+      "rpm_limit",
+      "tpm_limit",
+      "daily_budget",
+      "monthly_budget",
+      "enabled_features",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
+  tenantModelPrices: {
+    table: "tenant_model_prices",
+    readPermission: "tenant.model.read",
+    writePermission: "tenant.model.write",
+    searchable: ["price_version", "currency", "pricing_mode", "status"],
+    writable: [
+      "tenant_id",
+      "model_id",
+      "price_version",
+      "currency",
+      "pricing_mode",
+      "input_price_per_1k",
+      "output_price_per_1k",
+      "min_margin_multiplier",
+      "cost_plus_markup_rate",
+      "status",
+      "effective_from",
+      "effective_to",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
+  tenantUsageAggregates: {
+    table: "tenant_usage_aggregates",
+    readPermission: "tenant.billing.read",
+    searchable: ["status"],
+    writable: [],
+    tenantScopeColumn: "tenant_id"
+  },
+  tenantRevenueShares: {
+    table: "tenant_revenue_share_records",
+    readPermission: "tenant.billing.read",
+    writePermission: "tenant.billing.write",
+    searchable: ["status"],
+    writable: ["status", "settled_at", "reversed_at", "metadata"],
+    tenantScopeColumn: "tenant_id"
+  },
   users: {
     table: "users",
     readPermission: "user.read",
@@ -97,6 +262,31 @@ const resourceMap: Record<string, ResourceConfig> = {
     writable: [],
     tenantScopeColumn: "tenant_id",
     customerScopeColumn: "user_id"
+  },
+  apiKeys: {
+    table: "api_keys",
+    readPermission: "api_key.read",
+    writePermission: "api_key.write",
+    searchable: ["name", "key_prefix", "key_suffix", "status"],
+    writable: [
+      "tenant_id",
+      "project_id",
+      "tenant_customer_id",
+      "user_id",
+      "name",
+      "status",
+      "model_whitelist",
+      "ip_whitelist",
+      "rpm_limit",
+      "tpm_limit",
+      "daily_budget",
+      "monthly_budget",
+      "expires_at"
+    ],
+    hidden: ["key_hash"],
+    tenantScopeColumn: "tenant_id",
+    customerScopeColumn: "user_id",
+    createTenantScoped: true
   },
   providers: {
     table: "providers",
@@ -351,16 +541,34 @@ export class AdminService {
     @Inject(CryptoService) private readonly crypto: CryptoService
   ) {}
 
+  assertPlatformAdmin(user: any) {
+    if (user?.accountType !== "admin") {
+      throw new ForbiddenException("Platform admin account is required");
+    }
+  }
+
   async dashboard(user: any) {
     this.assertPermission(user, "payment.read");
     const scopedTenantIds = await this.getScopedTenantIds(user);
     const scopedPayment = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
     const scopedRequest = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
+    const scopedBilling = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
+    const scopedRevenueTrend = this.buildTenantScopeSql("po.tenant_id", scopedTenantIds, []);
+    const scopedCostTrend = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
+    const scopedRequestTrend = this.buildTenantScopeSql("rl.tenant_id", scopedTenantIds, []);
+    const scopedModelTop = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
+    const scopedTenantTop = this.buildTenantScopeSql("po.tenant_id", scopedTenantIds, []);
     const [
       revenue,
       cost,
+      todayRequests,
       orders,
       requests,
+      revenueTrend,
+      costTrend,
+      requestTrend,
+      modelUsageTop,
+      tenantRevenueTop,
       providerHealth,
       paymentStatus
     ] = await Promise.all([
@@ -376,8 +584,17 @@ export class AdminService {
         `select coalesce(sum(amount), 0)::text as amount
            from billing_records
           where created_at >= date_trunc('day', now())
-            ${this.buildTenantScopeSql("tenant_id", scopedTenantIds, []).sql}`,
-        this.buildTenantScopeSql("tenant_id", scopedTenantIds, []).params
+            ${scopedBilling.sql}`,
+        scopedBilling.params
+      ),
+      this.db.query<{ requests: string; tokens: string; avg_latency_ms: string }>(
+        `select count(*)::text as requests,
+                coalesce(sum(total_tokens), 0)::text as tokens,
+                coalesce(round(avg(latency_ms))::int, 0)::text as avg_latency_ms
+           from request_logs
+          where created_at >= date_trunc('day', now())
+            ${scopedRequest.sql}`,
+        scopedRequest.params
       ),
       this.db.query<{ status: string; count: string }>(
         `select status, count(*)::text
@@ -394,6 +611,98 @@ export class AdminService {
             ${scopedRequest.sql}
           group by status`,
         scopedRequest.params
+      ),
+      this.db.query<{ date: string; label: string; revenue: string; orders: string }>(
+        `with days as (
+           select generate_series(
+                    date_trunc('day', now()) - interval '13 days',
+                    date_trunc('day', now()),
+                    interval '1 day'
+                  ) as day
+         )
+         select to_char(day, 'YYYY-MM-DD') as date,
+                to_char(day, 'MM-DD') as label,
+                coalesce(sum(po.amount) filter (where po.status in ('PAID','FULFILLED')), 0)::text as revenue,
+                (count(po.id) filter (where po.status in ('PAID','FULFILLED')))::text as orders
+           from days
+           left join payment_orders po
+             on po.created_at >= day
+            and po.created_at < day + interval '1 day'
+            ${scopedRevenueTrend.sql}
+          group by day
+          order by day`,
+        scopedRevenueTrend.params
+      ),
+      this.db.query<{ date: string; cost: string }>(
+        `with days as (
+           select generate_series(
+                    date_trunc('day', now()) - interval '13 days',
+                    date_trunc('day', now()),
+                    interval '1 day'
+                  ) as day
+         )
+         select to_char(day, 'YYYY-MM-DD') as date,
+                coalesce(sum(br.amount), 0)::text as cost
+           from days
+           left join billing_records br
+             on br.created_at >= day
+            and br.created_at < day + interval '1 day'
+            and br.billing_status = 'settled'
+            ${scopedCostTrend.sql}
+          group by day
+          order by day`,
+        scopedCostTrend.params
+      ),
+      this.db.query<{ date: string; label: string; requests: string; tokens: string; error_requests: string; avg_latency_ms: string }>(
+        `with days as (
+           select generate_series(
+                    date_trunc('day', now()) - interval '13 days',
+                    date_trunc('day', now()),
+                    interval '1 day'
+                  ) as day
+         )
+         select to_char(day, 'YYYY-MM-DD') as date,
+                to_char(day, 'MM-DD') as label,
+                count(rl.id)::text as requests,
+                coalesce(sum(rl.total_tokens), 0)::text as tokens,
+                (count(rl.id) filter (where rl.error_code is not null or rl.status ilike '%error%' or rl.status ilike '%fail%'))::text as error_requests,
+                coalesce(round(avg(rl.latency_ms))::int, 0)::text as avg_latency_ms
+           from days
+           left join request_logs rl
+             on rl.created_at >= day
+            and rl.created_at < day + interval '1 day'
+            ${scopedRequestTrend.sql}
+          group by day
+          order by day`,
+        scopedRequestTrend.params
+      ),
+      this.db.query<{ public_model_code: string; requests: string; tokens: string; error_requests: string; avg_latency_ms: string }>(
+        `select public_model_code,
+                count(*)::text as requests,
+                coalesce(sum(total_tokens), 0)::text as tokens,
+                (count(*) filter (where error_code is not null or status ilike '%error%' or status ilike '%fail%'))::text as error_requests,
+                coalesce(round(avg(latency_ms))::int, 0)::text as avg_latency_ms
+           from request_logs
+          where created_at >= now() - interval '7 days'
+            ${scopedModelTop.sql}
+          group by public_model_code
+          order by count(*) desc
+          limit 8`,
+        scopedModelTop.params
+      ),
+      this.db.query<{ tenant_id: string; tenant_name: string; revenue: string; orders: string }>(
+        `select t.id as tenant_id,
+                t.name as tenant_name,
+                coalesce(sum(po.amount) filter (where po.status in ('PAID','FULFILLED')), 0)::text as revenue,
+                (count(po.id) filter (where po.status in ('PAID','FULFILLED')))::text as orders
+           from payment_orders po
+           join tenants t on t.id = po.tenant_id
+          where po.created_at >= now() - interval '30 days'
+            ${scopedTenantTop.sql}
+          group by t.id, t.name
+          order by coalesce(sum(po.amount) filter (where po.status in ('PAID','FULFILLED')), 0) desc
+          limit 8`,
+        scopedTenantTop.params
       ),
       this.db.query(
         `select code, name, health_status, health_score
@@ -414,12 +723,47 @@ export class AdminService {
 
     const revenueAmount = Number(revenue.rows[0]?.amount ?? 0);
     const costAmount = Number(cost.rows[0]?.amount ?? 0);
+    const costByDate = new Map(costTrend.rows.map((row) => [row.date, Number(row.cost ?? 0)]));
     return {
       todayRevenue: revenueAmount,
       todayCost: costAmount,
       todayGrossProfit: revenueAmount - costAmount,
+      todayRequests: Number(todayRequests.rows[0]?.requests ?? 0),
+      todayTokens: Number(todayRequests.rows[0]?.tokens ?? 0),
+      todayAverageLatencyMs: Number(todayRequests.rows[0]?.avg_latency_ms ?? 0),
       paymentOrdersByStatus: orders.rows,
       requestsByStatus: requests.rows,
+      revenueTrend: revenueTrend.rows.map((row) => {
+        const dayRevenue = Number(row.revenue ?? 0);
+        const dayCost = costByDate.get(row.date) ?? 0;
+        return {
+          ...row,
+          revenue: dayRevenue,
+          cost: dayCost,
+          grossProfit: dayRevenue - dayCost,
+          orders: Number(row.orders ?? 0)
+        };
+      }),
+      requestTrend: requestTrend.rows.map((row) => ({
+        date: row.date,
+        label: row.label,
+        requests: Number(row.requests ?? 0),
+        tokens: Number(row.tokens ?? 0),
+        errorRequests: Number(row.error_requests ?? 0),
+        avgLatencyMs: Number(row.avg_latency_ms ?? 0)
+      })),
+      modelUsageTop: modelUsageTop.rows.map((row) => ({
+        public_model_code: row.public_model_code,
+        requests: Number(row.requests ?? 0),
+        tokens: Number(row.tokens ?? 0),
+        errorRequests: Number(row.error_requests ?? 0),
+        avgLatencyMs: Number(row.avg_latency_ms ?? 0)
+      })),
+      tenantRevenueTop: tenantRevenueTop.rows.map((row) => ({
+        ...row,
+        revenue: Number(row.revenue ?? 0),
+        orders: Number(row.orders ?? 0)
+      })),
       providerHealth: providerHealth.rows,
       paymentStatus: paymentStatus.rows
     };
@@ -436,6 +780,15 @@ export class AdminService {
     }
     if (resource === "tenantCustomers") {
       return this.listTenantCustomers(query, user);
+    }
+    if (resource === "tenantModelAuthorizations") {
+      return this.listTenantModelAuthorizations(query, user);
+    }
+    if (resource === "tenantModelPrices") {
+      return this.listTenantModelPrices(query, user);
+    }
+    if (resource === "tenantUsageAggregates") {
+      return this.listTenantUsageAggregates(query, user);
     }
 
     const { page, pageSize, offset } = parsePagination(query);
@@ -467,6 +820,17 @@ export class AdminService {
     if (resource === "users" && query.exclude_user_type) {
       params.push(query.exclude_user_type);
       filters.push(`user_type <> $${params.length}`);
+    }
+
+    if (resource === "users" && query.account_type) {
+      const accountType = String(query.account_type);
+      if (accountType === "admin") {
+        filters.push("user_type = 'admin'");
+      } else if (accountType === "tenant") {
+        filters.push("user_type = 'tenant'");
+      } else if (accountType === "customer") {
+        filters.push("user_type not in ('admin', 'tenant')");
+      }
     }
 
     const where = filters.length ? `where ${filters.join(" and ")}` : "";
@@ -636,6 +1000,208 @@ export class AdminService {
            left join tenant_projects project on project.id = tc.source_project_id
           ${where}
           order by tc.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
+  private async listTenantModelAuthorizations(query: Record<string, unknown>, user: any) {
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (!this.isSuperAdmin(user)) {
+      const tenantIds = await this.getScopedTenantIds(user);
+      if (!tenantIds?.length) {
+        filters.push("false");
+      } else {
+        params.push(tenantIds);
+        filters.push(`tma.tenant_id = any($${params.length}::uuid[])`);
+      }
+    }
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(tenant.name ilike $${params.length} or m.public_model_code ilike $${params.length} or m.display_name ilike $${params.length} or tma.status ilike $${params.length})`
+      );
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`tma.status = $${params.length}`);
+    }
+    if (query.tenant_id) {
+      params.push(query.tenant_id);
+      filters.push(`tma.tenant_id = $${params.length}`);
+    }
+    if (query.model_id) {
+      params.push(query.model_id);
+      filters.push(`tma.model_id = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total
+           from tenant_model_authorizations tma
+           join tenants tenant on tenant.id = tma.tenant_id
+           join models m on m.id = tma.model_id
+          ${where}`,
+        params
+      ),
+      this.db.query(
+        `select tma.*,
+                tenant.name as tenant_name,
+                tenant.tenant_code,
+                m.public_model_code,
+                m.display_name as model_display_name,
+                m.model_family
+           from tenant_model_authorizations tma
+           join tenants tenant on tenant.id = tma.tenant_id
+           join models m on m.id = tma.model_id
+          ${where}
+          order by tma.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
+  private async listTenantModelPrices(query: Record<string, unknown>, user: any) {
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (!this.isSuperAdmin(user)) {
+      const tenantIds = await this.getScopedTenantIds(user);
+      if (!tenantIds?.length) {
+        filters.push("false");
+      } else {
+        params.push(tenantIds);
+        filters.push(`tmp.tenant_id = any($${params.length}::uuid[])`);
+      }
+    }
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(tenant.name ilike $${params.length} or m.public_model_code ilike $${params.length} or m.display_name ilike $${params.length} or tmp.price_version ilike $${params.length} or tmp.status ilike $${params.length})`
+      );
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`tmp.status = $${params.length}`);
+    }
+    if (query.tenant_id) {
+      params.push(query.tenant_id);
+      filters.push(`tmp.tenant_id = $${params.length}`);
+    }
+    if (query.model_id) {
+      params.push(query.model_id);
+      filters.push(`tmp.model_id = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total
+           from tenant_model_prices tmp
+           join tenants tenant on tenant.id = tmp.tenant_id
+           join models m on m.id = tmp.model_id
+          ${where}`,
+        params
+      ),
+      this.db.query(
+        `select tmp.*,
+                tenant.name as tenant_name,
+                tenant.tenant_code,
+                m.public_model_code,
+                m.display_name as model_display_name,
+                m.model_family
+           from tenant_model_prices tmp
+           join tenants tenant on tenant.id = tmp.tenant_id
+           join models m on m.id = tmp.model_id
+          ${where}
+          order by tmp.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
+  private async listTenantUsageAggregates(query: Record<string, unknown>, user: any) {
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (!this.isSuperAdmin(user)) {
+      const tenantIds = await this.getScopedTenantIds(user);
+      if (!tenantIds?.length) {
+        filters.push("false");
+      } else {
+        params.push(tenantIds);
+        filters.push(`tua.tenant_id = any($${params.length}::uuid[])`);
+      }
+    }
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(tenant.name ilike $${params.length} or project.name ilike $${params.length} or m.public_model_code ilike $${params.length} or tua.status ilike $${params.length})`
+      );
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`tua.status = $${params.length}`);
+    }
+    if (query.tenant_id) {
+      params.push(query.tenant_id);
+      filters.push(`tua.tenant_id = $${params.length}`);
+    }
+    if (query.project_id) {
+      params.push(query.project_id);
+      filters.push(`tua.project_id = $${params.length}`);
+    }
+    if (query.model_id) {
+      params.push(query.model_id);
+      filters.push(`tua.model_id = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total
+           from tenant_usage_aggregates tua
+           join tenants tenant on tenant.id = tua.tenant_id
+           left join tenant_projects project on project.id = tua.project_id
+           left join models m on m.id = tua.model_id
+          ${where}`,
+        params
+      ),
+      this.db.query(
+        `select tua.*,
+                tenant.name as tenant_name,
+                tenant.tenant_code,
+                project.name as project_name,
+                project.project_code,
+                m.public_model_code,
+                m.display_name as model_display_name
+           from tenant_usage_aggregates tua
+           join tenants tenant on tenant.id = tua.tenant_id
+           left join tenant_projects project on project.id = tua.project_id
+           left join models m on m.id = tua.model_id
+          ${where}
+          order by tua.period_start desc, tua.created_at desc
           limit $${params.length + 1} offset $${params.length + 2}`,
         [...params, pageSize, offset]
       )
@@ -938,6 +1504,237 @@ export class AdminService {
     };
   }
 
+  async createApiKey(body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "api_key.write");
+    const tenantId = String(body.tenant_id ?? "");
+    const projectId = String(body.project_id ?? "");
+    const userId = String(body.user_id ?? "");
+    if (!tenantId || !projectId || !userId || !body.name) {
+      throw new BadRequestException("tenant_id, project_id, user_id and name are required");
+    }
+    await this.assertTenantAccess(user, tenantId);
+    await this.assertCustomerAccess(user, userId);
+    await this.assertProjectTenant(projectId, tenantId);
+    const tenantCustomer = await this.findTenantCustomer(tenantId, userId);
+    const modelWhitelist = this.asOptionalArray(body.model_whitelist);
+    if (modelWhitelist?.length) {
+      await this.validateTenantModelWhitelist(tenantId, modelWhitelist);
+    }
+    const plaintext = `aitp_${crypto.randomBytes(24).toString("base64url")}`;
+    const keyHash = crypto.createHash("sha256").update(plaintext).digest("hex");
+    const payload = {
+      tenant_id: tenantId,
+      project_id: projectId,
+      tenant_customer_id: tenantCustomer.id,
+      user_id: userId,
+      name: body.name,
+      key_prefix: plaintext.slice(0, 12),
+      key_suffix: plaintext.slice(-6),
+      key_hash: keyHash,
+      status: body.status ?? "active",
+      model_whitelist: modelWhitelist,
+      ip_whitelist: this.asOptionalArray(body.ip_whitelist),
+      rpm_limit: body.rpm_limit,
+      tpm_limit: body.tpm_limit,
+      daily_budget: body.daily_budget,
+      monthly_budget: body.monthly_budget,
+      expires_at: body.expires_at || null
+    };
+    const columns = Object.entries(payload).filter(([, value]) => value !== undefined);
+    const { rows } = await this.db.query(
+      `insert into api_keys (${columns.map(([key]) => key).join(", ")})
+       values (${columns.map((_, index) => `$${index + 1}`).join(", ")})
+       returning id, tenant_id, project_id, tenant_customer_id, user_id, name, key_prefix, key_suffix, status, model_whitelist, ip_whitelist, rpm_limit, tpm_limit, daily_budget, monthly_budget, expires_at, last_used_at, created_at, revoked_at`,
+      columns.map(([, value]) => value)
+    );
+    await this.audit.record({
+      actor,
+      action: "api_key.create",
+      targetType: "api_keys",
+      targetId: rows[0].id,
+      afterValue: rows[0],
+      reason: String(body.reason ?? "")
+    });
+    return {
+      key: plaintext,
+      record: rows[0]
+    };
+  }
+
+  async createTenantAccount(body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "platform.tenant.write_all");
+    const tenantId = String(body.tenant_id ?? "");
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const password = String(body.password ?? "");
+    const status = String(body.status ?? "active");
+    if (!tenantId || !email || !password) {
+      throw new BadRequestException("tenant_id, email and password are required");
+    }
+    if (!email.includes("@")) {
+      throw new BadRequestException("email must be valid");
+    }
+    if (password.length < 8) {
+      throw new BadRequestException("password must be at least 8 characters");
+    }
+    if (!["active", "suspended"].includes(status)) {
+      throw new BadRequestException("Invalid account status");
+    }
+    const tenant = await this.findById(resourceMap.tenants, tenantId);
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const result = await this.db.transaction(async (client) => {
+      const existing = await client.query<{ id: string; user_type: string }>(
+        `select id, user_type
+           from users
+          where email = $1
+          for update`,
+        [email]
+      );
+      if (existing.rows[0] && existing.rows[0].user_type !== "tenant") {
+        throw new BadRequestException("This email already belongs to an admin or customer account");
+      }
+
+      const account = existing.rows[0]
+        ? await client.query(
+            `update users
+                set password_hash = $1,
+                    status = $2,
+                    user_type = 'tenant',
+                    updated_at = now()
+              where id = $3
+              returning id, email, status, user_type, created_at, updated_at`,
+            [passwordHash, status, existing.rows[0].id]
+          )
+        : await client.query(
+            `insert into users (email, password_hash, status, user_type, invite_code)
+             values ($1, $2, $3, 'tenant', $4)
+             returning id, email, status, user_type, created_at, updated_at`,
+            [email, passwordHash, status, String(body.invite_code ?? `TENANT-${crypto.randomBytes(4).toString("hex").toUpperCase()}`)]
+          );
+
+      const role = await client.query<{ id: string }>(
+        `select id from roles where code = 'tenant' limit 1`
+      );
+      if (!role.rows[0]) {
+        throw new BadRequestException("Tenant role is not initialized");
+      }
+      await client.query(
+        `insert into user_roles (user_id, role_id)
+         values ($1, $2)
+         on conflict do nothing`,
+        [account.rows[0].id, role.rows[0].id]
+      );
+      await client.query(
+        `insert into tenant_memberships (tenant_id, user_id, role_code, status)
+         values ($1, $2, 'tenant', $3)
+         on conflict (tenant_id, user_id, role_code) do update
+            set status = excluded.status,
+                updated_at = now()
+         returning *`,
+        [tenantId, account.rows[0].id, status]
+      );
+      return account.rows[0];
+    });
+
+    await this.audit.record({
+      actor,
+      action: "tenant_account.create",
+      targetType: "users",
+      targetId: result.id,
+      afterValue: { ...result, tenant_id: tenant.id, tenant_code: tenant.tenant_code },
+      reason: String(body.reason ?? "")
+    });
+    return {
+      account: result,
+      tenant: {
+        id: tenant.id,
+        tenant_code: tenant.tenant_code,
+        name: tenant.name
+      }
+    };
+  }
+
+  async revokeApiKey(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "api_key.revoke");
+    requireReason(body);
+    const before = await this.findById(resourceMap.apiKeys, id);
+    await this.assertRecordScope(resourceMap.apiKeys, before, user);
+    const { rows } = await this.db.query(
+      `update api_keys
+          set status = 'revoked',
+              revoked_at = now()
+        where id = $1
+        returning id, tenant_id, project_id, tenant_customer_id, user_id, name, key_prefix, key_suffix, status, model_whitelist, ip_whitelist, rpm_limit, tpm_limit, daily_budget, monthly_budget, expires_at, last_used_at, created_at, revoked_at`,
+      [id]
+    );
+    await this.audit.record({
+      actor,
+      action: "api_key.revoke",
+      targetType: "api_keys",
+      targetId: id,
+      beforeValue: this.hideFields([before], resourceMap.apiKeys.hidden)[0],
+      afterValue: rows[0],
+      reason: String(body.reason)
+    });
+    return rows[0];
+  }
+
+  async previewTenantInvoice(tenantId: string, body: Record<string, unknown>, user: any) {
+    this.assertPermission(user, "tenant.billing.read");
+    await this.assertTenantAccess(user, tenantId);
+    return this.buildTenantInvoiceDraft(tenantId, body);
+  }
+
+  async generateTenantInvoice(tenantId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "tenant.billing.write");
+    requireReason(body);
+    await this.assertTenantAccess(user, tenantId);
+    const draft = await this.buildTenantInvoiceDraft(tenantId, body);
+    const result = await this.db.transaction(async (client) => {
+      const invoiceNo = `TIN${Date.now()}${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+      const invoice = await client.query(
+        `insert into tenant_invoices
+          (tenant_id, subscription_id, invoice_no, period_start, period_end, status, currency, subtotal_amount, discount_amount, tax_amount, total_amount, due_at, metadata)
+         values ($1, $2, $3, $4, $5, 'issued', 'CNY', $6, 0, 0, $6, now() + interval '15 days', $7::jsonb)
+         returning *`,
+        [
+          tenantId,
+          draft.subscription?.id ?? null,
+          invoiceNo,
+          draft.period_start,
+          draft.period_end,
+          draft.total_amount,
+          JSON.stringify({ generated_by: actor.id, preview: draft.summary })
+        ]
+      );
+      for (const item of draft.items) {
+        await client.query(
+          `insert into tenant_invoice_items (invoice_id, item_type, description, quantity, unit_amount, amount, metadata)
+           values ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+          [
+            invoice.rows[0].id,
+            item.item_type,
+            item.description,
+            item.quantity,
+            item.unit_amount,
+            item.amount,
+            JSON.stringify(item.metadata ?? {})
+          ]
+        );
+      }
+      return invoice.rows[0];
+    });
+    await this.audit.record({
+      actor,
+      action: "tenant.invoice.generate",
+      targetType: "tenant_invoices",
+      targetId: result.id,
+      afterValue: result,
+      reason: String(body.reason)
+    });
+    return result;
+  }
+
   async refundOrder(orderId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
     this.assertPermission(user, "payment.refund");
     requireReason(body);
@@ -1161,6 +1958,115 @@ export class AdminService {
     return rows[0];
   }
 
+  private async buildTenantInvoiceDraft(tenantId: string, body: Record<string, unknown>) {
+    const subscriptionResult = await this.db.query(
+      `select s.*, p.plan_code, p.name as plan_name
+         from tenant_subscriptions s
+         join tenant_plans p on p.id = s.plan_id
+        where s.tenant_id = $1
+          and s.status in ('active', 'trialing', 'past_due')
+        order by s.created_at desc
+        limit 1`,
+      [tenantId]
+    );
+    const subscription = subscriptionResult.rows[0] ?? null;
+    const periodStart = String(
+      body.period_start ??
+      subscription?.current_period_start?.toISOString?.() ??
+      new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+    );
+    const periodEnd = String(
+      body.period_end ??
+      subscription?.current_period_end?.toISOString?.() ??
+      new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString()
+    );
+    const ruleResult = await this.db.query(
+      `select *
+         from tenant_billing_rules
+        where (tenant_id = $1 or tenant_id is null)
+          and status = 'published'
+          and effective_from <= $2
+          and (effective_to is null or effective_to > $2::timestamptz)
+        order by tenant_id nulls last, effective_from desc
+        limit 1`,
+      [tenantId, periodEnd]
+    );
+    const rule = ruleResult.rows[0] ?? null;
+    const usageResult = await this.db.query<{ provider_cost: string; wholesale: string; tokens: string; requests: string }>(
+      `select coalesce(sum(provider_cost_amount), 0)::text as provider_cost,
+              coalesce(sum(tenant_wholesale_amount), 0)::text as wholesale,
+              coalesce(sum(total_tokens), 0)::text as tokens,
+              coalesce(sum(total_requests), 0)::text as requests
+         from tenant_usage_aggregates
+        where tenant_id = $1
+          and period_start >= $2
+          and period_end <= $3`,
+      [tenantId, periodStart, periodEnd]
+    );
+    const paymentResult = await this.db.query<{ amount: string }>(
+      `select coalesce(sum(amount), 0)::text as amount
+         from payment_orders
+        where tenant_id = $1
+          and status in ('PAID','FULFILLED')
+          and created_at >= $2
+          and created_at < $3`,
+      [tenantId, periodStart, periodEnd]
+    );
+
+    const baseFee = Number(rule?.base_fee_amount ?? subscription?.base_fee_amount ?? 0);
+    const includedCredit = Number(rule?.included_credit ?? subscription?.included_credit ?? 0);
+    const wholesale = Number(usageResult.rows[0]?.wholesale ?? 0);
+    const payableUsage = Math.max(0, wholesale - includedCredit);
+    const minCommit = Number(rule?.min_commit_amount ?? 0);
+    const beforeMinCommit = baseFee + payableUsage;
+    const minCommitDiff = Math.max(0, minCommit - beforeMinCommit);
+    const items = [
+      {
+        item_type: "base_fee",
+        description: "SaaS 基础服务费",
+        quantity: 1,
+        unit_amount: baseFee,
+        amount: baseFee
+      },
+      {
+        item_type: "usage_fee",
+        description: "租户模型用量费",
+        quantity: Number(usageResult.rows[0]?.tokens ?? 0),
+        unit_amount: 0,
+        amount: payableUsage,
+        metadata: {
+          included_credit: includedCredit,
+          raw_wholesale_amount: wholesale,
+          total_requests: Number(usageResult.rows[0]?.requests ?? 0)
+        }
+      },
+      {
+        item_type: "min_commit_diff",
+        description: "最低消费补差",
+        quantity: 1,
+        unit_amount: minCommitDiff,
+        amount: minCommitDiff
+      }
+    ].filter((item) => item.amount > 0 || item.item_type !== "min_commit_diff");
+    const total = items.reduce((sum, item) => sum + item.amount, 0);
+    return {
+      tenant_id: tenantId,
+      subscription,
+      rule,
+      period_start: periodStart,
+      period_end: periodEnd,
+      total_amount: total,
+      items,
+      summary: {
+        provider_cost_amount: Number(usageResult.rows[0]?.provider_cost ?? 0),
+        tenant_wholesale_amount: wholesale,
+        end_user_payment_amount: Number(paymentResult.rows[0]?.amount ?? 0),
+        included_credit: includedCredit,
+        min_commit_amount: minCommit
+      }
+    };
+  }
+
   private getResource(resource: ResourceKey) {
     const config = resourceMap[resource];
     if (!config) {
@@ -1194,6 +2100,19 @@ export class AdminService {
     return value;
   }
 
+  private asOptionalArray(value: unknown) {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    return String(value)
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
   private hideFields(rows: any[], hidden: string[] = []) {
     return rows.map((row) => {
       const clone = { ...row };
@@ -1216,11 +2135,9 @@ export class AdminService {
   }
 
   private isSuperAdmin(user: any) {
-    return Array.isArray(user.roles) &&
-      (user.roles.includes("super_admin") ||
-        user.roles.includes("platform_master") ||
-        user.roles.includes("platform_admin") ||
-        user.permissions?.includes("platform.tenant.read_all"));
+    return user.accountType === "admin" &&
+      Array.isArray(user.permissions) &&
+      user.permissions.includes("platform.tenant.read_all");
   }
 
   private async getScopedTenantIds(user: any): Promise<string[] | null> {
@@ -1339,6 +2256,53 @@ export class AdminService {
     }
   }
 
+  private async findTenantCustomer(tenantId: string, userId: string) {
+    const { rows } = await this.db.query(
+      `select *
+         from tenant_customers
+        where tenant_id = $1
+          and user_id = $2
+          and status = 'active'
+        limit 1`,
+      [tenantId, userId]
+    );
+    if (!rows[0]) {
+      throw new ForbiddenException("Customer is not linked to the selected tenant");
+    }
+    return rows[0];
+  }
+
+  private async assertProjectTenant(projectId: string, tenantId: string) {
+    const { rowCount } = await this.db.query(
+      `select 1
+         from tenant_projects
+        where id = $1
+          and tenant_id = $2
+          and status = 'active'`,
+      [projectId, tenantId]
+    );
+    if (!rowCount) {
+      throw new ForbiddenException("Project is outside the selected tenant scope");
+    }
+  }
+
+  private async validateTenantModelWhitelist(tenantId: string, modelCodes: string[]) {
+    const { rows } = await this.db.query<{ public_model_code: string }>(
+      `select m.public_model_code
+         from models m
+         join tenant_model_authorizations tma on tma.model_id = m.id
+        where tma.tenant_id = $1
+          and tma.status = 'active'
+          and m.public_model_code = any($2::text[])`,
+      [tenantId, modelCodes]
+    );
+    const allowed = new Set(rows.map((row) => row.public_model_code));
+    const denied = modelCodes.filter((code) => !allowed.has(code));
+    if (denied.length) {
+      throw new ForbiddenException(`Model is not authorized for this tenant: ${denied.join(", ")}`);
+    }
+  }
+
   private async assertTenantAccess(user: any, tenantId: string) {
     if (this.isSuperAdmin(user)) {
       return;
@@ -1390,7 +2354,7 @@ export class AdminService {
     if (byId.get(adminUserId) !== "admin") {
       throw new BadRequestException("Customer assignment owner must be a platform admin account");
     }
-    if (byId.get(customerUserId) === "admin") {
+    if (["admin", "tenant"].includes(String(byId.get(customerUserId)))) {
       throw new BadRequestException("Customer assignment target must be an app/web/API customer account");
     }
   }
@@ -1406,8 +2370,8 @@ export class AdminService {
     if (!rows[0]) {
       throw new NotFoundException("User not found");
     }
-    if (rows[0].user_type === "admin") {
-      throw new BadRequestException("Tenant customer cannot be an admin account");
+    if (["admin", "tenant"].includes(rows[0].user_type)) {
+      throw new BadRequestException("Tenant customer must be an app/web/API customer account");
     }
   }
 

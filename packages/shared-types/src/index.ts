@@ -35,13 +35,18 @@ export type AdminPermission =
   | "tenant.customer.write"
   | "tenant.billing.read"
   | "tenant.billing.write"
+  | "tenant.model.read"
+  | "tenant.model.write"
   | "platform.tenant.read_all"
   | "platform.tenant.write_all"
+  | "api_key.write"
   | "provider.sync_models";
 
 export interface AdminSessionUser {
   id: string;
   email: string;
+  userType: string;
+  accountType: "admin" | "tenant" | "customer";
   roles: string[];
   permissions: AdminPermission[];
 }

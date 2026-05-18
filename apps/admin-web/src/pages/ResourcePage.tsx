@@ -22,6 +22,7 @@ interface ResourcePageProps {
   columns: FieldSpec[];
   editableFields?: FieldSpec[];
   canCreate?: boolean;
+  canEdit?: boolean;
 }
 
 const fieldLabels: Record<string, string> = {
@@ -43,6 +44,69 @@ const fieldLabels: Record<string, string> = {
   member_email: "成员账号",
   member_user_type: "成员类型",
   role_code: "成员角色",
+  plan_id: "套餐",
+  plan_code: "套餐编码",
+  billing_cycle: "计费周期",
+  billing_mode: "计费模式",
+  subscription_no: "订阅号",
+  subscription_id: "租户订阅",
+  current_period_start: "当前周期开始",
+  current_period_end: "当前周期结束",
+  next_billing_at: "下次出账",
+  cancel_at: "取消时间",
+  invoice_no: "账单号",
+  period_start: "期间开始",
+  period_end: "期间结束",
+  subtotal_amount: "小计金额",
+  discount_amount: "折扣金额",
+  tax_amount: "税费",
+  total_amount: "账单金额",
+  paid_amount: "已付金额",
+  due_at: "到期时间",
+  paid_at: "支付时间",
+  rule_code: "计费规则编码",
+  rule_version: "规则版本",
+  price_type: "计价方式",
+  base_fee_amount: "基础服务费",
+  included_credit: "包含抵扣额度",
+  included_token_budget: "包含 Token 预算",
+  min_commit_amount: "最低消费",
+  cost_plus_markup_rate: "成本加价率",
+  min_margin_multiplier: "最低毛利倍率",
+  revenue_share_rate: "收入分成比例",
+  revenue_share_base: "收入分成基准",
+  payment_service_fee_rate: "支付服务费率",
+  effective_from: "生效开始",
+  effective_to: "生效结束",
+  max_projects: "项目数上限",
+  max_customers: "客户数上限",
+  max_members: "成员数上限",
+  log_retention_days: "日志保留天数",
+  support_level: "支持等级",
+  seat_count: "席位数",
+  max_context_tokens: "上下文上限",
+  rpm_limit: "RPM 限制",
+  tpm_limit: "TPM 限制",
+  daily_budget: "日预算",
+  monthly_budget: "月预算",
+  enabled_features: "启用能力",
+  price_version: "价格版本",
+  pricing_mode: "计价模式",
+  currency: "币种",
+  input_price_per_1k: "输入价格/1K",
+  output_price_per_1k: "输出价格/1K",
+  total_requests: "请求数",
+  total_tokens: "Token 数",
+  provider_cost_amount: "供应商成本",
+  tenant_wholesale_amount: "租户批发价",
+  end_user_revenue_amount: "客户付款金额",
+  payment_order_id: "支付订单",
+  payment_gross_amount: "付款总额",
+  payment_channel_fee: "支付通道费",
+  platform_share_amount: "平台分成",
+  tenant_share_amount: "租户分成",
+  settled_at: "结算时间",
+  reversed_at: "冲正时间",
   email: "邮箱",
   phone: "手机号",
   user_type: "用户类型",
@@ -50,6 +114,7 @@ const fieldLabels: Record<string, string> = {
   created_at: "创建时间",
   updated_at: "更新时间",
   public_model_code: "模型编码",
+  model_display_name: "模型展示名",
   provider_model_code: "上游模型编码",
   model_id: "模型",
   provider_id: "Provider",
@@ -106,6 +171,37 @@ const valueLabels: Record<string, Record<string, string>> = {
     tenant_collected: "租户自收",
     tenant_or_platform_collected: "租户或平台收款",
     app_store_collected: "应用商店收款"
+  },
+  billing_cycle: {
+    monthly: "月付",
+    quarterly: "季付",
+    yearly: "年付"
+  },
+  billing_mode: {
+    subscription_usage: "订阅 + 用量",
+    prepaid: "预付费",
+    postpaid: "后付费",
+    revenue_share: "收入分成"
+  },
+  price_type: {
+    cost_plus: "成本加价",
+    contract_price: "合同价",
+    revenue_share: "收入分成"
+  },
+  pricing_mode: {
+    contract_price: "合同价",
+    cost_plus: "成本加价",
+    fixed_margin: "固定毛利"
+  },
+  role_code: {
+    tenant: "租户",
+    tenant_admin: "租户"
+  },
+  user_type: {
+    admin: "管理员",
+    tenant: "租户",
+    developer: "客户",
+    consumer: "客户"
   }
 };
 
@@ -159,10 +255,11 @@ export default function ResourcePage(props: ResourcePageProps) {
   const [options, setOptions] = useState<Record<string, FieldOption[]>>({});
   const [form] = Form.useForm();
 
-  const editable = props.editableFields ?? [];
+  const editableFields = props.editableFields ?? [];
+  const editable = props.canEdit === false ? [] : editableFields;
   const labelMap = useMemo(
-    () => Object.fromEntries([...props.columns, ...editable].map(([key, label]) => [key, label])),
-    [props.columns, editable]
+    () => Object.fromEntries([...props.columns, ...editableFields].map(([key, label]) => [key, label])),
+    [props.columns, editableFields]
   );
 
   async function load(page = 1, pageSize = 20) {

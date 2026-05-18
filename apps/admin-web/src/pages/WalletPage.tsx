@@ -4,20 +4,21 @@ import { useEffect, useState } from "react";
 import { ApiList, apiFetch } from "../api.js";
 import ResourcePage from "./ResourcePage.js";
 
-export default function WalletPage() {
+export default function WalletPage({ canAdjust }: { canAdjust: boolean }) {
   const [open, setOpen] = useState(false);
   const [userOptions, setUserOptions] = useState<{ label: string; value: string }[]>([]);
   const [form] = Form.useForm();
 
   useEffect(() => {
-    apiFetch<ApiList>("/api/admin/users?exclude_user_type=admin&pageSize=100")
+    if (!canAdjust) return;
+    apiFetch<ApiList>("/api/admin/users?account_type=customer&pageSize=100")
       .then((res) =>
         setUserOptions(
           res.data.map((user) => ({ value: user.id, label: user.email ?? user.phone ?? user.id }))
         )
       )
       .catch((error) => message.error((error as Error).message));
-  }, []);
+  }, [canAdjust]);
 
   async function submit(values: any) {
     try {
@@ -34,13 +35,15 @@ export default function WalletPage() {
 
   return (
     <>
-      <div className="action-bar">
-        <Space>
-          <Button type="primary" danger icon={<ShieldAlert size={16} />} onClick={() => setOpen(true)}>
-            余额调整
-          </Button>
-        </Space>
-      </div>
+      {canAdjust && (
+        <div className="action-bar">
+          <Space>
+            <Button type="primary" danger icon={<ShieldAlert size={16} />} onClick={() => setOpen(true)}>
+              余额调整
+            </Button>
+          </Space>
+        </div>
+      )}
       <ResourcePage
         title="钱包流水"
         endpoint="/api/admin/wallets/ledger"

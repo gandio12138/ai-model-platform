@@ -14,6 +14,8 @@ import { PERMISSIONS_KEY } from "./permissions.decorator.js";
 export interface AdminRequestUser {
   id: string;
   email: string;
+  userType: string;
+  accountType: "admin" | "tenant" | "customer";
   roles: string[];
   permissions: string[];
 }
@@ -45,11 +47,19 @@ export class AdminAuthGuard implements CanActivate {
     const { rows } = await this.db.query<{
       id: string;
       email: string;
+      user_type: string;
+      account_type: "admin" | "tenant" | "customer";
       roles: string[];
       permissions: string[];
     }>(
       `select u.id,
               u.email,
+              u.user_type,
+              case
+                when u.user_type = 'admin' then 'admin'
+                when u.user_type = 'tenant' then 'tenant'
+                else 'customer'
+              end as account_type,
               coalesce(array_agg(distinct r.code) filter (where r.code is not null), '{}') as roles,
               coalesce(array_agg(distinct p.code) filter (where p.code is not null), '{}') as permissions
          from users u
@@ -65,8 +75,18 @@ export class AdminAuthGuard implements CanActivate {
     if (!rows[0]) {
       throw new UnauthorizedException("User not found or inactive");
     }
+    if (rows[0].account_type === "customer") {
+      throw new ForbiddenException("Customer accounts cannot access the management console");
+    }
 
-    req.user = rows[0] satisfies AdminRequestUser;
+    req.user = {
+      id: rows[0].id,
+      email: rows[0].email,
+      userType: rows[0].user_type,
+      accountType: rows[0].account_type,
+      roles: rows[0].roles,
+      permissions: rows[0].permissions
+    } satisfies AdminRequestUser;
 
     const required = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, [
       context.getHandler(),

@@ -19,7 +19,15 @@ const credentialTypeOptions = [
   { value: "gemini_api_key", label: "Gemini API Key" }
 ];
 
-export default function ProviderPage() {
+export default function ProviderPage({
+  canWrite,
+  canWriteCredential,
+  canSyncModels
+}: {
+  canWrite: boolean;
+  canWriteCredential: boolean;
+  canSyncModels: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [providerOptions, setProviderOptions] = useState<{ label: string; value: string }[]>([]);
@@ -81,16 +89,22 @@ export default function ProviderPage() {
 
   return (
     <>
-      <div className="action-bar">
-        <Space>
-          <Button type="primary" icon={<KeyRound size={16} />} onClick={() => setOpen(true)}>
-            添加 Provider 密钥
-          </Button>
-          <Button icon={<RefreshCw size={16} />} onClick={() => setSyncOpen(true)}>
-            同步模型目录
-          </Button>
-        </Space>
-      </div>
+      {(canWriteCredential || canSyncModels) && (
+        <div className="action-bar">
+          <Space>
+            {canWriteCredential && (
+              <Button type="primary" icon={<KeyRound size={16} />} onClick={() => setOpen(true)}>
+                添加 Provider 密钥
+              </Button>
+            )}
+            {canSyncModels && (
+              <Button icon={<RefreshCw size={16} />} onClick={() => setSyncOpen(true)}>
+                同步模型目录
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
       <ResourcePage
         title="Provider 管理"
         endpoint="/api/admin/providers"
@@ -123,7 +137,8 @@ export default function ProviderPage() {
           ["health_score", "健康分", "number"],
           ["metadata", "元数据 JSON", "json"]
         ]}
-        canCreate
+        canCreate={canWrite}
+        canEdit={canWrite}
       />
       <ResourcePage
         title="Provider 密钥"

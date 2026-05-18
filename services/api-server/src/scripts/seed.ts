@@ -28,6 +28,7 @@ const permissions = [
   "user.read",
   "user.suspend",
   "api_key.read",
+  "api_key.write",
   "api_key.revoke",
   "request_log.read",
   "request_log.read_sensitive",
@@ -43,6 +44,8 @@ const permissions = [
   "tenant.customer.write",
   "tenant.billing.read",
   "tenant.billing.write",
+  "tenant.model.read",
+  "tenant.model.write",
   "platform.tenant.read_all",
   "platform.tenant.write_all",
   "customer_assignment.read",
@@ -56,6 +59,14 @@ async function ensureRole(pool: Pool, code: string, name: string, permissionCode
      on conflict (code) do update set name = excluded.name
      returning id`,
     [code, name]
+  );
+  await pool.query(
+    `delete from role_permissions rp
+      using permissions p
+      where rp.permission_id = p.id
+        and rp.role_id = $1
+        and not (p.code = any($2::text[]))`,
+    [role.rows[0].id, permissionCodes]
   );
   await pool.query(
     `insert into role_permissions (role_id, permission_id)
@@ -82,18 +93,20 @@ async function main() {
 
   const superAdminRoleId = await ensureRole(pool, "super_admin", "Super Admin", permissions);
   const platformMasterRoleId = await ensureRole(pool, "platform_master", "Platform Master", permissions);
-  const tenantAdminRoleId = await ensureRole(pool, "tenant_admin", "Tenant Admin", [
+  const tenantRoleId = await ensureRole(pool, "tenant", "Tenant", [
     "tenant.read",
     "tenant.project.read",
     "tenant.project.write",
     "tenant.customer.read",
     "tenant.customer.write",
     "tenant.billing.read",
+    "tenant.model.read",
+    "api_key.read",
+    "api_key.write",
+    "api_key.revoke",
     "user.read",
-    "wallet.read",
     "payment.read",
-    "request_log.read",
-    "config.read"
+    "request_log.read"
   ]);
 
   const passwordHash = await bcrypt.hash("Admin123456!", 12);
@@ -114,14 +127,22 @@ async function main() {
   const supportPasswordHash = await bcrypt.hash("Support123456!", 12);
   const support = await pool.query(
     `insert into users (email, password_hash, status, user_type, invite_code)
-     values ('support@example.com', $1, 'active', 'admin', 'SUPPORT')
-     on conflict (email) do update set password_hash = excluded.password_hash, status = 'active', user_type = 'admin'
+     values ('support@example.com', $1, 'active', 'tenant', 'SUPPORT')
+     on conflict (email) do update set password_hash = excluded.password_hash, status = 'active', user_type = 'tenant'
      returning id`,
     [supportPasswordHash]
   );
   await pool.query(
     `insert into user_roles (user_id, role_id) values ($1, $2) on conflict do nothing`,
-    [support.rows[0].id, tenantAdminRoleId]
+    [support.rows[0].id, tenantRoleId]
+  );
+  await pool.query(
+    `delete from user_roles ur
+      using roles r
+      where r.id = ur.role_id
+        and r.code <> 'tenant'
+        and ur.user_id = $1`,
+    [support.rows[0].id]
   );
 
   const tenant = await pool.query(
@@ -186,8 +207,15 @@ async function main() {
 
   await pool.query(
     `insert into tenant_memberships (tenant_id, user_id, role_code, status)
-     values ($1, $2, 'tenant_admin', 'active')
+     values ($1, $2, 'tenant', 'active')
      on conflict (tenant_id, user_id, role_code) do update set status = 'active'`,
+    [tenant.rows[0].id, support.rows[0].id]
+  );
+  await pool.query(
+    `delete from tenant_memberships
+      where tenant_id = $1
+        and user_id = $2
+        and role_code = 'tenant_admin'`,
     [tenant.rows[0].id, support.rows[0].id]
   );
 
@@ -263,6 +291,75 @@ async function main() {
     [model.rows[0].id, provider.rows[0].id]
   );
 
+  await pool.query(
+    `insert into tenant_plans
+      (plan_code, name, billing_cycle, base_fee_amount, included_credit, included_token_budget, max_projects, max_customers, max_members, log_retention_days, support_level, status)
+     values
+      ('starter', 'Starter', 'monthly', 9900, 10000, 1000000, 3, 1000, 3, 30, 'standard', 'active'),
+      ('growth', 'Growth', 'monthly', 49900, 80000, 10000000, 10, 10000, 10, 90, 'priority', 'active'),
+      ('business', 'Business', 'monthly', 199900, 300000, 50000000, 50, 100000, 50, 180, 'business', 'active')
+     on conflict (plan_code) do update
+        set name = excluded.name,
+            base_fee_amount = excluded.base_fee_amount,
+            included_credit = excluded.included_credit,
+            updated_at = now()`
+  );
+
+  await pool.query(
+    `insert into tenant_subscriptions
+      (tenant_id, plan_id, subscription_no, status, billing_mode, base_fee_amount, included_credit, next_billing_at)
+     select t.id, p.id, 'SUB-' || t.tenant_code, 'active', 'subscription_usage', p.base_fee_amount, p.included_credit, date_trunc('month', now()) + interval '1 month'
+       from tenants t
+       join tenant_plans p on p.plan_code = coalesce(t.current_plan_code, 'starter')
+     on conflict (subscription_no) do update
+        set plan_id = excluded.plan_id,
+            billing_mode = excluded.billing_mode,
+            base_fee_amount = excluded.base_fee_amount,
+            included_credit = excluded.included_credit,
+            updated_at = now()`
+  );
+
+  await pool.query(
+    `insert into tenant_billing_rules
+      (tenant_id, rule_code, rule_version, status, billing_mode, price_type, base_fee_amount, included_credit, included_token_budget, min_commit_amount, cost_plus_markup_rate, min_margin_multiplier, revenue_share_rate, revenue_share_base, payment_service_fee_rate)
+     select t.id,
+            t.tenant_code || '-default',
+            '2026-05',
+            'published',
+            'subscription_usage',
+            'cost_plus',
+            p.base_fee_amount,
+            p.included_credit,
+            p.included_token_budget,
+            case when t.tenant_type = 'platform_default' then 0 else 500000 end,
+            0.3000,
+            1.2000,
+            0.1500,
+            'net_after_payment_fee',
+            0.0060
+       from tenants t
+       join tenant_plans p on p.plan_code = coalesce(t.current_plan_code, 'starter')
+     on conflict (rule_code, rule_version) do nothing`
+  );
+
+  await pool.query(
+    `insert into tenant_model_authorizations
+      (tenant_id, model_id, status, max_context_tokens, rpm_limit, tpm_limit, monthly_budget, enabled_features)
+     select t.id, m.id, 'active', m.max_context_tokens, 600, 120000, 50000000, array['chat','stream','tools']
+       from tenants t
+      cross join models m
+     on conflict (tenant_id, model_id) do nothing`
+  );
+
+  await pool.query(
+    `insert into tenant_model_prices
+      (tenant_id, model_id, price_version, currency, pricing_mode, input_price_per_1k, output_price_per_1k, min_margin_multiplier, cost_plus_markup_rate, status)
+     select t.id, m.id, '2026-05-mvp', 'CNY', 'contract_price', 10, 40, 1.2000, 0.3000, 'active'
+       from tenants t
+      cross join models m
+     on conflict (tenant_id, model_id, price_version) do nothing`
+  );
+
   const product = await pool.query(
     `insert into payment_products (tenant_id, project_id, product_code, name, product_type, face_value_amount, bonus_amount, sale_amount)
      values ($1, $2, 'recharge_100', '充值 100 元', 'wallet_recharge', 10000, 500, 10000)
@@ -332,6 +429,54 @@ async function main() {
   await requestLog(demoUser.rows[0].id, tenant.rows[0].id, apiProjectId, demoCustomerId, "developer_api", 1921);
   await requestLog(vipUser.rows[0].id, tenant.rows[0].id, androidProjectId, vipCustomerId, "app_chat", 1390);
   await requestLog(externalUser.rows[0].id, externalTenant.rows[0].id, externalWebProjectId, externalCustomerId, "developer_api", 780);
+
+  await pool.query(
+    `insert into tenant_usage_aggregates
+      (tenant_id, project_id, model_id, period_start, period_end, total_requests, total_tokens, provider_cost_amount, tenant_wholesale_amount, end_user_revenue_amount, status)
+     select rl.tenant_id,
+            rl.project_id,
+            m.id,
+            date_trunc('month', now()),
+            date_trunc('month', now()) + interval '1 month',
+            count(*)::bigint,
+            coalesce(sum(rl.total_tokens), 0)::bigint,
+            coalesce(sum(rl.actual_cost_amount), 0)::bigint,
+            ceil(coalesce(sum(rl.actual_cost_amount), 0) * 1.3)::bigint,
+            coalesce((select sum(po.amount) from payment_orders po where po.tenant_id = rl.tenant_id and po.project_id is not distinct from rl.project_id), 0)::bigint,
+            'open'
+       from request_logs rl
+       left join models m on m.public_model_code = rl.public_model_code
+      group by rl.tenant_id, rl.project_id, m.id
+     on conflict (tenant_id, project_id, model_id, period_start, period_end) do update
+        set total_requests = excluded.total_requests,
+            total_tokens = excluded.total_tokens,
+            provider_cost_amount = excluded.provider_cost_amount,
+            tenant_wholesale_amount = excluded.tenant_wholesale_amount,
+            end_user_revenue_amount = excluded.end_user_revenue_amount,
+            updated_at = now()`
+  );
+
+  await pool.query(
+    `insert into tenant_revenue_share_records
+      (tenant_id, payment_order_id, status, payment_gross_amount, payment_channel_fee, provider_cost_amount, platform_share_amount, tenant_share_amount, revenue_share_rate, metadata)
+     select po.tenant_id,
+            po.id,
+            'pending',
+            po.amount,
+            ceil(po.amount * 0.006)::bigint,
+            0,
+            ceil((po.amount - ceil(po.amount * 0.006)) * 0.85)::bigint,
+            floor((po.amount - ceil(po.amount * 0.006)) * 0.15)::bigint,
+            0.1500,
+            '{"source":"seed"}'::jsonb
+       from payment_orders po
+      where po.tenant_id is not null
+        and not exists (
+          select 1
+            from tenant_revenue_share_records rs
+           where rs.payment_order_id = po.id
+        )`
+  );
 
   await pool.query(
     `insert into configs (config_key, config_type, draft_value, published_value, status, config_version)

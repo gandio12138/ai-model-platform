@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { ApiList, apiFetch } from "../api.js";
 import ResourcePage from "./ResourcePage.js";
 
-export default function PaymentOrdersPage() {
+export default function PaymentOrdersPage({ canRefund, canReconcile }: { canRefund: boolean; canReconcile: boolean }) {
   const [action, setAction] = useState<"refund" | "sync" | null>(null);
   const [orderId, setOrderId] = useState("");
   const [orderOptions, setOrderOptions] = useState<{ label: string; value: string }[]>([]);
   const [form] = Form.useForm();
 
   useEffect(() => {
+    if (!canRefund && !canReconcile) return;
     apiFetch<ApiList>("/api/admin/payment/orders?pageSize=100")
       .then((res) =>
         setOrderOptions(
@@ -18,7 +19,7 @@ export default function PaymentOrdersPage() {
         )
       )
       .catch((error) => message.error((error as Error).message));
-  }, []);
+  }, [canRefund, canReconcile]);
 
   async function submit(values: any) {
     if (!action) return;
@@ -54,26 +55,33 @@ export default function PaymentOrdersPage() {
           ["created_at", "创建时间"]
         ]}
         editableFields={[["status", "状态"], ["metadata", "备注 JSON", "json"]]}
+        canEdit={false}
       />
-      <div className="floating-tools">
-        <Space>
-          <Select
-            className="floating-select"
-            showSearch
-            optionFilterProp="label"
-            placeholder="选择订单"
-            value={orderId || undefined}
-            options={orderOptions}
-            onChange={setOrderId}
-          />
-          <Button icon={<RefreshCw size={16} />} onClick={() => setAction("sync")} disabled={!orderId}>
-            查单
-          </Button>
-          <Button danger icon={<Undo2 size={16} />} onClick={() => setAction("refund")} disabled={!orderId}>
-            退款
-          </Button>
-        </Space>
-      </div>
+      {(canRefund || canReconcile) && (
+        <div className="floating-tools">
+          <Space>
+            <Select
+              className="floating-select"
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择订单"
+              value={orderId || undefined}
+              options={orderOptions}
+              onChange={setOrderId}
+            />
+            {canReconcile && (
+              <Button icon={<RefreshCw size={16} />} onClick={() => setAction("sync")} disabled={!orderId}>
+                查单
+              </Button>
+            )}
+            {canRefund && (
+              <Button danger icon={<Undo2 size={16} />} onClick={() => setAction("refund")} disabled={!orderId}>
+                退款
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
       <Modal title={action === "refund" ? "申请退款" : "主动查单"} open={!!action} onCancel={() => setAction(null)} footer={null}>
         <Form form={form} layout="vertical" onFinish={submit}>
           {action === "refund" && (

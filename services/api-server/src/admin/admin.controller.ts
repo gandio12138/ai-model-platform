@@ -66,6 +66,7 @@ export class AdminController {
   @RequirePermissions("tenant.read")
   @Get("tenant-memberships")
   tenantMemberships(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("tenantMemberships", query, req.user);
   }
 
@@ -79,6 +80,12 @@ export class AdminController {
   @Patch("tenant-memberships/:id")
   updateTenantMembership(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.update("tenantMemberships", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("platform.tenant.write_all")
+  @Post("tenant-accounts")
+  createTenantAccount(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.createTenantAccount(body, req.user, actor(req));
   }
 
   @RequirePermissions("tenant.project.read")
@@ -117,6 +124,160 @@ export class AdminController {
     return this.admin.update("tenantCustomers", id, body, req.user, actor(req));
   }
 
+  @RequirePermissions("tenant.billing.read")
+  @Get("tenant-plans")
+  tenantPlans(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
+    return this.admin.list("tenantPlans", query, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Post("tenant-plans")
+  createTenantPlan(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantPlans", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Patch("tenant-plans/:id")
+  updateTenantPlan(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantPlans", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.read")
+  @Get("tenant-subscriptions")
+  tenantSubscriptions(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
+    return this.admin.list("tenantSubscriptions", query, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Post("tenant-subscriptions")
+  createTenantSubscription(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantSubscriptions", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Patch("tenant-subscriptions/:id")
+  updateTenantSubscription(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantSubscriptions", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.read")
+  @Get("tenant-invoices")
+  tenantInvoices(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantInvoices", query, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Patch("tenant-invoices/:id")
+  updateTenantInvoice(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantInvoices", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.read")
+  @Post("tenants/:id/billing/preview")
+  previewTenantInvoice(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.previewTenantInvoice(id, body, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Post("tenants/:id/billing/generate-current-invoice")
+  generateTenantInvoice(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.generateTenantInvoice(id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.read")
+  @Get("tenant-billing-rules")
+  tenantBillingRules(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
+    return this.admin.list("tenantBillingRules", query, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Post("tenant-billing-rules")
+  createTenantBillingRule(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantBillingRules", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Patch("tenant-billing-rules/:id")
+  updateTenantBillingRule(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantBillingRules", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.model.read")
+  @Get("tenant-model-authorizations")
+  tenantModelAuthorizations(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantModelAuthorizations", query, req.user);
+  }
+
+  @RequirePermissions("tenant.model.write")
+  @Post("tenant-model-authorizations")
+  createTenantModelAuthorization(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantModelAuthorizations", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.model.write")
+  @Patch("tenant-model-authorizations/:id")
+  updateTenantModelAuthorization(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantModelAuthorizations", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.model.read")
+  @Get("tenant-model-prices")
+  tenantModelPrices(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantModelPrices", query, req.user);
+  }
+
+  @RequirePermissions("tenant.model.write")
+  @Post("tenant-model-prices")
+  createTenantModelPrice(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantModelPrices", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.model.write")
+  @Patch("tenant-model-prices/:id")
+  updateTenantModelPrice(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantModelPrices", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.billing.read")
+  @Get("tenant-usage-aggregates")
+  tenantUsageAggregates(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantUsageAggregates", query, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.read")
+  @Get("tenant-revenue-shares")
+  tenantRevenueShares(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
+    return this.admin.list("tenantRevenueShares", query, req.user);
+  }
+
+  @RequirePermissions("tenant.billing.write")
+  @Patch("tenant-revenue-shares/:id")
+  updateTenantRevenueShare(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantRevenueShares", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("api_key.read")
+  @Get("api-keys")
+  apiKeys(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("apiKeys", query, req.user);
+  }
+
+  @RequirePermissions("api_key.write")
+  @Post("api-keys")
+  createApiKey(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.createApiKey(body, req.user, actor(req));
+  }
+
+  @RequirePermissions("api_key.revoke")
+  @Post("api-keys/:id/revoke")
+  revokeApiKey(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.revokeApiKey(id, body, req.user, actor(req));
+  }
+
   @RequirePermissions("customer_assignment.read")
   @Get("customer-assignments")
   customerAssignments(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -144,6 +305,7 @@ export class AdminController {
   @RequirePermissions("wallet.read")
   @Get("wallets/ledger")
   walletLedger(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("walletLedger", query, req.user);
   }
 
@@ -252,6 +414,7 @@ export class AdminController {
   @RequirePermissions("payment.read")
   @Get("payment/products")
   paymentProducts(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("paymentProducts", query, req.user);
   }
 
@@ -270,6 +433,7 @@ export class AdminController {
   @RequirePermissions("payment.read")
   @Get("payment/channels")
   paymentChannels(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("paymentChannels", query, req.user);
   }
 
@@ -306,6 +470,7 @@ export class AdminController {
   @RequirePermissions("payment.read")
   @Get("payment/callbacks")
   paymentCallbacks(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("paymentCallbacks", query, req.user);
   }
 
@@ -318,6 +483,7 @@ export class AdminController {
   @RequirePermissions("config.read")
   @Get("distribution-policies")
   distributionPolicies(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("distributionPolicies", query, req.user);
   }
 
@@ -336,6 +502,7 @@ export class AdminController {
   @RequirePermissions("config.read")
   @Get("configs")
   configs(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("configs", query, req.user);
   }
 
@@ -372,6 +539,7 @@ export class AdminController {
   @RequirePermissions("wallet.read")
   @Get("billing-records")
   billingRecords(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("billingRecords", query, req.user);
   }
 
