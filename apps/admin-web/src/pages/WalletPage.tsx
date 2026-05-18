@@ -10,7 +10,7 @@ export default function WalletPage() {
   const [form] = Form.useForm();
 
   useEffect(() => {
-    apiFetch<ApiList>("/api/admin/users?pageSize=100")
+    apiFetch<ApiList>("/api/admin/users?exclude_user_type=admin&pageSize=100")
       .then((res) =>
         setUserOptions(
           res.data.map((user) => ({ value: user.id, label: user.email ?? user.phone ?? user.id }))
@@ -46,20 +46,21 @@ export default function WalletPage() {
         endpoint="/api/admin/wallets/ledger"
         rowKey="id"
         columns={[
-          ["user_id", "用户 ID"],
+          ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+          ["user_id", "客户账号", "select", "/api/admin/users", "email"],
           ["event_type", "类型"],
           ["direction", "方向"],
           ["balance_type", "余额类型"],
           ["amount", "金额分"],
           ["balance_after", "变更后"],
           ["related_type", "关联类型"],
-          ["related_id", "关联 ID"],
+          ["related_id", "关联记录"],
           ["created_at", "时间"]
         ]}
       />
       <Modal title="余额调整" open={open} onCancel={() => setOpen(false)} footer={null} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={submit} initialValues={{ direction: "credit", balance_type: "cash" }}>
-          <Form.Item label="用户 ID" name="user_id" rules={[{ required: true }]}>
+          <Form.Item label="客户账号" name="user_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={userOptions} />
           </Form.Item>
           <Form.Item label="方向" name="direction" rules={[{ required: true }]}>

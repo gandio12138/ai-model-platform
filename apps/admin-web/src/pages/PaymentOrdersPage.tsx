@@ -41,11 +41,13 @@ export default function PaymentOrdersPage() {
         endpoint="/api/admin/payment/orders"
         rowKey="id"
         columns={[
+          ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+          ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
           ["order_no", "订单号"],
-          ["user_id", "用户 ID"],
+          ["user_id", "客户账号", "select", "/api/admin/users", "email"],
           ["platform", "平台"],
-          ["checkout_channel", "渠道"],
-          ["payment_method", "方式"],
+          ["checkout_channel", "收银渠道"],
+          ["payment_method", "支付方式"],
           ["amount", "金额分"],
           ["status", "状态"],
           ["channel_trade_no", "渠道单号"],

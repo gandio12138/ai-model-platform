@@ -45,6 +45,78 @@ export class AdminController {
     return this.admin.list("users", query, req.user);
   }
 
+  @RequirePermissions("tenant.read")
+  @Get("tenants")
+  tenants(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenants", query, req.user);
+  }
+
+  @RequirePermissions("platform.tenant.write_all")
+  @Post("tenants")
+  createTenant(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenants", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("platform.tenant.write_all")
+  @Patch("tenants/:id")
+  updateTenant(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenants", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.read")
+  @Get("tenant-memberships")
+  tenantMemberships(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantMemberships", query, req.user);
+  }
+
+  @RequirePermissions("platform.tenant.write_all")
+  @Post("tenant-memberships")
+  createTenantMembership(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantMemberships", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("platform.tenant.write_all")
+  @Patch("tenant-memberships/:id")
+  updateTenantMembership(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantMemberships", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.project.read")
+  @Get("tenant-projects")
+  tenantProjects(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantProjects", query, req.user);
+  }
+
+  @RequirePermissions("tenant.project.write")
+  @Post("tenant-projects")
+  createTenantProject(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantProjects", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.project.write")
+  @Patch("tenant-projects/:id")
+  updateTenantProject(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantProjects", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.customer.read")
+  @Get("tenant-customers")
+  tenantCustomers(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("tenantCustomers", query, req.user);
+  }
+
+  @RequirePermissions("tenant.customer.write")
+  @Post("tenant-customers")
+  createTenantCustomer(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("tenantCustomers", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("tenant.customer.write")
+  @Patch("tenant-customers/:id")
+  updateTenantCustomer(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("tenantCustomers", id, body, req.user, actor(req));
+  }
+
   @RequirePermissions("customer_assignment.read")
   @Get("customer-assignments")
   customerAssignments(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -103,6 +175,12 @@ export class AdminController {
   @Post("providers/:id/credentials")
   createCredential(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.createCredential(id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("provider.sync_models")
+  @Post("providers/:id/sync-models")
+  syncProviderModels(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.syncProviderModels(id, body, req.user, actor(req));
   }
 
   @RequirePermissions("provider.read")

@@ -22,5 +22,22 @@ export class CryptoService {
       encrypted.toString("base64")
     ].join(".");
   }
-}
 
+  decryptSecret(value: string): string {
+    const [ivText, tagText, encryptedText] = value.split(".");
+    if (!ivText || !tagText || !encryptedText) {
+      throw new Error("Invalid encrypted secret format");
+    }
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      this.key,
+      Buffer.from(ivText, "base64")
+    );
+    decipher.setAuthTag(Buffer.from(tagText, "base64"));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(encryptedText, "base64")),
+      decipher.final()
+    ]);
+    return decrypted.toString("utf8");
+  }
+}

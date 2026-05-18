@@ -26,7 +26,18 @@ export type AdminPermission =
   | "config.publish"
   | "audit.read"
   | "customer_assignment.read"
-  | "customer_assignment.write";
+  | "customer_assignment.write"
+  | "tenant.read"
+  | "tenant.write"
+  | "tenant.project.read"
+  | "tenant.project.write"
+  | "tenant.customer.read"
+  | "tenant.customer.write"
+  | "tenant.billing.read"
+  | "tenant.billing.write"
+  | "platform.tenant.read_all"
+  | "platform.tenant.write_all"
+  | "provider.sync_models";
 
 export interface AdminSessionUser {
   id: string;
