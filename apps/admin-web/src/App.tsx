@@ -19,17 +19,17 @@ import {
   WalletOutlined
 } from "@ant-design/icons";
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
-import LoginPage from "./pages/LoginPage.js";
-import DashboardPage from "./pages/DashboardPage.js";
-import ResourcePage from "./pages/ResourcePage.js";
-import WalletPage from "./pages/WalletPage.js";
-import PaymentOrdersPage from "./pages/PaymentOrdersPage.js";
-import ProviderPage from "./pages/ProviderPage.js";
-import ConfigPage from "./pages/ConfigPage.js";
-import ApiKeysPage from "./pages/ApiKeysPage.js";
-import TenantInvoicesPage from "./pages/TenantInvoicesPage.js";
-import TenantAccountsPage from "./pages/TenantAccountsPage.js";
-import { clearSession, getSessionUser, getToken } from "./api.js";
+import LoginPage from "./pages/LoginPage";
+import DashboardPage from "./pages/DashboardPage";
+import ResourcePage from "./pages/ResourcePage";
+import WalletPage from "./pages/WalletPage";
+import PaymentOrdersPage from "./pages/PaymentOrdersPage";
+import ProviderPage from "./pages/ProviderPage";
+import ConfigPage from "./pages/ConfigPage";
+import ApiKeysPage from "./pages/ApiKeysPage";
+import TenantInvoicesPage from "./pages/TenantInvoicesPage";
+import TenantAccountsPage from "./pages/TenantAccountsPage";
+import { clearSession, getSessionUser, getToken } from "./api";
 
 const { Header, Sider, Content } = Layout;
 type ThemeMode = "system" | "light" | "dark";
@@ -101,6 +101,15 @@ const paymentMethodOptions = [
   { value: "wechat_native", label: "微信 Native 支付" },
   { value: "card_checkout", label: "银行卡/信用卡托管收银台" },
   { value: "enterprise_transfer", label: "企业对公转账" }
+];
+
+const paymentProductTypeOptions = [
+  { value: "recharge_credit", label: "余额充值包" },
+  { value: "api_credit_pack", label: "API 额度包" },
+  { value: "monthly_plan", label: "月套餐" },
+  { value: "subscription", label: "订阅" },
+  { value: "enterprise_topup", label: "企业充值" },
+  { value: "bonus_pack", label: "活动赠送包" }
 ];
 
 const settlementModeOptions = [
@@ -235,7 +244,8 @@ const menuSections = [
     label: "支付资金",
     children: [
       { key: "/payment-orders", icon: <PayCircleOutlined />, label: "支付订单", permission: "payment.read", accountTypes: adminAndTenant },
-      { key: "/payment-products", icon: <BankOutlined />, label: "商品配置", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/payment-products", icon: <BankOutlined />, label: "客户套餐", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/payment-product-visibility", icon: <DeploymentUnitOutlined />, label: "套餐展示", permission: "payment.read", accountTypes: adminOnly },
       { key: "/payment-channels", icon: <ControlOutlined />, label: "渠道配置", permission: "payment.read", accountTypes: adminOnly },
       { key: "/wallet-ledger", icon: <WalletOutlined />, label: "钱包流水", permission: "wallet.read", accountTypes: adminOnly }
     ]
@@ -748,30 +758,68 @@ function Shell({
                 "payment.read",
                 adminOnly,
                 <ResourcePage
-                  title="支付商品"
+                  title="客户套餐 / 付费商品"
                   endpoint="/api/admin/payment/products"
                   rowKey="id"
                   columns={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
-                    ["product_code", "商品编码"],
-                    ["name", "名称"],
-                    ["product_type", "类型"],
-                    ["face_value_amount", "面值"],
-                    ["bonus_amount", "赠送"],
-                    ["sale_amount", "售价"],
-                    ["status", "状态"]
+                    ["tenant_name", "租户"],
+                    ["product_code", "套餐编码"],
+                    ["name", "套餐名称"],
+                    ["product_type", "套餐类型", "select", undefined, undefined, paymentProductTypeOptions],
+                    ["face_value_amount", "到账额度，单位分"],
+                    ["bonus_amount", "赠送额度，单位分"],
+                    ["sale_amount", "售价，单位分"],
+                    ["visible_platforms", "展示端"],
+                    ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
-                    ["product_code", "商品编码"],
-                    ["name", "名称"],
-                    ["product_type", "类型"],
-                    ["face_value_amount", "面值分"],
-                    ["bonus_amount", "赠送分"],
-                    ["sale_amount", "售价分"],
-                    ["status", "状态"]
+                    ["product_code", "套餐编码"],
+                    ["name", "套餐名称"],
+                    ["product_type", "套餐类型", "select", undefined, undefined, paymentProductTypeOptions],
+                    ["face_value_amount", "到账额度，单位分", "number"],
+                    ["bonus_amount", "赠送额度，单位分", "number"],
+                    ["sale_amount", "售价，单位分", "number"],
+                    ["currency", "币种"],
+                    ["ios_product_id", "App Store 商品 ID"],
+                    ["status", "状态", "select", undefined, undefined, statusOptions],
+                    ["metadata", "展示权益 JSON", "json"]
+                  ]}
+                  canCreate={can("payment.reconcile")}
+                  canEdit={can("payment.reconcile")}
+                />
+              )}
+            />
+            <Route
+              path="/payment-product-visibility"
+              element={page(
+                "payment.read",
+                adminOnly,
+                <ResourcePage
+                  title="套餐展示范围"
+                  endpoint="/api/admin/payment/product-visibility"
+                  rowKey="id"
+                  columns={[
+                    ["product_name", "客户套餐"],
+                    ["tenant_name", "租户"],
+                    ["project_name", "展示项目"],
+                    ["platform", "展示端", "select", undefined, undefined, platformOptions],
+                    ["display_name", "展示名称"],
+                    ["badge", "角标"],
+                    ["enabled", "启用", "boolean"],
+                    ["sort_order", "排序"]
+                  ]}
+                  editableFields={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["product_id", "客户套餐", "select", "/api/admin/payment/products", "name"],
+                    ["project_id", "展示项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["platform", "展示端", "select", undefined, undefined, platformOptions],
+                    ["display_name", "展示名称"],
+                    ["display_description", "展示说明"],
+                    ["badge", "角标"],
+                    ["sort_order", "排序", "number"],
+                    ["enabled", "启用", "boolean"],
+                    ["metadata", "端侧配置 JSON", "json"]
                   ]}
                   canCreate={can("payment.reconcile")}
                   canEdit={can("payment.reconcile")}
@@ -796,7 +844,7 @@ function Shell({
                     ["platform", "平台", "select", undefined, undefined, platformOptions],
                     ["payment_method", "支付方式", "select", undefined, undefined, paymentMethodOptions],
                     ["settlement_mode", "结算方式", "select", undefined, undefined, settlementModeOptions],
-                    ["enabled", "启用"]
+                    ["enabled", "启用", "boolean"]
                   ]}
                   editableFields={[
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
@@ -809,7 +857,7 @@ function Shell({
                     ["settlement_mode", "结算方式", "select", undefined, undefined, settlementModeOptions],
                     ["fee_rate_bps", "通道费率 BPS", "number"],
                     ["sort_order", "排序", "number"],
-                    ["enabled", "启用"],
+                    ["enabled", "启用", "boolean"],
                     ["config", "配置 JSON", "json"]
                   ]}
                   canCreate={can("payment.reconcile")}

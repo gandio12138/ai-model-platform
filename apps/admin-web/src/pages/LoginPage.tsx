@@ -1,6 +1,6 @@
 import { Button, Card, Form, Input, Typography, message } from "antd";
 import { useNavigate } from "react-router-dom";
-import { apiFetch, setSession } from "../api.js";
+import { apiFetch, setSession } from "../api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -47,4 +47,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

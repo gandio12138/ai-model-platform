@@ -1,8 +1,8 @@
 import { Button, Form, Input, Modal, Space, message } from "antd";
 import { Rocket, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { apiFetch } from "../api.js";
-import ResourcePage from "./ResourcePage.js";
+import { apiFetch } from "../api";
+import ResourcePage from "./ResourcePage";
 
 export default function ConfigPage({ canWrite, canPublish }: { canWrite: boolean; canPublish: boolean }) {
   const [configId, setConfigId] = useState("");

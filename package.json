@@ -7,6 +7,7 @@
     "dev": "pnpm -r --parallel dev",
     "dev:api": "pnpm --filter @ai-platform/api-server dev",
     "dev:admin": "pnpm --filter @ai-platform/admin-web dev",
+    "dev:checkout": "pnpm --filter @ai-platform/checkout-web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
@@ -17,4 +18,3 @@
     "typescript": "^5.9.3"
   }
 }
-

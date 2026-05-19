@@ -3,9 +3,9 @@ import { AuthModule } from "./auth/auth.module.js";
 import { AdminModule } from "./admin/admin.module.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { CommonModule } from "./common/common.module.js";
+import { PublicModule } from "./public/public.module.js";
 
 @Module({
-  imports: [DatabaseModule, CommonModule, AuthModule, AdminModule]
+  imports: [DatabaseModule, CommonModule, AuthModule, AdminModule, PublicModule]
 })
 export class AppModule {}
-

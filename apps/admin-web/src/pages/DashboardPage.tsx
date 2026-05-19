@@ -1,7 +1,7 @@
 import { Button, Card, Col, Empty, Row, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { apiFetch } from "../api.js";
+import { apiFetch } from "../api";
 
 type RevenueTrendPoint = {
   date: string;

@@ -2,7 +2,7 @@ import { Button, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table,
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { FileText, RefreshCw } from "lucide-react";
-import { ApiList, apiFetch, toQuery } from "../api.js";
+import { ApiList, apiFetch, toQuery } from "../api";
 
 type Option = { label: string; value: string };
 

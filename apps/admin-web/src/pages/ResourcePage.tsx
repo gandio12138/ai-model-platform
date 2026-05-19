@@ -2,7 +2,7 @@ import { Button, Descriptions, Drawer, Form, Input, InputNumber, Select, Space, 
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
-import { ApiList, apiFetch, toQuery } from "../api.js";
+import { ApiList, apiFetch, toQuery } from "../api";
 
 type FieldOption = { label: string; value: string };
 
@@ -107,6 +107,16 @@ const fieldLabels: Record<string, string> = {
   tenant_share_amount: "租户分成",
   settled_at: "结算时间",
   reversed_at: "冲正时间",
+  product_code: "套餐编码",
+  product_name: "客户套餐",
+  product_type: "套餐类型",
+  face_value_amount: "到账额度",
+  bonus_amount: "赠送额度",
+  sale_amount: "售价",
+  ios_product_id: "App Store 商品 ID",
+  visible_platforms: "展示端",
+  display_description: "展示说明",
+  badge: "角标",
   email: "邮箱",
   phone: "手机号",
   user_type: "用户类型",
@@ -202,6 +212,15 @@ const valueLabels: Record<string, Record<string, string>> = {
     tenant: "租户",
     developer: "客户",
     consumer: "客户"
+  },
+  product_type: {
+    recharge_credit: "余额充值包",
+    api_credit_pack: "API 额度包",
+    monthly_plan: "月套餐",
+    subscription: "订阅",
+    enterprise_topup: "企业充值",
+    bonus_pack: "活动赠送包",
+    wallet_recharge: "余额充值包"
   }
 };
 
@@ -210,6 +229,13 @@ function getFieldLabel(key: string, labels: Record<string, string>) {
 }
 
 function renderValue(value: unknown, key?: string, options?: FieldOption[]) {
+  if (key === "visible_platforms" && typeof value === "string") {
+    return value
+      .split(",")
+      .filter(Boolean)
+      .map((platform) => valueLabels.platform?.[platform] ?? platform)
+      .join("、") || "-";
+  }
   if (options?.length && typeof value === "string") {
     return options.find((option) => option.value === value)?.label ?? value;
   }

@@ -1,8 +1,8 @@
 import { Button, Form, Input, InputNumber, Modal, Select, Space, message } from "antd";
 import { ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ApiList, apiFetch } from "../api.js";
-import ResourcePage from "./ResourcePage.js";
+import { ApiList, apiFetch } from "../api";
+import ResourcePage from "./ResourcePage";
 
 export default function WalletPage({ canAdjust }: { canAdjust: boolean }) {
   const [open, setOpen] = useState(false);

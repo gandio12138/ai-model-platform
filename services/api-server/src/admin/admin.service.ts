@@ -414,6 +414,26 @@ const resourceMap: Record<string, ResourceConfig> = {
     tenantScopeColumn: "tenant_id",
     createTenantScoped: true
   },
+  paymentProductVisibility: {
+    table: "payment_product_visibility",
+    readPermission: "payment.read",
+    writePermission: "payment.reconcile",
+    searchable: ["platform", "display_name", "display_description", "badge"],
+    writable: [
+      "product_id",
+      "tenant_id",
+      "project_id",
+      "platform",
+      "enabled",
+      "sort_order",
+      "display_name",
+      "display_description",
+      "badge",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
   paymentChannels: {
     table: "payment_channels",
     readPermission: "payment.read",
@@ -789,6 +809,12 @@ export class AdminService {
     }
     if (resource === "tenantUsageAggregates") {
       return this.listTenantUsageAggregates(query, user);
+    }
+    if (resource === "paymentProducts") {
+      return this.listPaymentProducts(query, user);
+    }
+    if (resource === "paymentProductVisibility") {
+      return this.listPaymentProductVisibility(query, user);
     }
 
     const { page, pageSize, offset } = parsePagination(query);
@@ -1214,6 +1240,149 @@ export class AdminService {
     };
   }
 
+  private async listPaymentProducts(query: Record<string, unknown>, user: any) {
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (!this.isSuperAdmin(user)) {
+      const tenantIds = await this.getScopedTenantIds(user);
+      if (!tenantIds?.length) {
+        filters.push("false");
+      } else {
+        params.push(tenantIds);
+        filters.push(`pp.tenant_id = any($${params.length}::uuid[])`);
+      }
+    }
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(tenant.name ilike $${params.length} or project.name ilike $${params.length} or pp.product_code ilike $${params.length} or pp.name ilike $${params.length} or pp.product_type ilike $${params.length})`
+      );
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`pp.status = $${params.length}`);
+    }
+    if (query.tenant_id) {
+      params.push(query.tenant_id);
+      filters.push(`pp.tenant_id = $${params.length}`);
+    }
+    if (query.project_id) {
+      params.push(query.project_id);
+      filters.push(`pp.project_id = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total
+           from payment_products pp
+           join tenants tenant on tenant.id = pp.tenant_id
+           left join tenant_projects project on project.id = pp.project_id
+          ${where}`,
+        params
+      ),
+      this.db.query(
+        `select pp.*,
+                tenant.name as tenant_name,
+                tenant.tenant_code,
+                project.name as project_name,
+                project.project_code,
+                (
+                  select string_agg(ppv.platform, ',' order by ppv.platform)
+                    from payment_product_visibility ppv
+                   where ppv.product_id = pp.id
+                     and ppv.enabled = true
+                ) as visible_platforms
+           from payment_products pp
+           join tenants tenant on tenant.id = pp.tenant_id
+           left join tenant_projects project on project.id = pp.project_id
+          ${where}
+          order by pp.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
+  private async listPaymentProductVisibility(query: Record<string, unknown>, user: any) {
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (!this.isSuperAdmin(user)) {
+      const tenantIds = await this.getScopedTenantIds(user);
+      if (!tenantIds?.length) {
+        filters.push("false");
+      } else {
+        params.push(tenantIds);
+        filters.push(`ppv.tenant_id = any($${params.length}::uuid[])`);
+      }
+    }
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(tenant.name ilike $${params.length} or project.name ilike $${params.length} or p.product_code ilike $${params.length} or p.name ilike $${params.length} or ppv.display_name ilike $${params.length} or ppv.badge ilike $${params.length})`
+      );
+    }
+    if (query.tenant_id) {
+      params.push(query.tenant_id);
+      filters.push(`ppv.tenant_id = $${params.length}`);
+    }
+    if (query.project_id) {
+      params.push(query.project_id);
+      filters.push(`ppv.project_id = $${params.length}`);
+    }
+    if (query.product_id) {
+      params.push(query.product_id);
+      filters.push(`ppv.product_id = $${params.length}`);
+    }
+    if (query.platform) {
+      params.push(query.platform);
+      filters.push(`ppv.platform = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total
+           from payment_product_visibility ppv
+           join payment_products p on p.id = ppv.product_id
+           join tenants tenant on tenant.id = ppv.tenant_id
+           left join tenant_projects project on project.id = ppv.project_id
+          ${where}`,
+        params
+      ),
+      this.db.query(
+        `select ppv.*,
+                p.product_code,
+                p.name as product_name,
+                p.product_type,
+                tenant.name as tenant_name,
+                tenant.tenant_code,
+                project.name as project_name,
+                project.project_code
+           from payment_product_visibility ppv
+           join payment_products p on p.id = ppv.product_id
+           join tenants tenant on tenant.id = ppv.tenant_id
+           left join tenant_projects project on project.id = ppv.project_id
+          ${where}
+          order by ppv.sort_order asc, ppv.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
   async create(resource: ResourceKey, body: Record<string, unknown>, user: any, actor: AuditActor) {
     const config = this.getResource(resource);
     this.assertPermission(user, config.writePermission);
@@ -1225,6 +1394,9 @@ export class AdminService {
     }
     if (resource === "tenantCustomers") {
       await this.validateTenantCustomer(payload);
+    }
+    if (resource === "paymentProductVisibility") {
+      await this.validatePaymentProductVisibility(payload);
     }
     if (!Object.keys(payload).length) {
       throw new BadRequestException("No writable fields provided");
@@ -1267,6 +1439,9 @@ export class AdminService {
     }
     if (resource === "tenantCustomers") {
       await this.validateTenantCustomer({ ...before, ...payload });
+    }
+    if (resource === "paymentProductVisibility") {
+      await this.validatePaymentProductVisibility({ ...before, ...payload });
     }
     if (!Object.keys(payload).length) {
       throw new BadRequestException("No writable fields provided");
@@ -2337,6 +2512,45 @@ export class AdminService {
     }
     if (payload.user_id && config.table !== "users") {
       await this.assertCustomerAccess(user, String(payload.user_id));
+    }
+  }
+
+  private async validatePaymentProductVisibility(payload: Record<string, unknown>) {
+    const tenantId = payload.tenant_id ? String(payload.tenant_id) : "";
+    const productId = payload.product_id ? String(payload.product_id) : "";
+    const projectId = payload.project_id ? String(payload.project_id) : "";
+    const platform = payload.platform ? String(payload.platform) : "";
+    if (!tenantId || !productId || !platform) {
+      return;
+    }
+    if (!["ios", "android", "web", "api"].includes(platform)) {
+      throw new BadRequestException("Invalid platform");
+    }
+    const product = await this.db.query<{ id: string }>(
+      `select id
+         from payment_products
+        where id = $1
+          and tenant_id = $2`,
+      [productId, tenantId]
+    );
+    if (!product.rowCount) {
+      throw new BadRequestException("Product is outside the selected tenant");
+    }
+    if (!projectId) {
+      return;
+    }
+    const project = await this.db.query<{ platform: string }>(
+      `select platform
+         from tenant_projects
+        where id = $1
+          and tenant_id = $2`,
+      [projectId, tenantId]
+    );
+    if (!project.rows[0]) {
+      throw new BadRequestException("Project is outside the selected tenant");
+    }
+    if (project.rows[0].platform !== platform) {
+      throw new BadRequestException("Project platform must match visibility platform");
     }
   }
 

@@ -1,8 +1,8 @@
 import { Button, Drawer, Form, Input, Select, Space, message } from "antd";
 import { Plus, Save } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ApiList, apiFetch } from "../api.js";
-import ResourcePage from "./ResourcePage.js";
+import { ApiList, apiFetch } from "../api";
+import ResourcePage from "./ResourcePage";
 
 type Option = { label: string; value: string };
 

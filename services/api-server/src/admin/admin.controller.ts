@@ -431,6 +431,25 @@ export class AdminController {
   }
 
   @RequirePermissions("payment.read")
+  @Get("payment/product-visibility")
+  paymentProductVisibility(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
+    return this.admin.list("paymentProductVisibility", query, req.user);
+  }
+
+  @RequirePermissions("payment.reconcile")
+  @Post("payment/product-visibility")
+  createPaymentProductVisibility(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("paymentProductVisibility", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("payment.reconcile")
+  @Patch("payment/product-visibility/:id")
+  updatePaymentProductVisibility(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("paymentProductVisibility", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("payment.read")
   @Get("payment/channels")
   paymentChannels(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
     this.admin.assertPlatformAdmin(req.user);

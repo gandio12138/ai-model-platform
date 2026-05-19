@@ -237,6 +237,18 @@ async function main() {
      on conflict (email) do update set status = 'active', user_type = 'developer'
      returning id`
   );
+  const webCustomerPasswordHash = await bcrypt.hash("Web123456!", 12);
+  const webCustomer = await pool.query(
+    `insert into users (email, phone, password_hash, status, user_type, invite_code)
+     values ('web-customer@example.com', '13800000001', $1, 'active', 'consumer', 'WEB001')
+     on conflict (email) do update
+        set phone = coalesce(users.phone, excluded.phone),
+            password_hash = excluded.password_hash,
+            status = 'active',
+            user_type = 'consumer'
+     returning id`,
+    [webCustomerPasswordHash]
+  );
 
   async function tenantCustomer(tenantId: string, userId: string, projectId: string, customerCode: string) {
     const res = await pool.query(
@@ -252,19 +264,74 @@ async function main() {
   const demoCustomerId = await tenantCustomer(tenant.rows[0].id, demoUser.rows[0].id, apiProjectId, "DEMO001");
   const vipCustomerId = await tenantCustomer(tenant.rows[0].id, vipUser.rows[0].id, androidProjectId, "VIP001");
   const externalCustomerId = await tenantCustomer(externalTenant.rows[0].id, externalUser.rows[0].id, externalWebProjectId, "OUT001");
+  const webCustomerId = await tenantCustomer(tenant.rows[0].id, webCustomer.rows[0].id, webProjectId, "WEB001");
 
   for (const [userId, tenantId, customerId, cash, bonus] of [
     [demoUser.rows[0].id, tenant.rows[0].id, demoCustomerId, 500000, 100000],
     [vipUser.rows[0].id, tenant.rows[0].id, vipCustomerId, 880000, 0],
-    [externalUser.rows[0].id, externalTenant.rows[0].id, externalCustomerId, 990000, 0]
+    [externalUser.rows[0].id, externalTenant.rows[0].id, externalCustomerId, 990000, 0],
+    [webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, 168800, 25000]
   ] as const) {
     await pool.query(
       `insert into wallets (user_id, tenant_id, tenant_customer_id, cash_balance, bonus_balance)
        values ($1, $2, $3, $4, $5)
-       on conflict (user_id, currency) do update set cash_balance = excluded.cash_balance, bonus_balance = excluded.bonus_balance`,
+       on conflict (tenant_id, user_id, currency) do update
+          set tenant_customer_id = excluded.tenant_customer_id,
+              cash_balance = excluded.cash_balance,
+              bonus_balance = excluded.bonus_balance,
+              updated_at = now()`,
       [userId, tenantId, customerId, cash, bonus]
     );
   }
+
+  async function seedLedger(
+    userId: string,
+    tenantId: string,
+    customerId: string,
+    eventType: string,
+    direction: string,
+    balanceType: string,
+    amount: number,
+    balanceAfter: number,
+    minutesAgo: number,
+    idempotencyKey: string
+  ) {
+    await pool.query(
+      `insert into wallet_ledger
+        (wallet_id, user_id, tenant_id, tenant_customer_id, event_type, direction,
+         balance_type, amount, currency, balance_after, related_type, related_id,
+         idempotency_key, metadata, created_at)
+       select w.id, $1, $2, $3, $4, $5, $6, $7, 'CNY', $8, 'seed', $9, $10, '{"source":"seed"}'::jsonb, now() - ($11::text || ' minutes')::interval
+         from wallets w
+        where w.tenant_id = $2
+          and w.user_id = $1
+          and w.currency = 'CNY'
+       on conflict (idempotency_key) do update
+          set amount = excluded.amount,
+              balance_after = excluded.balance_after,
+              created_at = excluded.created_at`,
+      [
+        userId,
+        tenantId,
+        customerId,
+        eventType,
+        direction,
+        balanceType,
+        amount,
+        balanceAfter,
+        idempotencyKey,
+        idempotencyKey,
+        minutesAgo
+      ]
+    );
+  }
+
+  await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "payment.fulfill", "credit", "cash", 10000, 100000, 7200, "seed:web:ledger:recharge:100");
+  await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "payment.bonus", "credit", "bonus", 800, 100800, 7198, "seed:web:ledger:bonus:100");
+  await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "usage.charge", "debit", "cash", 1260, 99540, 3400, "seed:web:ledger:usage:1");
+  await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "payment.fulfill", "credit", "cash", 30000, 158800, 860, "seed:web:ledger:recharge:300");
+  await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "payment.bonus", "credit", "bonus", 3600, 183400, 858, "seed:web:ledger:bonus:300");
+  await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "usage.charge", "debit", "cash", 1460, 168800, 70, "seed:web:ledger:usage:2");
 
   const provider = await pool.query(
     `insert into providers (code, name, provider_type, base_url, region, legal_scope, monthly_budget, rpm_limit, tpm_limit, health_status, health_score, metadata)
@@ -290,6 +357,91 @@ async function main() {
      on conflict (route_code) do nothing`,
     [model.rows[0].id, provider.rows[0].id]
   );
+
+  const modelCatalog = [
+    ["gpt-4.1", "GPT-4.1", "OpenAI", 1047576, 8192, true, true, true, 875, 7000],
+    ["gpt-4.1-mini", "GPT-4.1 Mini", "OpenAI", 1047576, 8192, true, true, true, 280, 1120],
+    ["gpt-4o", "GPT-4o", "OpenAI", 128000, 4096, true, true, true, 1750, 7000],
+    ["gpt-4o-mini", "GPT-4o Mini", "OpenAI", 128000, 4096, true, true, true, 105, 420],
+    ["gpt-5", "GPT-5", "OpenAI", 400000, 8192, true, true, true, 875, 7000],
+    ["gpt-5-mini", "GPT-5 Mini", "OpenAI", 400000, 8192, true, true, true, 175, 1400],
+    ["claude-sonnet-4-5", "Claude Sonnet 4.5", "Anthropic", 200000, 8192, true, true, false, 2100, 10500],
+    ["claude-opus-4-5", "Claude Opus 4.5", "Anthropic", 200000, 8192, true, true, false, 10500, 52500],
+    ["gemini-3-pro-preview", "Gemini 3 Pro Preview", "Google", 1000000, 8192, true, true, true, 875, 3500],
+    ["gemini-3-flash", "Gemini 3 Flash", "Google", 1000000, 8192, true, true, true, 70, 280],
+    ["deepseek-v4-pro", "DeepSeek V4 Pro", "DeepSeek", 128000, 8192, true, true, true, 140, 560],
+    ["deepseek-v4-flash", "DeepSeek V4 Flash", "DeepSeek", 128000, 8192, true, true, true, 28, 112],
+    ["grok-4", "Grok 4", "xAI", 256000, 8192, true, true, true, 1400, 7000],
+    ["qwen3-max", "Qwen3 Max", "阿里巴巴", 262144, 8192, true, true, true, 175, 700],
+    ["qwen3-coder-plus", "Qwen3 Coder Plus", "阿里巴巴", 262144, 8192, true, true, true, 210, 840],
+    ["midjourney-v7", "Midjourney V7", "Midjourney", 8192, 2048, false, false, false, 3500, 3500]
+  ] as const;
+
+  for (const item of modelCatalog) {
+    const [
+      publicModelCode,
+      displayName,
+      modelFamily,
+      maxContextTokens,
+      defaultMaxOutputTokens,
+      supportsStream,
+      supportsTools,
+      supportsJsonMode,
+      inputPrice,
+      outputPrice
+    ] = item;
+    const insertedModel = await pool.query(
+      `insert into models
+        (public_model_code, display_name, model_family, max_context_tokens, default_max_output_tokens,
+         supports_stream, supports_tools, supports_json_mode, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, '{"source":"seed_catalog"}'::jsonb)
+       on conflict (public_model_code) do update
+          set display_name = excluded.display_name,
+              model_family = excluded.model_family,
+              max_context_tokens = excluded.max_context_tokens,
+              default_max_output_tokens = excluded.default_max_output_tokens,
+              supports_stream = excluded.supports_stream,
+              supports_tools = excluded.supports_tools,
+              supports_json_mode = excluded.supports_json_mode,
+              status = 'active',
+              updated_at = now()
+       returning id`,
+      [
+        publicModelCode,
+        displayName,
+        modelFamily,
+        maxContextTokens,
+        defaultMaxOutputTokens,
+        supportsStream,
+        supportsTools,
+        supportsJsonMode
+      ]
+    );
+    await pool.query(
+      `insert into model_prices
+        (model_id, price_version, currency, input_price_per_1k, output_price_per_1k, cache_read_price_per_1k, reserve_multiplier, status)
+       values ($1, '2026-05-catalog', 'CNY', $2::bigint, $3::bigint, greatest(floor($2::numeric * 0.1)::bigint, 0), 1.2, 'active')
+       on conflict (model_id, price_version) do update
+          set input_price_per_1k = excluded.input_price_per_1k,
+              output_price_per_1k = excluded.output_price_per_1k,
+              cache_read_price_per_1k = excluded.cache_read_price_per_1k,
+              status = 'active',
+              updated_at = now()`,
+      [insertedModel.rows[0].id, inputPrice, outputPrice]
+    );
+    await pool.query(
+      `insert into model_routes
+        (route_code, model_id, provider_id, provider_model_code, weight, priority, strategy, enabled, allow_fallback)
+       values ($1, $2, $3, $4, 100, 100, 'weighted_round_robin', true, true)
+       on conflict (route_code) do update
+          set model_id = excluded.model_id,
+              provider_id = excluded.provider_id,
+              provider_model_code = excluded.provider_model_code,
+              enabled = true,
+              updated_at = now()`,
+      [`seed-${publicModelCode.replace(/[^a-zA-Z0-9]+/g, "-")}`, insertedModel.rows[0].id, provider.rows[0].id, publicModelCode]
+    );
+  }
 
   await pool.query(
     `insert into tenant_plans
@@ -360,13 +512,185 @@ async function main() {
      on conflict (tenant_id, model_id, price_version) do nothing`
   );
 
-  const product = await pool.query(
-    `insert into payment_products (tenant_id, project_id, product_code, name, product_type, face_value_amount, bonus_amount, sale_amount)
-     values ($1, $2, 'recharge_100', '充值 100 元', 'wallet_recharge', 10000, 500, 10000)
-     on conflict (product_code) do update set name = excluded.name, tenant_id = excluded.tenant_id, project_id = excluded.project_id
-     returning id`,
-    [tenant.rows[0].id, webProjectId]
+  await pool.query(
+    `insert into tenant_model_prices
+      (tenant_id, model_id, price_version, currency, pricing_mode, input_price_per_1k, output_price_per_1k, min_margin_multiplier, cost_plus_markup_rate, status)
+     select t.id,
+            mp.model_id,
+            '2026-05-catalog',
+            'CNY',
+            'contract_price',
+            mp.input_price_per_1k,
+            mp.output_price_per_1k,
+            1.2000,
+            0.3000,
+            'active'
+       from tenants t
+       join model_prices mp on mp.price_version = '2026-05-catalog' and mp.status = 'active'
+      on conflict (tenant_id, model_id, price_version) do update
+         set input_price_per_1k = excluded.input_price_per_1k,
+             output_price_per_1k = excluded.output_price_per_1k,
+             status = 'active',
+             updated_at = now()`
   );
+
+  const rechargeProducts = [
+    {
+      code: "recharge_30",
+      name: "30 元体验包",
+      faceValue: 3000,
+      bonus: 0,
+      sale: 3000,
+      badge: "体验",
+      sort: 10,
+      features: ["小额试用", "Web 与 API 共用", "余额 365 天有效"]
+    },
+    {
+      code: "recharge_100",
+      name: "100 元标准包",
+      faceValue: 10000,
+      bonus: 800,
+      sale: 10000,
+      badge: "推荐",
+      sort: 20,
+      features: ["多模型通用", "赠送 8 元额度", "适合个人项目"]
+    },
+    {
+      code: "recharge_300",
+      name: "300 元进阶包",
+      faceValue: 30000,
+      bonus: 3600,
+      sale: 30000,
+      badge: "高性价比",
+      sort: 30,
+      features: ["赠送 36 元额度", "适合高频调试", "支持发票资料"]
+    },
+    {
+      code: "recharge_1000",
+      name: "1000 元团队包",
+      faceValue: 100000,
+      bonus: 18000,
+      sale: 100000,
+      badge: "团队",
+      sort: 40,
+      features: ["赠送 180 元额度", "团队共享余额", "对公转账友好"]
+    },
+    {
+      code: "recharge_3000",
+      name: "3000 元企业包",
+      faceValue: 300000,
+      bonus: 66000,
+      sale: 300000,
+      badge: "企业",
+      sort: 50,
+      features: ["赠送 660 元额度", "适合生产环境", "支持人工对账"]
+    }
+  ] as const;
+
+  const productIds = new Map<string, string>();
+  for (const item of rechargeProducts) {
+    const insertedProduct = await pool.query(
+      `insert into payment_products
+         (tenant_id, project_id, product_code, name, product_type, face_value_amount, bonus_amount, sale_amount, metadata)
+       values ($1, null, $2, $3, 'recharge_credit', $4, $5, $6, $7::jsonb)
+       on conflict (product_code) do update
+          set name = excluded.name,
+              tenant_id = excluded.tenant_id,
+              project_id = excluded.project_id,
+              product_type = excluded.product_type,
+              face_value_amount = excluded.face_value_amount,
+              bonus_amount = excluded.bonus_amount,
+              sale_amount = excluded.sale_amount,
+              status = 'active',
+              metadata = excluded.metadata,
+              updated_at = now()
+       returning id`,
+      [
+        tenant.rows[0].id,
+        item.code,
+        item.name,
+        item.faceValue,
+        item.bonus,
+        item.sale,
+        JSON.stringify({
+          title: item.name,
+          subtitle: "App、Web 和 API 共用余额",
+          description: `到账 ${item.faceValue / 100} 元，赠送 ${item.bonus / 100} 元额度`,
+          features: item.features,
+          badge: item.badge,
+          valid_days: 365
+        })
+      ]
+    );
+    productIds.set(item.code, insertedProduct.rows[0].id);
+
+    const productVisibilityRows = [
+      [
+        insertedProduct.rows[0].id,
+        tenant.rows[0].id,
+        iosProjectId,
+        "ios",
+        `iOS ${item.name}`,
+        "Apple IAP 支付，到账到同一客户钱包",
+        item.badge,
+        item.sort,
+        { app_store_product_id: `ai_platform_${item.code}`, features: item.features }
+      ],
+      [
+        insertedProduct.rows[0].id,
+        tenant.rows[0].id,
+        androidProjectId,
+        "android",
+        `Android ${item.name}`,
+        "支持支付宝 App 支付和微信 App 支付",
+        item.badge,
+        item.sort,
+        { allow_web_payment_entry: true, features: item.features }
+      ],
+      [
+        insertedProduct.rows[0].id,
+        tenant.rows[0].id,
+        webProjectId,
+        "web",
+        item.name,
+        "支持支付宝、微信、银行卡托管收银台和企业对公转账",
+        item.badge,
+        item.sort,
+        { allow_enterprise_transfer: true, features: item.features }
+      ],
+      [
+        insertedProduct.rows[0].id,
+        tenant.rows[0].id,
+        apiProjectId,
+        "api",
+        `API ${item.name}`,
+        "适合开发者 API 调用充值",
+        item.badge,
+        item.sort,
+        { checkout_entry: "developer_console", features: item.features }
+      ]
+    ] as const;
+
+    for (const row of productVisibilityRows) {
+      await pool.query(
+        `insert into payment_product_visibility
+          (product_id, tenant_id, project_id, platform, display_name, display_description, badge, sort_order, enabled, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, true, $9::jsonb)
+         on conflict (product_id, project_id, platform) do update
+            set tenant_id = excluded.tenant_id,
+                display_name = excluded.display_name,
+                display_description = excluded.display_description,
+                badge = excluded.badge,
+                sort_order = excluded.sort_order,
+                enabled = excluded.enabled,
+                metadata = excluded.metadata,
+                updated_at = now()`,
+        [...row.slice(0, 8), JSON.stringify(row[8])]
+      );
+    }
+  }
+
+  const primaryProductId = productIds.get("recharge_100")!;
 
   const channelRows = [
     [tenant.rows[0].id, iosProjectId, "ios_apple_iap", "apple_iap", "iOS Apple IAP", "ios", "apple_iap", "app_store_collected", 3000, 10, { storekit: true, server_api_required: true }],
@@ -408,27 +732,95 @@ async function main() {
         (order_no, tenant_id, project_id, tenant_customer_id, user_id, product_id, platform, checkout_channel, payment_method, amount, status, paid_at, fulfilled_at)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'FULFILLED', now(), now())
        on conflict (order_no) do nothing`,
-      [`ORD${crypto.randomUUID().slice(0, 8)}`, tenantId, projectId, customerId, userId, product.rows[0].id, platform, checkoutChannel, method, amount]
+      [`ORD${crypto.randomUUID().slice(0, 8)}`, tenantId, projectId, customerId, userId, primaryProductId, platform, checkoutChannel, method, amount]
     );
   }
 
   await paymentOrder(demoUser.rows[0].id, tenant.rows[0].id, webProjectId, demoCustomerId, "web", "web_alipay_pc", "alipay_web", 10000);
+  await paymentOrder(webCustomer.rows[0].id, tenant.rows[0].id, webProjectId, webCustomerId, "web", "web_wechat_native", "wechat_native", 30000);
   await paymentOrder(vipUser.rows[0].id, tenant.rows[0].id, androidProjectId, vipCustomerId, "android", "android_wechat_app", "wechat_app", 20000);
   await paymentOrder(externalUser.rows[0].id, externalTenant.rows[0].id, externalWebProjectId, externalCustomerId, "web", "web_alipay_pc", "alipay_web", 30000);
 
-  async function requestLog(userId: string, tenantId: string, projectId: string, customerId: string, source: string, tokens: number) {
+  async function requestLog(
+    requestKey: string,
+    userId: string,
+    tenantId: string,
+    projectId: string,
+    customerId: string,
+    source: string,
+    modelCode: string,
+    promptTokens: number,
+    completionTokens: number,
+    costAmount: number,
+    latencyMs: number,
+    minutesAgo: number
+  ) {
+    const totalTokens = promptTokens + completionTokens;
     await pool.query(
       `insert into request_logs
-        (request_id, tenant_id, project_id, tenant_customer_id, user_id, source, public_model_code, provider_id, status, estimated_prompt_tokens, estimated_completion_tokens, actual_prompt_tokens, actual_completion_tokens, total_tokens, estimated_cost_amount, actual_cost_amount, latency_ms, finish_reason, redacted_prompt, redacted_completion)
-       values ($1, $2, $3, $4, $5, $6, 'anthropic.claude-3-5-sonnet-20241022-v2:0', $7, 'success', 1200, 800, 1188, 733, $8, 36, 33, 842, 'stop', '[redacted]', '[redacted]')
+        (request_id, tenant_id, project_id, tenant_customer_id, user_id, source, public_model_code,
+         provider_id, status, stream, estimated_prompt_tokens, estimated_completion_tokens,
+         actual_prompt_tokens, actual_completion_tokens, total_tokens, estimated_cost_amount,
+         actual_cost_amount, latency_ms, finish_reason, redacted_prompt, redacted_completion,
+         metadata, created_at, completed_at)
+       values ($1, $2, $3, $4, $5, $6, $7,
+               $8, 'success', true, $9, $10,
+               $9, $10, $11, $12,
+               $12, $13, 'stop', '[redacted]', '[redacted]',
+               '{"source":"seed"}'::jsonb, now() - ($14::text || ' minutes')::interval, now() - (($14::int - 1)::text || ' minutes')::interval)
        on conflict (request_id) do nothing`,
-      [`req_${crypto.randomUUID()}`, tenantId, projectId, customerId, userId, source, provider.rows[0].id, tokens]
+      [
+        `req_seed_${requestKey}`,
+        tenantId,
+        projectId,
+        customerId,
+        userId,
+        source,
+        modelCode,
+        provider.rows[0].id,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        costAmount,
+        latencyMs,
+        minutesAgo
+      ]
     );
   }
 
-  await requestLog(demoUser.rows[0].id, tenant.rows[0].id, apiProjectId, demoCustomerId, "developer_api", 1921);
-  await requestLog(vipUser.rows[0].id, tenant.rows[0].id, androidProjectId, vipCustomerId, "app_chat", 1390);
-  await requestLog(externalUser.rows[0].id, externalTenant.rows[0].id, externalWebProjectId, externalCustomerId, "developer_api", 780);
+  await requestLog("demo-api-1", demoUser.rows[0].id, tenant.rows[0].id, apiProjectId, demoCustomerId, "developer_api", "anthropic.claude-3-5-sonnet-20241022-v2:0", 1188, 733, 33, 842, 180);
+  await requestLog("vip-app-1", vipUser.rows[0].id, tenant.rows[0].id, androidProjectId, vipCustomerId, "app_chat", "gpt-4o-mini", 900, 490, 18, 612, 240);
+  await requestLog("external-api-1", externalUser.rows[0].id, externalTenant.rows[0].id, externalWebProjectId, externalCustomerId, "developer_api", "gpt-4.1-mini", 460, 320, 12, 701, 300);
+
+  const webLogs = [
+    ["developer_api", "gpt-4o-mini", 860, 420, 14, 512, 35],
+    ["developer_api", "claude-sonnet-4-5", 2400, 880, 86, 1090, 78],
+    ["app_chat", "gemini-3-flash", 1260, 640, 16, 438, 126],
+    ["developer_api", "qwen3-coder-plus", 1890, 910, 28, 760, 310],
+    ["developer_api", "deepseek-v4-flash", 2300, 1200, 10, 492, 730],
+    ["app_chat", "gpt-4.1-mini", 740, 360, 11, 388, 1560],
+    ["developer_api", "grok-4", 3100, 800, 96, 1288, 2450],
+    ["developer_api", "gemini-3-pro-preview", 1800, 960, 51, 940, 3180],
+    ["app_chat", "deepseek-v4-pro", 1540, 690, 18, 620, 4460],
+    ["developer_api", "gpt-5-mini", 2200, 780, 42, 880, 5900]
+  ] as const;
+  for (const [index, item] of webLogs.entries()) {
+    const [source, modelCode, promptTokens, completionTokens, costAmount, latencyMs, minutesAgo] = item;
+    await requestLog(
+      `web-${index + 1}`,
+      webCustomer.rows[0].id,
+      tenant.rows[0].id,
+      webProjectId,
+      webCustomerId,
+      source,
+      modelCode,
+      promptTokens,
+      completionTokens,
+      costAmount,
+      latencyMs,
+      minutesAgo
+    );
+  }
 
   await pool.query(
     `insert into tenant_usage_aggregates

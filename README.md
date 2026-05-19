@@ -1,16 +1,18 @@
 # AI Model Platform
 
-AI Model Platform is the management backend and admin web foundation for a
-multi-tenant AI token platform. The current implementation focuses on the admin
-service: tenant management, tenant projects, tenant customers, Provider
-management, model catalog, route and price configuration, wallet operations,
-payment operations, request logs, billing records, RBAC, audit logs, and
-PostgreSQL-backed data persistence.
+AI Model Platform is the management backend, admin web, and customer checkout
+foundation for a multi-tenant AI token platform. The current implementation
+focuses on the admin service and the first Web checkout flow: tenant management,
+tenant projects, tenant customers, Provider management, model catalog, route and
+price configuration, wallet operations, payment operations, request logs,
+billing records, RBAC, audit logs, PostgreSQL-backed data persistence, public
+customer auth, product display, order creation, and wallet fulfillment.
 
 ## Workspace
 
 ```text
 apps/admin-web              React + Vite admin console
+apps/checkout-web           React + Vite customer Web checkout
 services/api-server         NestJS admin API service
 packages/shared-types       Shared TypeScript contracts
 services/api-server/migrations
@@ -60,6 +62,31 @@ Payment channels are configured by project/platform and payment method:
 AWS Bedrock Providers can store encrypted Bedrock API keys and sync available
 foundation models into the model catalog and model routes.
 
+## Customer Web
+
+The Web checkout app uses the same tenant/project/product model that the future
+App client will use.
+
+- Tenant and project context is resolved from `tenant_code`, `tenant_id`,
+  `project_code`, `project_id`, and `platform` URL/query fields.
+- New customer registration creates or reuses a `users` record with
+  `user_type = consumer`, then links it to the current tenant through
+  `tenant_customers`.
+- Wallets are unique per `tenant_id + user_id + currency`, so one customer
+  identity can belong to multiple tenants without sharing balances.
+- Products are displayed through `payment_product_visibility`, which lets the
+  admin configure different iOS, Android, Web, and API presentation rules for
+  the same underlying paid package.
+- Web checkout supports the seeded methods: Alipay web, WeChat Native, hosted
+  card checkout, and enterprise transfer. The current local flow uses a mock
+  payment completion endpoint to verify wallet fulfillment before real payment
+  adapters are added.
+- The same customer web app includes Token API access setup: customer API Key
+  creation, key masking/revocation, base URL display, bearer-token header
+  example, and cURL request example.
+- The model catalog is loaded from tenant model authorizations and tenant model
+  prices, so customers only see models that the tenant can use.
+
 ## Local Development
 
 Requirements:
@@ -81,7 +108,14 @@ Default ports:
 
 ```text
 admin web: http://localhost:5173
+checkout web: http://localhost:5174
 admin api: http://localhost:4000
+```
+
+Default Web checkout entry:
+
+```text
+http://localhost:5174/?tenant_code=platform_default_tenant&project_code=web-checkout&platform=web
 ```
 
 Seeded accounts:
@@ -121,4 +155,5 @@ pnpm db:migrate
 pnpm db:seed
 pnpm dev:api
 pnpm dev:admin
+pnpm dev:checkout
 ```
