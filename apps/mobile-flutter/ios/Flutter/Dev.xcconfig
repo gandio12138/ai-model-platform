@@ -1,0 +1,3 @@
+#include "Debug.xcconfig"
+APP_DISPLAY_NAME=OneToken Dev
+APP_BUNDLE_ID=com.onetoken.app.dev
