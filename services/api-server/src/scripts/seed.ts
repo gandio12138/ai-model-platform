@@ -717,6 +717,102 @@ async function main() {
     );
   }
 
+  await pool.query(
+    `delete from distribution_policies
+      where tenant_id = $1
+        and distribution_channel in ('official', 'official_apk', 'app_store', 'testflight')
+        and package_name = '*'`,
+    [tenant.rows[0].id]
+  );
+  const distributionPolicyRows = [
+    [
+      tenant.rows[0].id,
+      iosProjectId,
+      "ios",
+      "app_store",
+      "*",
+      "CN",
+      false,
+      null,
+      ["apple_iap"],
+      "iOS App 内购买由 App Store 处理，到账以服务端确认 Apple IAP 交易后为准。",
+      false,
+      false,
+      { privacy_notice_variant: "standard_cn", content_safety_notice: "请遵守平台 AI 生成内容规范。" }
+    ],
+    [
+      tenant.rows[0].id,
+      iosProjectId,
+      "ios",
+      "testflight",
+      "*",
+      "CN",
+      false,
+      null,
+      ["apple_iap"],
+      "TestFlight 环境使用 Apple IAP 沙箱商品，到账以服务端确认后为准。",
+      false,
+      false,
+      { privacy_notice_variant: "standard_cn" }
+    ],
+    [
+      tenant.rows[0].id,
+      androidProjectId,
+      "android",
+      "official_apk",
+      "*",
+      "CN",
+      true,
+      "https://pay.example.com",
+      ["alipay_app", "wechat_app"],
+      "安卓支付统一走平台收银台，应用市场仅作为分发渠道，不进入支付主干。",
+      false,
+      true,
+      { privacy_notice_variant: "standard_cn" }
+    ],
+    [
+      tenant.rows[0].id,
+      webProjectId,
+      "web",
+      "official",
+      "*",
+      "CN",
+      true,
+      "https://pay.example.com",
+      ["alipay_web", "wechat_native", "card_checkout", "enterprise_transfer"],
+      "Web 支付支持支付宝、微信、托管银行卡和企业对公转账。",
+      false,
+      true,
+      { privacy_notice_variant: "standard_cn" }
+    ]
+  ] as const;
+  for (const row of distributionPolicyRows) {
+    await pool.query(
+      `insert into distribution_policies
+        (tenant_id, project_id, platform, distribution_channel, package_name, region,
+         show_web_payment_link, web_payment_url, allowed_payment_methods,
+         payment_page_notice, review_mode, legal_approved, status, metadata)
+       values ($1, $2, $3, $4, $5, $6,
+               $7, $8, $9::text[],
+               $10, $11, $12, 'active', $13::jsonb)`,
+      [
+        row[0],
+        row[1],
+        row[2],
+        row[3],
+        row[4],
+        row[5],
+        row[6],
+        row[7],
+        row[8],
+        row[9],
+        row[10],
+        row[11],
+        JSON.stringify(row[12])
+      ]
+    );
+  }
+
   async function paymentOrder(
     userId: string,
     tenantId: string,

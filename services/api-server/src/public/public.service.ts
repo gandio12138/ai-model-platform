@@ -7,10 +7,10 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { parsePagination } from "../common/http.js";
 import { DatabaseService } from "../database/database.service.js";
+import { CustomerSessionService } from "./customer-session.service.js";
 import { PublicRequestUser } from "./public-auth.guard.js";
 
 type Platform = "ios" | "android" | "web" | "api";
@@ -39,7 +39,10 @@ const platforms: Platform[] = ["ios", "android", "web", "api"];
 
 @Injectable()
 export class PublicService {
-  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(CustomerSessionService) private readonly sessions: CustomerSessionService
+  ) {}
 
   async register(body: Record<string, unknown>) {
     const email = this.normalizeEmail(body.email);
@@ -616,6 +619,70 @@ export class PublicService {
     return this.toApiKeyResponse(rows[0]);
   }
 
+  async updateApiKey(user: PublicRequestUser, id: string, body: Record<string, unknown>) {
+    const nextStatus = body.status ? String(body.status) : null;
+    const nextName = body.name === undefined ? null : String(body.name ?? "").trim();
+    if (nextStatus && !["active", "disabled", "revoked"].includes(nextStatus)) {
+      throw new BadRequestException("status must be active, disabled, or revoked");
+    }
+    if (nextName !== null && !nextName) {
+      throw new BadRequestException("API key name cannot be empty");
+    }
+    const { rows } = await this.db.query(
+      `update api_keys
+          set status = coalesce($3, status),
+              name = coalesce($4, name),
+              revoked_at = case when $3 = 'revoked' then coalesce(revoked_at, now()) else revoked_at end,
+              updated_at = now()
+        where id = $1
+          and user_id = $2
+          and deleted_at is null
+        returning id,
+                  tenant_id,
+                  project_id,
+                  tenant_customer_id,
+                  user_id,
+                  name,
+                  key_prefix,
+                  key_suffix,
+                  status,
+                  model_whitelist,
+                  ip_whitelist,
+                  rpm_limit,
+                  tpm_limit,
+                  daily_budget,
+                  monthly_budget,
+                  expires_at,
+                  last_used_at,
+                  created_at,
+                  revoked_at`,
+      [id, user.id, nextStatus, nextName]
+    );
+    if (!rows[0]) {
+      throw new NotFoundException("API key not found");
+    }
+    return this.toApiKeyResponse(rows[0]);
+  }
+
+  async deleteApiKey(user: PublicRequestUser, id: string) {
+    const { rows } = await this.db.query(
+      `update api_keys
+          set status = 'revoked',
+              revoked_at = coalesce(revoked_at, now()),
+              deleted_at = now(),
+              updated_at = now()
+        where id = $1
+          and user_id = $2
+          and deleted_at is null
+        returning id`,
+      [id, user.id]
+    );
+    if (!rows[0]) {
+      throw new NotFoundException("API key not found");
+    }
+    return { ok: true };
+  }
+
   async wallet(user: PublicRequestUser, query: Record<string, unknown>) {
     const context = await this.resolveCheckoutContext(query);
     const customerContext = await this.ensureCustomerContext(user.id, context);
@@ -766,6 +833,156 @@ export class PublicService {
     return this.toPaymentOrderResponse(order);
   }
 
+  async syncPaymentOrder(user: PublicRequestUser, orderNo: string) {
+    const order = await this.findUserOrder(user.id, orderNo);
+    if (!order) {
+      throw new NotFoundException("Payment order not found");
+    }
+    await this.recordPaymentEvent(order.id, order.tenant_id, order.project_id, "order.sync", order.status, order.status, {
+      source: "customer_api",
+      note: "No production payment adapter configured; order status was not changed."
+    });
+    return this.toPaymentOrderResponse(order);
+  }
+
+  async cancelPaymentOrder(user: PublicRequestUser, orderNo: string) {
+    const order = await this.findUserOrder(user.id, orderNo);
+    if (!order) {
+      throw new NotFoundException("Payment order not found");
+    }
+    if (!["CREATED", "PAYING", "PENDING", "PROCESSING"].includes(order.status)) {
+      throw new BadRequestException("Payment order cannot be cancelled");
+    }
+    const { rows } = await this.db.query(
+      `update payment_orders
+          set status = 'CANCELLED',
+              status_reason = 'cancelled_by_customer',
+              cancelled_at = now(),
+              closed_at = coalesce(closed_at, now()),
+              updated_at = now()
+        where id = $1
+        returning *`,
+      [order.id]
+    );
+    await this.recordPaymentEvent(order.id, order.tenant_id, order.project_id, "order.cancel", order.status, "CANCELLED", {
+      source: "customer_api"
+    });
+    return this.toPaymentOrderResponse({
+      ...rows[0],
+      product_code: order.product_code,
+      product_name: order.product_name,
+      product_type: order.product_type,
+      face_value_amount: order.face_value_amount,
+      bonus_amount: order.bonus_amount,
+      sale_amount: order.sale_amount
+    });
+  }
+
+  async billingRecords(user: PublicRequestUser, query: Record<string, unknown>) {
+    const context = await this.resolveCheckoutContext(query);
+    const customerContext = await this.ensureCustomerContext(user.id, context);
+    const { page, pageSize, offset } = parsePagination(query);
+    const params = [context.tenant.id, user.id, customerContext.wallet.id, pageSize, offset];
+    const [items, count] = await Promise.all([
+      this.db.query(
+        `select br.id,
+                br.amount,
+                br.currency,
+                br.billing_status,
+                br.price_version,
+                br.created_at,
+                br.metadata,
+                rl.request_id,
+                rl.public_model_code,
+                rl.total_tokens,
+                rl.latency_ms
+           from billing_records br
+           left join request_logs rl on rl.id = br.request_log_id
+          where br.tenant_id = $1
+            and br.user_id = $2
+            and br.wallet_id = $3
+          order by br.created_at desc
+          limit $4 offset $5`,
+        params
+      ),
+      this.db.query(
+        `select count(*)::int as total
+           from billing_records
+          where tenant_id = $1
+            and user_id = $2
+            and wallet_id = $3`,
+        params.slice(0, 3)
+      )
+    ]);
+    return {
+      data: items.rows.map((row) => ({
+        ...row,
+        amount: Number(row.amount),
+        total_tokens: row.total_tokens === null ? null : Number(row.total_tokens),
+        latency_ms: row.latency_ms === null ? null : Number(row.latency_ms)
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+      page,
+      pageSize
+    };
+  }
+
+  async createAccountDeletionRequest(user: PublicRequestUser, body: Record<string, unknown>) {
+    const context = await this.resolveCheckoutContext(body);
+    const customerContext = await this.ensureCustomerContext(user.id, context);
+    const reason = String(body.reason ?? "").trim() || null;
+    const { rows } = await this.db.query(
+      `insert into account_deletion_requests
+        (tenant_id, project_id, tenant_customer_id, user_id, reason, balance_policy,
+         requested_from, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       returning id, status, created_at`,
+      [
+        context.tenant.id,
+        context.project?.id ?? null,
+        customerContext.tenant_customer.id,
+        user.id,
+        reason,
+        "manual_review_required",
+        String(body.requested_from ?? context.platform),
+        JSON.stringify({ notice: "Balance and data deletion require manual compliance review." })
+      ]
+    );
+    return {
+      request: rows[0],
+      notice: "注销申请已提交。余额、发票、账单和合规数据会按平台规则人工审核处理。"
+    };
+  }
+
+  async createContentReport(user: PublicRequestUser, body: Record<string, unknown>) {
+    const context = await this.resolveCheckoutContext(body);
+    const customerContext = await this.ensureCustomerContext(user.id, context);
+    const reason = String(body.reason ?? "").trim();
+    if (!reason) {
+      throw new BadRequestException("reason is required");
+    }
+    const { rows } = await this.db.query(
+      `insert into content_reports
+        (tenant_id, project_id, tenant_customer_id, user_id, chat_message_id,
+         target_type, target_id, reason, description, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+       returning id, status, created_at`,
+      [
+        context.tenant.id,
+        context.project?.id ?? null,
+        customerContext.tenant_customer.id,
+        user.id,
+        body.message_id && isUuid(String(body.message_id)) ? String(body.message_id) : null,
+        String(body.target_type ?? "chat_message"),
+        String(body.target_id ?? body.message_id ?? ""),
+        reason,
+        body.description ? String(body.description) : null,
+        JSON.stringify({ source: "customer_api" })
+      ]
+    );
+    return { report: rows[0] };
+  }
+
   async mockPay(user: PublicRequestUser, orderNo: string) {
     return this.db.transaction(async (client) => {
       const orderRows = await client.query(
@@ -878,7 +1095,7 @@ export class PublicService {
     });
   }
 
-  private async resolveCheckoutContext(query: Record<string, unknown>): Promise<CheckoutContext> {
+  async resolveCheckoutContext(query: Record<string, unknown>): Promise<CheckoutContext> {
     const platform = this.resolvePlatform(query.platform);
     const tenant = await this.resolveTenant(query);
     const project = await this.resolveProject(tenant.id, platform, query);
@@ -959,7 +1176,7 @@ export class PublicService {
     return rows[0] ?? null;
   }
 
-  private async ensureCustomerContext(
+  async ensureCustomerContext(
     userId: string,
     context: CheckoutContext,
     client: QueryExecutor = this.db
@@ -991,7 +1208,7 @@ export class PublicService {
     };
   }
 
-  private async listPaymentMethods(context: CheckoutContext): Promise<any[]> {
+  async listPaymentMethods(context: CheckoutContext): Promise<any[]> {
     const { rows } = await this.db.query(
       `select channel_code,
               channel_type,
@@ -1120,11 +1337,40 @@ export class PublicService {
               p.sale_amount
          from payment_orders po
          left join payment_products p on p.id = po.product_id
-        where po.order_no = $1
+        where (po.order_no = $1 or po.id::text = $1)
           and po.user_id = $2`,
       [orderNo, userId]
     );
     return rows[0] ?? null;
+  }
+
+  private async recordPaymentEvent(
+    orderId: string,
+    tenantId: string | null,
+    projectId: string | null,
+    eventType: string,
+    fromStatus: string | null,
+    toStatus: string | null,
+    metadata: Record<string, unknown>
+  ) {
+    await this.db.query(
+      `insert into payment_order_events
+        (payment_order_id, tenant_id, project_id, event_type, from_status, to_status,
+         reason, actor_type, metadata, idempotency_key)
+       values ($1, $2, $3, $4, $5, $6, $7, 'customer', $8::jsonb, $9)
+       on conflict (idempotency_key) do nothing`,
+      [
+        orderId,
+        tenantId,
+        projectId,
+        eventType,
+        fromStatus,
+        toStatus,
+        String(metadata.note ?? eventType),
+        JSON.stringify(metadata),
+        `payment-event:${orderId}:${eventType}:${Date.now()}`
+      ]
+    );
   }
 
   private async findWallet(
@@ -1185,14 +1431,15 @@ export class PublicService {
     );
   }
 
-  private toSessionResponse(user: any, context: CheckoutContext, customerContext: CustomerContext) {
-    const token = jwt.sign(
-      { sub: user.id, email: user.email, account_type: "customer" },
-      process.env.JWT_SECRET ?? "local-dev-jwt-secret",
-      { expiresIn: "30d" }
-    );
+  private async toSessionResponse(user: any, context: CheckoutContext, customerContext: CustomerContext) {
+    const tokens = await this.sessions.createTokenPair(user, {
+      tenant: context.tenant,
+      project: context.project,
+      tenant_customer: customerContext.tenant_customer
+    });
     return {
-      token,
+      ...tokens,
+      token: tokens.access_token,
       user: this.toPublicUserResponse(user),
       tenant: context.tenant,
       project: context.project,

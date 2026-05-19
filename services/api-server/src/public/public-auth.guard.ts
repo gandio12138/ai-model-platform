@@ -15,6 +15,9 @@ export interface PublicRequestUser {
   phone: string | null;
   userType: string;
   accountType: "customer";
+  tenantId?: string | null;
+  projectId?: string | null;
+  tenantCustomerId?: string | null;
 }
 
 @Injectable()
@@ -28,12 +31,24 @@ export class PublicAuthGuard implements CanActivate {
       throw new UnauthorizedException("Missing bearer token");
     }
 
-    let payload: { sub: string; email?: string };
+    let payload: {
+      sub: string;
+      email?: string;
+      tenant_id?: string;
+      project_id?: string;
+      tenant_customer_id?: string;
+    };
     try {
       payload = jwt.verify(
         header.slice("Bearer ".length),
         process.env.JWT_SECRET ?? "local-dev-jwt-secret"
-      ) as { sub: string; email?: string };
+      ) as {
+        sub: string;
+        email?: string;
+        tenant_id?: string;
+        project_id?: string;
+        tenant_customer_id?: string;
+      };
     } catch {
       throw new UnauthorizedException("Invalid bearer token");
     }
@@ -73,7 +88,10 @@ export class PublicAuthGuard implements CanActivate {
       email: user.email,
       phone: user.phone,
       userType: user.user_type,
-      accountType: "customer"
+      accountType: "customer",
+      tenantId: payload.tenant_id ?? null,
+      projectId: payload.project_id ?? null,
+      tenantCustomerId: payload.tenant_customer_id ?? null
     } satisfies PublicRequestUser;
     return true;
   }

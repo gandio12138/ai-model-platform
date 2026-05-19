@@ -135,7 +135,7 @@ class DioOneTokenApi implements OneTokenApi {
   ) async {
     final response = await _request(
       () => _dio.post(
-        '/api/public/auth/login',
+        '/api/auth/login',
         data: {
           'account': account,
           'email': account.contains('@') ? account : null,
@@ -163,7 +163,7 @@ class DioOneTokenApi implements OneTokenApi {
   ) async {
     final response = await _request(
       () => _dio.post(
-        '/api/public/auth/register',
+        '/api/auth/register',
         data: {
           'account': account,
           'email': account.contains('@') ? account : null,
@@ -185,13 +185,28 @@ class DioOneTokenApi implements OneTokenApi {
 
   @override
   Future<void> logout() async {
+    final token = await tokenStore.read();
+    final refreshToken = token?.refreshToken;
+    if (refreshToken?.isNotEmpty == true) {
+      try {
+        await _request(
+          () => _dio.post(
+            '/api/auth/logout',
+            data: {'refresh_token': refreshToken},
+          ),
+        );
+      } on AppException {
+        // Local credentials must still be cleared even when the server session
+        // has already expired or the device is offline.
+      }
+    }
     await tokenStore.clear();
   }
 
   @override
   Future<UserProfile> me() async {
     final response = await _request(
-      () => _dio.get('/api/public/me', queryParameters: _context.toQuery()),
+      () => _dio.get('/api/me', queryParameters: _context.toQuery()),
     );
     return UserProfile.fromJson(
       _dataMap(response)['user'] as Map<String, dynamic>? ?? _dataMap(response),
@@ -211,7 +226,7 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<List<ModelInfo>> fetchModels() async {
     final response = await _request(
-      () => _dio.get('/api/public/models', queryParameters: _context.toQuery()),
+      () => _dio.get('/api/models', queryParameters: _context.toQuery()),
     );
     return _dataList(response).map((item) => ModelInfo.fromJson(item)).toList();
   }
@@ -219,7 +234,7 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<Wallet> fetchWallet() async {
     final response = await _request(
-      () => _dio.get('/api/public/wallet', queryParameters: _context.toQuery()),
+      () => _dio.get('/api/wallet', queryParameters: _context.toQuery()),
     );
     final data = _dataMap(response);
     return Wallet.fromJson(
@@ -233,7 +248,7 @@ class DioOneTokenApi implements OneTokenApi {
   Future<List<LedgerRecord>> fetchWalletLedger({int page = 1}) async {
     final response = await _request(
       () => _dio.get(
-        '/api/public/wallet/ledger',
+        '/api/wallet/ledger',
         queryParameters: {..._context.toQuery(), 'page': page},
       ),
     );
@@ -246,7 +261,7 @@ class DioOneTokenApi implements OneTokenApi {
   Future<List<LedgerRecord>> fetchBillingRecords({int page = 1}) async {
     final response = await _request(
       () => _dio.get(
-        '/api/public/wallet/ledger',
+        '/api/billing/records',
         queryParameters: {..._context.toQuery(), 'page': page},
       ),
     );
@@ -258,8 +273,10 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<List<PaymentProduct>> fetchPaymentProducts() async {
     final response = await _request(
-      () =>
-          _dio.get('/api/public/products', queryParameters: _context.toQuery()),
+      () => _dio.get(
+        '/api/payment/products',
+        queryParameters: _context.toQuery(),
+      ),
     );
     return _dataList(
       response,
@@ -276,7 +293,7 @@ class DioOneTokenApi implements OneTokenApi {
   }) async {
     final response = await _request(
       () => _dio.post(
-        '/api/public/payment/orders',
+        '/api/payment/orders',
         data: {
           ..._context.toQuery(),
           'product_id': productId,
@@ -293,7 +310,7 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<PaymentOrder> fetchPaymentOrder(String orderId) async {
     final response = await _request(
-      () => _dio.get('/api/public/payment/orders/$orderId'),
+      () => _dio.get('/api/payment/orders/$orderId'),
     );
     return PaymentOrder.fromJson(_dataMap(response));
   }
@@ -301,7 +318,7 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<PaymentOrder> syncPaymentOrder(String orderId) async {
     final response = await _request(
-      () => _dio.get('/api/public/payment/orders/$orderId'),
+      () => _dio.post('/api/payment/orders/$orderId/sync'),
     );
     return PaymentOrder.fromJson(_dataMap(response));
   }
@@ -309,8 +326,10 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<List<ApiKeyRecord>> fetchApiKeys() async {
     final response = await _request(
-      () =>
-          _dio.get('/api/public/api-keys', queryParameters: _context.toQuery()),
+      () => _dio.get(
+        '/api/developer/api-keys',
+        queryParameters: _context.toQuery(),
+      ),
     );
     return _dataList(
       response,
@@ -321,7 +340,7 @@ class DioOneTokenApi implements OneTokenApi {
   Future<ApiKeyRecord> createApiKey(String name) async {
     final response = await _request(
       () => _dio.post(
-        '/api/public/api-keys',
+        '/api/developer/api-keys',
         data: {'name': name, ..._context.toQuery()},
       ),
     );
@@ -339,7 +358,10 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<void> updateApiKey(String id, String status) async {
     if (status == 'revoked' || status == 'disabled' || status == 'inactive') {
-      await _request(() => _dio.post('/api/public/api-keys/$id/revoke'));
+      await _request(
+        () =>
+            _dio.patch('/api/developer/api-keys/$id', data: {'status': status}),
+      );
       return;
     }
     throw const AppException('当前公共接口暂不支持重新启用 API Key');
@@ -347,7 +369,7 @@ class DioOneTokenApi implements OneTokenApi {
 
   @override
   Future<void> deleteApiKey(String id) async {
-    await _request(() => _dio.post('/api/public/api-keys/$id/revoke'));
+    await _request(() => _dio.delete('/api/developer/api-keys/$id'));
   }
 
   @override
