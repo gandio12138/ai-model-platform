@@ -97,6 +97,7 @@ class AppConfig {
   const AppConfig({
     required this.tenantId,
     required this.projectId,
+    required this.tenantBillingMode,
     required this.availablePaymentMethods,
     required this.showWebPaymentLink,
     required this.reviewMode,
@@ -109,13 +110,17 @@ class AppConfig {
     required this.contentSafetyNotice,
     required this.privacyNoticeVariant,
     required this.paymentPageNotice,
+    required this.settlementNotice,
     required this.iosIapEnabled,
     required this.androidUnifiedCheckoutEnabled,
     this.webPaymentUrl,
+    this.tenantPlanCode,
   });
 
   final String tenantId;
   final String projectId;
+  final String tenantBillingMode;
+  final String? tenantPlanCode;
   final List<String> availablePaymentMethods;
   final bool showWebPaymentLink;
   final String? webPaymentUrl;
@@ -129,6 +134,7 @@ class AppConfig {
   final String contentSafetyNotice;
   final String privacyNoticeVariant;
   final String paymentPageNotice;
+  final String settlementNotice;
   final bool iosIapEnabled;
   final bool androidUnifiedCheckoutEnabled;
 
@@ -136,6 +142,8 @@ class AppConfig {
     return AppConfig(
       tenantId: _string(json['tenant_id'], 'platform_default_tenant'),
       projectId: _string(json['project_id'], 'mobile-app'),
+      tenantBillingMode: _string(json['tenant_billing_mode'], 'prepaid'),
+      tenantPlanCode: json['tenant_plan_code']?.toString(),
       availablePaymentMethods: _stringList(
         json['available_payment_methods'] ?? json['enabled_methods'],
       ),
@@ -158,6 +166,7 @@ class AppConfig {
       ),
       privacyNoticeVariant: _string(json['privacy_notice_variant'], 'default'),
       paymentPageNotice: _string(json['payment_page_notice']),
+      settlementNotice: _string(json['settlement_notice']),
       iosIapEnabled: _bool(json['ios_iap_enabled'], true),
       androidUnifiedCheckoutEnabled: _bool(
         json['android_unified_checkout_enabled'],

@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import {
   ApiKeyRecord,
+  AppRelease,
   BootstrapPayload,
   CommissionRecord,
   ModelInfo,
@@ -480,6 +481,7 @@ export default function App() {
       >
         {contextHolder}
         <HomePage
+          appReleases={bootstrap?.app_releases ?? []}
           models={models}
           setActive={setSiteSection}
           user={user}
@@ -592,6 +594,8 @@ export default function App() {
               selectedMethod={selectedMethod}
               selectedProduct={selectedProduct}
               selectedProductId={selectedProductId}
+              tenantBillingMode={bootstrap?.tenant.billing_mode ?? "prepaid"}
+              tenantPlanCode={bootstrap?.tenant.current_plan_code ?? null}
               setOrder={setOrder}
               setSelectedMethod={setSelectedMethod}
               setSelectedProductId={setSelectedProductId}
@@ -776,14 +780,21 @@ function AuthPage({
 }
 
 function HomePage({
+  appReleases,
   models,
   setActive,
   user
 }: {
+  appReleases: AppRelease[];
   models: ModelInfo[];
   setActive: (section: SiteSection) => void;
   user: SessionPayload["user"] | null;
 }) {
+  const iosRelease = appReleases.find((release) => release.platform === "ios");
+  const androidRelease = appReleases.find((release) => release.platform === "android");
+  const iosDownloadUrl = iosRelease?.download_url || iosAppDownloadUrl;
+  const androidDownloadUrl = androidRelease?.download_url || androidAppDownloadUrl;
+
   return (
     <section className="home-page landing-home">
       <div className="landing-stage">
@@ -916,8 +927,9 @@ response = client.chat.completions.create(
                 <h3>iOS App</h3>
                 <p>支持 iPhone 真机、TestFlight 内测和 Apple IAP 充值链路。</p>
               </div>
-              {iosAppDownloadUrl ? (
-                <a className="mobile-download-button" href={iosAppDownloadUrl} target="_blank" rel="noreferrer">
+              {iosRelease?.version && <span className="mobile-release-meta">{iosRelease.version} · {iosRelease.distribution_channel}</span>}
+              {iosDownloadUrl ? (
+                <a className="mobile-download-button" href={iosDownloadUrl} target="_blank" rel="noreferrer">
                   下载 iOS
                 </a>
               ) : (
@@ -934,8 +946,9 @@ response = client.chat.completions.create(
                 <h3>Android App</h3>
                 <p>支持官网 APK、应用市场包和安卓统一收银台支付链路。</p>
               </div>
-              {androidAppDownloadUrl ? (
-                <a className="mobile-download-button" href={androidAppDownloadUrl} target="_blank" rel="noreferrer">
+              {androidRelease?.version && <span className="mobile-release-meta">{androidRelease.version} · {androidRelease.distribution_channel}</span>}
+              {androidDownloadUrl ? (
+                <a className="mobile-download-button" href={androidDownloadUrl} target="_blank" rel="noreferrer">
                   下载 Android
                 </a>
               ) : (
@@ -1442,6 +1455,8 @@ function WalletManager(props: {
   selectedMethod: string;
   selectedProduct: BootstrapPayload["products"][number] | null;
   selectedProductId: string;
+  tenantBillingMode: string;
+  tenantPlanCode: string | null;
   setOrder: (order: PaymentOrder | null) => void;
   setSelectedMethod: (method: string) => void;
   setSelectedProductId: (id: string) => void;
@@ -1453,15 +1468,23 @@ function WalletManager(props: {
     (method) => method.payment_method === props.selectedMethod
   );
   const methodUnavailable = selectedMethodMeta?.payment_method === "card_checkout";
+  const billingCopy = tenantBillingModeCopy(props.tenantBillingMode);
   return (
     <>
       <div className="page-heading compact-heading">
         <div>
           <h1>钱包管理</h1>
-          <p>余额来自当前租户套餐，Web、App 和 API 共用同一客户钱包。</p>
+          <p>{billingCopy.description}</p>
         </div>
         <Button>账单</Button>
       </div>
+      <Alert
+        className="payment-note"
+        message={`当前结算策略：${billingCopy.title}${props.tenantPlanCode ? ` · ${props.tenantPlanCode}` : ""}`}
+        description="客户付款先进入同一个钱包，租户收入、SaaS 套餐、分成或后付账单由服务端基于同一笔支付订单和用量记录汇总。"
+        type="info"
+        showIcon
+      />
       <div className="wallet-stats">
         <MetricBlock value={money(props.wallet?.available_balance ?? 0)} label="当前余额" />
         <MetricBlock value={money(props.wallet?.cash_balance ?? 0)} label="现金余额" />
@@ -2114,6 +2137,28 @@ function ledgerEventName(value: string) {
     "system.grant": "系统赠送"
   };
   return names[value] ?? value;
+}
+
+function tenantBillingModeCopy(mode: string) {
+  const copies: Record<string, { title: string; description: string }> = {
+    prepaid: {
+      title: "预付钱包",
+      description: "Web、App 和 API 共用同一客户钱包，客户先充值后调用模型。"
+    },
+    postpaid: {
+      title: "后付授信",
+      description: "Web、App 和 API 共用客户钱包与授信额度，租户侧按实际用量出账。"
+    },
+    subscription_usage: {
+      title: "SaaS 套餐 + 用量",
+      description: "客户充值进入同一钱包，租户侧套餐和模型用量按周期统一汇总。"
+    },
+    revenue_share: {
+      title: "收入分成",
+      description: "客户充值进入同一钱包，平台按租户分成规则自动生成结算记录。"
+    }
+  };
+  return copies[mode] ?? copies.prepaid;
 }
 
 function money(value: number) {

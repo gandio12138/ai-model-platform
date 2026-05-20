@@ -151,6 +151,20 @@ export interface ReferralSummary {
   currency: string;
 }
 
+export interface AppRelease {
+  id: string;
+  platform: "ios" | "android";
+  distribution_channel: string;
+  version: string;
+  build_number?: number | null;
+  release_status: string;
+  min_supported_version?: string | null;
+  force_update: boolean;
+  download_url?: string | null;
+  changelog?: string | null;
+  published_at?: string | null;
+}
+
 export interface CommissionRecord {
   id: string;
   source_user_id?: string | null;
@@ -166,11 +180,19 @@ export interface CommissionRecord {
 }
 
 export interface BootstrapPayload {
-  tenant: { id: string; tenant_code: string; name: string };
+  tenant: {
+    id: string;
+    tenant_code: string;
+    name: string;
+    tenant_type?: string;
+    billing_mode?: string;
+    current_plan_code?: string | null;
+  };
   project: { id: string; project_code: string; name: string; platform: string } | null;
   platform: string;
   products: PaymentProduct[];
   payment_methods: PaymentMethod[];
+  app_releases?: AppRelease[];
 }
 
 export interface SessionPayload {

@@ -49,6 +49,11 @@ export class PublicController {
     return this.publicService.paymentMethods(query);
   }
 
+  @Get("app-releases")
+  appReleases(@Query() query: Record<string, unknown>) {
+    return this.publicService.appReleases(query);
+  }
+
   @Get("models")
   models(@Query() query: Record<string, unknown>) {
     return this.publicService.models(query);

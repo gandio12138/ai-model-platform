@@ -47,18 +47,19 @@ export default function TenantAccountsPage() {
       <div className="action-bar">
         <Space>
           <Button type="primary" icon={<Plus size={16} />} onClick={() => setOpen(true)}>
-            创建租户账号
+            创建租户管理员账号
           </Button>
         </Space>
       </div>
       <ResourcePage
         key={refreshKey}
-        title="租户账号列表"
+        title="租户管理员账号"
+        description="这里创建的是能登录管理后台并管理指定租户的账号；不是新增租户，也不是 App/Web 客户账号。"
         endpoint="/api/admin/tenant-memberships"
         rowKey="id"
         columns={[
           ["tenant_name", "租户"],
-          ["member_email", "租户账号"],
+          ["member_email", "管理员账号"],
           ["member_user_type", "账号类型"],
           ["role_code", "账号类型"],
           ["status", "状态", "select", undefined, undefined, statusOptions],
@@ -69,7 +70,7 @@ export default function TenantAccountsPage() {
         ]}
         canEdit
       />
-      <Drawer title="创建租户账号" width={560} open={open} onClose={() => setOpen(false)} destroyOnClose>
+      <Drawer title="创建租户管理员账号" width={560} open={open} onClose={() => setOpen(false)} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={submit} initialValues={{ status: "active" }}>
           <Form.Item label="绑定租户" name="tenant_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={tenantOptions} />

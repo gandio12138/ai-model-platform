@@ -32,6 +32,8 @@ class MockOneTokenApi implements OneTokenApi {
     return AppConfig(
       tenantId: 'tenant_mock',
       projectId: 'project_mobile_mock',
+      tenantBillingMode: 'prepaid',
+      tenantPlanCode: 'starter',
       availablePaymentMethods: isIos
           ? const ['apple_iap']
           : const ['alipay_app_pay', 'wechat_app_pay', 'card_hosted_checkout'],
@@ -49,6 +51,7 @@ class MockOneTokenApi implements OneTokenApi {
       paymentPageNotice: isIos
           ? '你正在通过 App Store 购买平台额度，实际金额以 Apple 支付页面显示为准。'
           : '你正在通过平台安卓统一收银台购买额度，不同支付方式可能存在到账和退款路径差异。',
+      settlementNotice: 'Mock 环境下客户付款进入同一钱包，正式环境会由服务端汇总租户结算记录。',
       iosIapEnabled: isIos,
       androidUnifiedCheckoutEnabled: !isIos,
     );

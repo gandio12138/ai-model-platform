@@ -89,6 +89,8 @@ export interface AuthSession {
 export interface AppConfig {
   tenant_id: string;
   project_id: string | null;
+  tenant_billing_mode?: string;
+  tenant_plan_code?: string | null;
   platform: Platform | string;
   app_version?: string | null;
   package_name?: string | null;
@@ -100,6 +102,7 @@ export interface AppConfig {
   show_web_payment_link: boolean;
   web_payment_url: string | null;
   payment_page_notice: string;
+  settlement_notice?: string;
   ios_iap_enabled: boolean;
   android_unified_checkout_enabled: boolean;
   developer_api_enabled: boolean;
@@ -113,6 +116,25 @@ export interface AppConfig {
   min_supported_app_version: string | null;
   maintenance_mode: boolean;
   feature_flags: Record<string, boolean | string | number | null>;
+}
+
+export interface AppRelease {
+  id: string;
+  tenant_id: string;
+  project_id: string | null;
+  platform: "ios" | "android";
+  distribution_channel: string;
+  version: string;
+  build_number?: number | null;
+  release_status: "draft" | "published" | "paused" | "archived" | string;
+  min_supported_version?: string | null;
+  force_update: boolean;
+  download_url?: string | null;
+  changelog?: string | null;
+  file_size_bytes?: number | null;
+  checksum_sha256?: string | null;
+  published_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface ModelInfo {

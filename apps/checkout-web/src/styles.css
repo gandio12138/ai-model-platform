@@ -998,6 +998,18 @@ input {
   margin: 0;
 }
 
+.mobile-release-meta {
+  align-self: flex-start;
+  background: rgba(191, 219, 254, 0.12);
+  border: 1px solid rgba(191, 219, 254, 0.2);
+  border-radius: 999px;
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 14px;
+  padding: 4px 9px;
+}
+
 .mobile-download-button {
   align-items: center;
   background: #fff;

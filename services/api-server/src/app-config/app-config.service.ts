@@ -53,6 +53,8 @@ export class AppConfigService {
     return {
       tenant_id: context.tenant.id,
       project_id: context.project?.id ?? null,
+      tenant_billing_mode: context.tenant.billing_mode ?? "prepaid",
+      tenant_plan_code: context.tenant.current_plan_code ?? null,
       platform,
       app_version: appVersion || null,
       package_name: packageName || null,
@@ -66,6 +68,7 @@ export class AppConfigService {
       payment_page_notice:
         policy?.payment_page_notice ??
         this.defaultPaymentNotice(platform, methodCodes),
+      settlement_notice: this.settlementNotice(context.tenant.billing_mode ?? "prepaid"),
       ios_iap_enabled: platform === "ios" && methodCodes.includes("apple_iap"),
       android_unified_checkout_enabled:
         platform === "android" && paymentMethods.some((method) => method.channel_type === "android_unified_checkout"),
@@ -181,5 +184,18 @@ export class AppConfigService {
       return "Web 支付支持支付宝、微信、托管银行卡和企业对公转账，对公转账需要后台对账确认。";
     }
     return "支付成功和权益到账以服务端支付确认、查单和钱包入账为准。";
+  }
+
+  private settlementNotice(billingMode: string) {
+    if (billingMode === "revenue_share") {
+      return "客户在 Web/App 支付后先入客户钱包，平台会按租户分成规则自动生成租户结算记录。";
+    }
+    if (billingMode === "subscription_usage") {
+      return "客户在 Web/App 支付后先入客户钱包，租户侧 SaaS 套餐和用量账单由后台按周期汇总。";
+    }
+    if (billingMode === "postpaid") {
+      return "客户调用仍以钱包和授信控制为准，租户侧后付账单由后台根据实际用量汇总。";
+    }
+    return "客户在 Web/App 支付后进入同一个客户钱包，App、Web 和 API 调用共用余额。";
   }
 }

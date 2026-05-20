@@ -107,6 +107,15 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
+              const SizedBox(height: AppSpacing.sm),
+              AppCard(
+                child: Text(
+                  config.settlementNotice.isEmpty
+                      ? _settlementNotice(config.tenantBillingMode)
+                      : config.settlementNotice,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
               const SizedBox(height: AppSpacing.md),
               for (final product in products) ...[
                 PaymentProductCard(
@@ -174,6 +183,19 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
       return '你正在通过 App Store 购买平台额度。支付、收据和退款由 Apple 处理，钱包到账以服务端确认结果为准。';
     }
     return '你正在通过平台安卓统一收银台购买额度。不同应用市场仅作为分发渠道，不进入支付主干。';
+  }
+
+  String _settlementNotice(String mode) {
+    if (mode == 'revenue_share') {
+      return '客户支付先进入同一钱包，平台按租户分成规则自动生成结算记录。';
+    }
+    if (mode == 'subscription_usage') {
+      return '客户支付先进入同一钱包，租户套餐和用量账单由后台按周期汇总。';
+    }
+    if (mode == 'postpaid') {
+      return '客户调用仍以钱包和授信控制为准，租户侧后付账单由后台根据实际用量汇总。';
+    }
+    return '客户支付进入同一钱包，App、Web 和 API 调用共用余额。';
   }
 }
 

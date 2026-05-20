@@ -1001,6 +1001,29 @@ async function main() {
     [tenant.rows[0].id, webCustomerId, webCustomer.rows[0].id, vipUser.rows[0].id]
   );
 
+  const appReleaseRows = [
+    [tenant.rows[0].id, iosProjectId, "ios", "testflight", "1.0.0", 1, process.env.IOS_APP_DOWNLOAD_URL ?? process.env.VITE_IOS_APP_DOWNLOAD_URL ?? "", "TestFlight 内测版本，支持登录、聊天、钱包和账单。"],
+    [tenant.rows[0].id, androidProjectId, "android", "official_apk", "1.0.0", 1, process.env.ANDROID_APP_DOWNLOAD_URL ?? process.env.VITE_ANDROID_APP_DOWNLOAD_URL ?? "", "官网 APK 内测版本，支持安卓统一收银台占位链路。"]
+  ] as const;
+  for (const row of appReleaseRows) {
+    await pool.query(
+      `insert into app_releases
+        (tenant_id, project_id, platform, distribution_channel, version, build_number,
+         release_status, min_supported_version, force_update, download_url, changelog,
+         published_at, metadata)
+       values ($1, $2, $3, $4, $5, $6, 'published', $5, false, $7, $8, now(), '{"source":"seed"}'::jsonb)
+       on conflict (tenant_id, platform, distribution_channel, version) do update
+          set project_id = excluded.project_id,
+              build_number = excluded.build_number,
+              release_status = excluded.release_status,
+              download_url = excluded.download_url,
+              changelog = excluded.changelog,
+              metadata = app_releases.metadata || excluded.metadata,
+              updated_at = now()`,
+      [...row]
+    );
+  }
+
   await pool.query(
     `insert into configs (config_key, config_type, draft_value, published_value, status, config_version)
      values ('web_payment_entry', 'checkout', '{"enabled":true,"url":"https://pay.example.com"}', '{"enabled":true,"url":"https://pay.example.com"}', 'published', 1)

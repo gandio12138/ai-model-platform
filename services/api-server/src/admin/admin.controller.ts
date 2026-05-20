@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   Param,
@@ -61,6 +62,12 @@ export class AdminController {
   @Patch("tenants/:id")
   updateTenant(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.update("tenants", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("platform.tenant.write_all")
+  @Delete("tenants/:id")
+  deleteTenant(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.deleteTenant(id, body, req.user, actor(req));
   }
 
   @RequirePermissions("tenant.read")
@@ -552,6 +559,25 @@ export class AdminController {
   @Patch("distribution-policies/:id")
   updateDistributionPolicy(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.update("distributionPolicies", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("config.read")
+  @Get("app-releases")
+  appReleases(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
+    return this.admin.list("appReleases", query, req.user);
+  }
+
+  @RequirePermissions("config.write")
+  @Post("app-releases")
+  createAppRelease(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("appReleases", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("config.write")
+  @Patch("app-releases/:id")
+  updateAppRelease(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("appReleases", id, body, req.user, actor(req));
   }
 
   @RequirePermissions("config.read")

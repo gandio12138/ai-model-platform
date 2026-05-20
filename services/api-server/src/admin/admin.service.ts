@@ -528,6 +528,31 @@ const resourceMap: Record<string, ResourceConfig> = {
     tenantScopeColumn: "tenant_id",
     createTenantScoped: true
   },
+  appReleases: {
+    table: "app_releases",
+    readPermission: "config.read",
+    writePermission: "config.write",
+    searchable: ["platform", "distribution_channel", "version", "release_status", "download_url"],
+    writable: [
+      "tenant_id",
+      "project_id",
+      "platform",
+      "distribution_channel",
+      "version",
+      "build_number",
+      "release_status",
+      "min_supported_version",
+      "force_update",
+      "download_url",
+      "changelog",
+      "file_size_bytes",
+      "checksum_sha256",
+      "published_at",
+      "metadata"
+    ],
+    tenantScopeColumn: "tenant_id",
+    createTenantScoped: true
+  },
   configs: {
     table: "configs",
     readPermission: "config.read",
@@ -896,6 +921,10 @@ export class AdminService {
     const filters: string[] = [];
     await this.applyTenantScope(config, user, filters, params);
     await this.applyCustomerScope(config, user, filters, params);
+
+    if (resource === "tenants" && !query.status) {
+      filters.push("status <> 'archived'");
+    }
 
     if (query.search && config.searchable?.length) {
       params.push(`%${String(query.search)}%`);
@@ -1472,6 +1501,12 @@ export class AdminService {
     if (resource === "paymentProductVisibility") {
       await this.validatePaymentProductVisibility(payload);
     }
+    if (resource === "tenants") {
+      this.prepareTenantPayload(payload, true);
+    }
+    if (resource === "appReleases") {
+      await this.validateAppRelease(payload);
+    }
     if (!Object.keys(payload).length) {
       throw new BadRequestException("No writable fields provided");
     }
@@ -1517,6 +1552,15 @@ export class AdminService {
     if (resource === "paymentProductVisibility") {
       await this.validatePaymentProductVisibility({ ...before, ...payload });
     }
+    if (resource === "tenants") {
+      if (payload.tenant_type === "platform_default" && before.tenant_type !== "platform_default") {
+        throw new BadRequestException("Only the initialized default tenant can use platform_default type");
+      }
+      this.prepareTenantPayload(payload, false);
+    }
+    if (resource === "appReleases") {
+      await this.validateAppRelease({ ...before, ...payload });
+    }
     if (!Object.keys(payload).length) {
       throw new BadRequestException("No writable fields provided");
     }
@@ -1540,6 +1584,186 @@ export class AdminService {
       reason: String(body.reason ?? "")
     });
     return this.hideFields(rows, config.hidden)[0];
+  }
+
+  async deleteTenant(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "platform.tenant.write_all");
+    requireReason(body);
+
+    const result = await this.db.transaction(async (client) => {
+      const targetResult = await client.query(
+        `select *
+           from tenants
+          where id = $1
+          for update`,
+        [id]
+      );
+      const target = targetResult.rows[0];
+      if (!target) {
+        throw new NotFoundException("Tenant not found");
+      }
+      if (
+        target.tenant_type === "platform_default" ||
+        target.tenant_code === "platform_default_tenant" ||
+        target.settings?.owned_by_platform === true
+      ) {
+        throw new BadRequestException("Default platform tenant cannot be deleted");
+      }
+      if (target.status === "archived") {
+        throw new BadRequestException("Tenant is already archived");
+      }
+
+      const defaultResult = await client.query(
+        `select *
+           from tenants
+          where status = 'active'
+            and (tenant_type = 'platform_default' or tenant_code = 'platform_default_tenant')
+          order by case when tenant_code = 'platform_default_tenant' then 0 else 1 end
+          limit 1
+          for update`
+      );
+      const defaultTenant = defaultResult.rows[0];
+      if (!defaultTenant) {
+        throw new NotFoundException("Default platform tenant is not initialized");
+      }
+      if (defaultTenant.id === target.id) {
+        throw new BadRequestException("Default platform tenant cannot be deleted");
+      }
+
+      await this.ensureDefaultProjectsForTenant(client, defaultTenant.id);
+      await client.query(
+        `create temp table tenant_migration_project_map on commit drop as
+         select old_project.id as old_project_id,
+                (
+                  select new_project.id
+                    from tenant_projects new_project
+                   where new_project.tenant_id = $2
+                     and new_project.status = 'active'
+                     and (
+                       new_project.platform is not distinct from old_project.platform
+                       or new_project.project_type = old_project.project_type
+                     )
+                   order by case
+                              when new_project.project_code = old_project.project_code then 0
+                              when new_project.platform is not distinct from old_project.platform then 1
+                              else 2
+                            end,
+                            new_project.created_at asc
+                   limit 1
+                ) as new_project_id
+           from tenant_projects old_project
+          where old_project.tenant_id = $1`,
+        [target.id, defaultTenant.id]
+      );
+
+      await client.query(
+        `insert into tenant_customers
+          (tenant_id, user_id, source_project_id, customer_code, status, metadata)
+         select $2,
+                old_customer.user_id,
+                project_map.new_project_id,
+                old_customer.customer_code,
+                'active',
+                coalesce(old_customer.metadata, '{}'::jsonb)
+                  || jsonb_build_object(
+                       'migrated_from_tenant_id', $1::text,
+                       'migrated_from_tenant_code', $3::text,
+                       'migrated_at', now()
+                     )
+           from tenant_customers old_customer
+           left join tenant_migration_project_map project_map
+             on project_map.old_project_id = old_customer.source_project_id
+          where old_customer.tenant_id = $1
+         on conflict (tenant_id, user_id) do update
+            set status = 'active',
+                source_project_id = coalesce(tenant_customers.source_project_id, excluded.source_project_id),
+                metadata = coalesce(tenant_customers.metadata, '{}'::jsonb)
+                  || jsonb_build_object(
+                       'last_migrated_from_tenant_id', $1::text,
+                       'last_migrated_from_tenant_code', $3::text,
+                       'last_migrated_at', now()
+                     ),
+                updated_at = now()`,
+        [target.id, defaultTenant.id, target.tenant_code]
+      );
+
+      await client.query(
+        `create temp table tenant_migration_customer_map on commit drop as
+         select old_customer.id as old_customer_id,
+                new_customer.id as new_customer_id,
+                old_customer.user_id
+           from tenant_customers old_customer
+           join tenant_customers new_customer
+             on new_customer.tenant_id = $2
+            and new_customer.user_id = old_customer.user_id
+          where old_customer.tenant_id = $1`,
+        [target.id, defaultTenant.id]
+      );
+
+      const migratedCustomers = await client.query<{ count: string }>(
+        `select count(*)::text as count from tenant_migration_customer_map`
+      );
+
+      await this.mergeTenantWallets(client, target.id, defaultTenant.id);
+      await this.repointCustomerScopedRows(client, target.id, defaultTenant.id);
+      await this.repointProjectScopedRows(client, target.id, defaultTenant.id);
+
+      await client.query(
+        `update tenant_customers
+            set status = 'archived',
+                metadata = coalesce(metadata, '{}'::jsonb)
+                  || jsonb_build_object('archived_by_tenant_delete', true, 'archived_at', now()),
+                updated_at = now()
+          where tenant_id = $1`,
+        [target.id]
+      );
+      await client.query(
+        `update tenant_memberships
+            set status = 'archived',
+                updated_at = now()
+          where tenant_id = $1`,
+        [target.id]
+      );
+      await client.query(
+        `update tenants
+            set status = 'archived',
+                settings = coalesce(settings, '{}'::jsonb)
+                  || jsonb_build_object(
+                       'deleted_at', now(),
+                       'deleted_by', $2::text,
+                       'delete_reason', $3::text,
+                       'migrated_to_tenant_id', $4::text
+                     ),
+                updated_at = now()
+          where id = $1
+          returning *`,
+        [target.id, actor.id ?? null, String(body.reason), defaultTenant.id]
+      );
+
+      return {
+        deleted_tenant: {
+          id: target.id,
+          tenant_code: target.tenant_code,
+          name: target.name
+        },
+        migrated_to_tenant: {
+          id: defaultTenant.id,
+          tenant_code: defaultTenant.tenant_code,
+          name: defaultTenant.name
+        },
+        migrated_customers: Number(migratedCustomers.rows[0]?.count ?? 0)
+      };
+    });
+
+    await this.audit.record({
+      actor,
+      action: "tenant.delete",
+      targetType: "tenants",
+      targetId: id,
+      afterValue: result,
+      reason: String(body.reason)
+    });
+    return result;
   }
 
   async suspendUser(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
@@ -2287,6 +2511,200 @@ export class AdminService {
     return { ok: true, affected: rowCount, period_start: periodStart, period_end: periodEnd, tenant_id: tenantId };
   }
 
+  private async ensureDefaultProjectsForTenant(client: PoolClient, tenantId: string) {
+    const projects = [
+      ["ios-app", "自营 iOS App", "ios_app", "ios", "com.chengchengxu.onetoken.dev", null, null, { payment_methods: ["apple_iap"] }],
+      ["android-app", "自营 Android App", "android_app", "android", null, "com.onetoken.app", null, { payment_methods: ["alipay_app", "wechat_app"] }],
+      ["web-checkout", "自营 Web 收银台", "web_checkout", "web", null, null, "localhost", { payment_methods: ["alipay_qr", "wechat_native", "card_checkout", "enterprise_transfer"] }],
+      ["developer-api", "自营开发者 API", "developer_api", "api", null, null, null, { payment_methods: [] }]
+    ] as const;
+    for (const project of projects) {
+      await client.query(
+        `insert into tenant_projects
+          (tenant_id, project_code, name, project_type, platform, bundle_id, package_name, web_domain, payment_policy, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, '{"source":"tenant_delete_fallback"}'::jsonb)
+         on conflict (tenant_id, project_code) do nothing`,
+        [tenantId, ...project.slice(0, 7), JSON.stringify(project[7])]
+      );
+    }
+  }
+
+  private async mergeTenantWallets(client: PoolClient, fromTenantId: string, toTenantId: string) {
+    await client.query(
+      `insert into wallets
+        (tenant_id, tenant_customer_id, user_id, currency, cash_balance, bonus_balance, frozen_balance, credit_limit, status)
+       select $2,
+              customer_map.new_customer_id,
+              old_wallet.user_id,
+              old_wallet.currency,
+              0,
+              0,
+              0,
+              0,
+              'active'
+         from wallets old_wallet
+         join tenant_migration_customer_map customer_map
+           on customer_map.user_id = old_wallet.user_id
+        where old_wallet.tenant_id = $1
+       on conflict (tenant_id, user_id, currency) do update
+          set tenant_customer_id = coalesce(wallets.tenant_customer_id, excluded.tenant_customer_id),
+              status = 'active',
+              updated_at = now()`,
+      [fromTenantId, toTenantId]
+    );
+
+    await client.query(
+      `create temp table tenant_migration_wallet_map on commit drop as
+       select old_wallet.id as old_wallet_id,
+              new_wallet.id as new_wallet_id,
+              old_wallet.user_id,
+              old_wallet.currency
+         from wallets old_wallet
+         join wallets new_wallet
+           on new_wallet.tenant_id = $2
+          and new_wallet.user_id = old_wallet.user_id
+          and new_wallet.currency = old_wallet.currency
+        where old_wallet.tenant_id = $1`,
+      [fromTenantId, toTenantId]
+    );
+
+    await client.query(
+      `update wallets new_wallet
+          set cash_balance = new_wallet.cash_balance + old_wallet.cash_balance,
+              bonus_balance = new_wallet.bonus_balance + old_wallet.bonus_balance,
+              frozen_balance = new_wallet.frozen_balance + old_wallet.frozen_balance,
+              credit_limit = greatest(new_wallet.credit_limit, old_wallet.credit_limit),
+              tenant_customer_id = coalesce(new_wallet.tenant_customer_id, customer_map.new_customer_id),
+              updated_at = now()
+         from wallets old_wallet
+         join tenant_migration_wallet_map wallet_map
+           on wallet_map.old_wallet_id = old_wallet.id
+         join tenant_migration_customer_map customer_map
+           on customer_map.user_id = old_wallet.user_id
+        where new_wallet.id = wallet_map.new_wallet_id`,
+      []
+    );
+
+    await client.query(
+      `update wallet_ledger ledger
+          set wallet_id = wallet_map.new_wallet_id,
+              tenant_id = $2,
+              tenant_customer_id = customer_map.new_customer_id,
+              metadata = coalesce(ledger.metadata, '{}'::jsonb)
+                || jsonb_build_object('migrated_from_tenant_id', $1::text, 'migrated_at', now())
+         from tenant_migration_wallet_map wallet_map
+         join tenant_migration_customer_map customer_map
+           on customer_map.user_id = wallet_map.user_id
+        where ledger.wallet_id = wallet_map.old_wallet_id`,
+      [fromTenantId, toTenantId]
+    );
+
+    await client.query(
+      `update wallets
+          set cash_balance = 0,
+              bonus_balance = 0,
+              frozen_balance = 0,
+              credit_limit = 0,
+              status = 'archived',
+              updated_at = now()
+        where tenant_id = $1`,
+      [fromTenantId]
+    );
+  }
+
+  private async repointCustomerScopedRows(client: PoolClient, fromTenantId: string, toTenantId: string) {
+    const tables = [
+      { name: "api_keys", hasProject: true, hasTenantCustomer: true },
+      { name: "request_logs", hasProject: true, hasTenantCustomer: true },
+      { name: "billing_records", hasProject: false, hasTenantCustomer: true },
+      { name: "payment_orders", hasProject: true, hasTenantCustomer: true },
+      { name: "payment_refunds", hasProject: true, hasTenantCustomer: true },
+      { name: "ios_iap_transactions", hasProject: true, hasTenantCustomer: true },
+      { name: "refresh_tokens", hasProject: true, hasTenantCustomer: true },
+      { name: "chat_sessions", hasProject: true, hasTenantCustomer: true },
+      { name: "chat_messages", hasProject: true, hasTenantCustomer: true },
+      { name: "chat_estimates", hasProject: true, hasTenantCustomer: true },
+      { name: "invoice_profiles", hasProject: false, hasTenantCustomer: true },
+      { name: "account_deletion_requests", hasProject: true, hasTenantCustomer: true },
+      { name: "content_reports", hasProject: true, hasTenantCustomer: true },
+      { name: "commission_withdrawals", hasProject: false, hasTenantCustomer: false }
+    ];
+
+    for (const table of tables) {
+      const setParts = ["tenant_id = $2"];
+      if (table.hasTenantCustomer) {
+        setParts.push("tenant_customer_id = coalesce(customer_map.new_customer_id, target.tenant_customer_id)");
+      }
+      if (table.hasProject) {
+        setParts.push("project_id = coalesce(project_map.new_project_id, target.project_id)");
+      }
+      const customerCondition = table.hasTenantCustomer
+        ? "(target.user_id = customer_map.user_id or target.tenant_customer_id = customer_map.old_customer_id)"
+        : "target.user_id = customer_map.user_id";
+      await client.query(
+        `update ${table.name} target
+            set ${setParts.join(", ")}
+           from tenant_migration_customer_map customer_map
+           ${table.hasProject ? "left join tenant_migration_project_map project_map on project_map.old_project_id = target.project_id" : ""}
+          where target.tenant_id = $1
+            and ${customerCondition}`,
+        [fromTenantId, toTenantId]
+      );
+    }
+
+    await client.query(
+      `update commission_records target
+          set tenant_id = $2,
+              tenant_customer_id = coalesce(customer_map.new_customer_id, target.tenant_customer_id)
+         from tenant_migration_customer_map customer_map
+        where target.tenant_id = $1
+          and (
+            target.beneficiary_user_id = customer_map.user_id
+            or target.tenant_customer_id = customer_map.old_customer_id
+          )`,
+      [fromTenantId, toTenantId]
+    );
+  }
+
+  private async repointProjectScopedRows(client: PoolClient, fromTenantId: string, toTenantId: string) {
+    const projectScopedTables = [
+      "payment_transactions",
+      "payment_order_events",
+      "payment_products",
+      "payment_product_visibility",
+      "payment_channels",
+      "distribution_policies",
+      "risk_events"
+    ];
+
+    for (const table of projectScopedTables) {
+      await client.query(
+        `update ${table} target
+            set tenant_id = $2,
+                project_id = coalesce(project_map.new_project_id, target.project_id)
+           from tenant_migration_project_map project_map
+          where target.tenant_id = $1
+            and target.project_id = project_map.old_project_id`,
+        [fromTenantId, toTenantId]
+      );
+      await client.query(
+        `update ${table}
+            set tenant_id = $2
+          where tenant_id = $1`,
+        [fromTenantId, toTenantId]
+      );
+    }
+
+    for (const table of ["payment_callbacks", "reconciliation_records", "tenant_revenue_share_records"]) {
+      await client.query(
+        `update ${table}
+            set tenant_id = $2
+          where tenant_id = $1`,
+        [fromTenantId, toTenantId]
+      );
+    }
+  }
+
   private async resolveProviderCredential(providerId: string, credentialId?: string) {
     const params = credentialId ? [providerId, credentialId] : [providerId];
     const { rows } = await this.db.query(
@@ -2503,6 +2921,45 @@ export class AdminService {
       return JSON.stringify(value ?? {});
     }
     return value;
+  }
+
+  private prepareTenantPayload(payload: Record<string, unknown>, creating: boolean) {
+    const allowedTenantTypes = new Set(["standard", "enterprise", "partner", "internal", "platform_default"]);
+    const allowedBillingModes = new Set(["prepaid", "postpaid", "subscription_usage", "revenue_share"]);
+    if (creating && String(payload.tenant_type ?? "standard") === "platform_default") {
+      throw new BadRequestException("Platform default tenant can only be initialized by migrations");
+    }
+    if (!payload.tenant_code && creating) {
+      payload.tenant_code = this.generateTenantCode(payload.name);
+    } else if (!payload.tenant_code) {
+      delete payload.tenant_code;
+    }
+    if (payload.tenant_code) {
+      payload.tenant_code = String(payload.tenant_code)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      if (!payload.tenant_code) {
+        payload.tenant_code = this.generateTenantCode(payload.name);
+      }
+    }
+    if (payload.tenant_type && !allowedTenantTypes.has(String(payload.tenant_type))) {
+      throw new BadRequestException("Invalid tenant_type");
+    }
+    if (payload.billing_mode && !allowedBillingModes.has(String(payload.billing_mode))) {
+      throw new BadRequestException("Invalid billing_mode");
+    }
+  }
+
+  private generateTenantCode(name: unknown) {
+    const base = String(name ?? "tenant")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 24) || "tenant";
+    return `${base}_${crypto.randomBytes(3).toString("hex")}`;
   }
 
   private asOptionalArray(value: unknown) {
@@ -2781,6 +3238,45 @@ export class AdminService {
     }
     if (project.rows[0].platform !== platform) {
       throw new BadRequestException("Project platform must match visibility platform");
+    }
+  }
+
+  private async validateAppRelease(payload: Record<string, unknown>) {
+    const tenantId = payload.tenant_id ? String(payload.tenant_id) : "";
+    const projectId = payload.project_id ? String(payload.project_id) : "";
+    const platform = payload.platform ? String(payload.platform) : "";
+    const releaseStatus = payload.release_status ? String(payload.release_status) : "draft";
+    if (!tenantId || !platform || !payload.version) {
+      throw new BadRequestException("tenant_id, platform and version are required");
+    }
+    if (!["ios", "android"].includes(platform)) {
+      throw new BadRequestException("App release platform must be ios or android");
+    }
+    if (!["draft", "published", "paused", "archived"].includes(releaseStatus)) {
+      throw new BadRequestException("Invalid release_status");
+    }
+    if (releaseStatus === "published" && !payload.download_url) {
+      throw new BadRequestException("Published app release requires download_url");
+    }
+    if (releaseStatus === "published" && !payload.published_at) {
+      payload.published_at = new Date().toISOString();
+    }
+    if (!projectId) {
+      return;
+    }
+    const project = await this.db.query<{ platform: string }>(
+      `select platform
+         from tenant_projects
+        where id = $1
+          and tenant_id = $2
+          and status = 'active'`,
+      [projectId, tenantId]
+    );
+    if (!project.rows[0]) {
+      throw new BadRequestException("Project is outside the selected tenant");
+    }
+    if (project.rows[0].platform !== platform) {
+      throw new BadRequestException("Project platform must match app release platform");
     }
   }
 

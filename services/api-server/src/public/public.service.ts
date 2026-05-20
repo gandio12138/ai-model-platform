@@ -241,16 +241,18 @@ export class PublicService {
   }
 
   async bootstrap(query: Record<string, unknown>) {
-    const [products, paymentMethods] = await Promise.all([
+    const [products, paymentMethods, appReleases] = await Promise.all([
       this.products(query),
-      this.paymentMethods(query)
+      this.paymentMethods(query),
+      this.appReleases(query)
     ]);
     return {
       tenant: products.tenant,
       project: products.project,
       platform: products.platform,
       products: products.products,
-      payment_methods: paymentMethods.payment_methods
+      payment_methods: paymentMethods.payment_methods,
+      app_releases: appReleases.data
     };
   }
 
@@ -312,6 +314,40 @@ export class PublicService {
       project: context.project,
       platform: context.platform,
       payment_methods: await this.listPaymentMethods(context)
+    };
+  }
+
+  async appReleases(query: Record<string, unknown>) {
+    const tenant = await this.resolveTenant(query);
+    const { rows } = await this.db.query(
+      `select distinct on (platform)
+              id,
+              tenant_id,
+              project_id,
+              platform,
+              distribution_channel,
+              version,
+              build_number,
+              release_status,
+              min_supported_version,
+              force_update,
+              download_url,
+              changelog,
+              file_size_bytes,
+              checksum_sha256,
+              published_at,
+              metadata,
+              updated_at
+         from app_releases
+        where tenant_id = $1
+          and release_status = 'published'
+          and coalesce(download_url, '') <> ''
+        order by platform, published_at desc nulls last, created_at desc`,
+      [tenant.id]
+    );
+    return {
+      tenant,
+      data: rows
     };
   }
 
@@ -1251,6 +1287,7 @@ export class PublicService {
           idempotencyKey: `payment:${order.id}:bonus`
         });
       }
+      await this.upsertTenantRevenueShare(client, order.id, { source: "public_mock_pay" });
 
       const paidRows = await client.query(
         `update payment_orders
@@ -1286,6 +1323,88 @@ export class PublicService {
     return { tenant, project, platform };
   }
 
+  private async upsertTenantRevenueShare(
+    client: QueryExecutor,
+    orderId: string,
+    metadata: Record<string, unknown>
+  ) {
+    await client.query(
+      `with source as (
+         select po.id as payment_order_id,
+                po.tenant_id,
+                po.amount as gross_amount,
+                t.billing_mode,
+                coalesce(rule.revenue_share_rate, 0)::numeric as revenue_share_rate,
+                coalesce(
+                  po.channel_fee_actual,
+                  po.channel_fee_estimate,
+                  ceil(po.amount * coalesce(pc.fee_rate_bps, 0)::numeric / 10000)::bigint,
+                  0
+                ) as channel_fee
+           from payment_orders po
+           join tenants t on t.id = po.tenant_id
+           left join payment_channels pc
+             on pc.tenant_id = po.tenant_id
+            and (pc.project_id is null or pc.project_id = po.project_id)
+            and pc.platform = po.platform
+            and (pc.channel_code = po.checkout_channel or pc.payment_method = po.payment_method)
+           left join lateral (
+             select revenue_share_rate
+               from tenant_billing_rules
+              where (tenant_id = po.tenant_id or tenant_id is null)
+                and status = 'published'
+                and effective_from <= now()
+                and (effective_to is null or effective_to > now())
+              order by tenant_id nulls last, effective_from desc
+              limit 1
+           ) rule on true
+          where po.id = $1
+       ),
+       calculated as (
+         select payment_order_id,
+                tenant_id,
+                billing_mode,
+                gross_amount,
+                least(channel_fee, gross_amount) as channel_fee,
+                case
+                  when billing_mode = 'revenue_share'
+                    then floor(greatest(gross_amount - least(channel_fee, gross_amount), 0) * revenue_share_rate)::bigint
+                  else 0
+                end as tenant_share,
+                revenue_share_rate
+           from source
+       )
+       insert into tenant_revenue_share_records
+         (tenant_id, payment_order_id, status, payment_gross_amount, payment_channel_fee,
+          provider_cost_amount, platform_share_amount, tenant_share_amount, revenue_share_rate, metadata)
+       select tenant_id,
+              payment_order_id,
+              case when billing_mode = 'revenue_share' then 'pending' else 'settled' end,
+              gross_amount,
+              channel_fee,
+              0,
+              greatest(gross_amount - channel_fee - tenant_share, 0),
+              tenant_share,
+              revenue_share_rate,
+              jsonb_build_object(
+                'source', 'payment_fulfillment',
+                'billing_mode', billing_mode,
+                'fulfillment_metadata', $2::jsonb
+              )
+         from calculated
+       on conflict (payment_order_id) do update
+          set status = excluded.status,
+              payment_gross_amount = excluded.payment_gross_amount,
+              payment_channel_fee = excluded.payment_channel_fee,
+              platform_share_amount = excluded.platform_share_amount,
+              tenant_share_amount = excluded.tenant_share_amount,
+              revenue_share_rate = excluded.revenue_share_rate,
+              metadata = coalesce(tenant_revenue_share_records.metadata, '{}'::jsonb) || excluded.metadata,
+              updated_at = now()`,
+      [orderId, JSON.stringify(metadata ?? {})]
+    );
+  }
+
   private resolvePlatform(value: unknown): Platform {
     const platform = String(value ?? "web");
     if (!platforms.includes(platform as Platform)) {
@@ -1297,7 +1416,7 @@ export class PublicService {
   private async resolveTenant(query: Record<string, unknown>) {
     if (query.tenant_id) {
       const { rows } = await this.db.query(
-        `select id, tenant_code, name
+        `select id, tenant_code, name, tenant_type, billing_mode, current_plan_code
            from tenants
           where id = $1
             and status = 'active'`,
@@ -1308,7 +1427,7 @@ export class PublicService {
     }
     const tenantCode = String(query.tenant_code ?? "platform_default_tenant");
     const { rows } = await this.db.query(
-      `select id, tenant_code, name
+      `select id, tenant_code, name, tenant_type, billing_mode, current_plan_code
          from tenants
         where tenant_code = $1
           and status = 'active'`,

@@ -712,6 +712,8 @@ class DioOneTokenApi implements OneTokenApi {
     return AppConfig(
       tenantId: tenant['id']?.toString() ?? context.tenantCode,
       projectId: project['id']?.toString() ?? context.projectCode,
+      tenantBillingMode: tenant['billing_mode']?.toString() ?? 'prepaid',
+      tenantPlanCode: tenant['current_plan_code']?.toString(),
       availablePaymentMethods: methods,
       showWebPaymentLink: !isIos,
       webPaymentUrl: !isIos ? '${env.apiBaseUrl}/checkout' : null,
@@ -727,6 +729,7 @@ class DioOneTokenApi implements OneTokenApi {
       paymentPageNotice: isIos
           ? '你正在通过 App Store 购买平台额度，钱包到账以服务端确认结果为准。'
           : '你正在通过平台统一收银台购买额度，应用市场仅作为分发渠道，不进入支付主干。',
+      settlementNotice: '客户付款进入同一钱包，租户结算由服务端基于支付订单和用量记录汇总。',
       iosIapEnabled: isIos,
       androidUnifiedCheckoutEnabled: !isIos,
     );

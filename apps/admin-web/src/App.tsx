@@ -13,6 +13,7 @@ import {
   FileTextOutlined,
   FileSearchOutlined,
   KeyOutlined,
+  MobileOutlined,
   PayCircleOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -79,6 +80,13 @@ const statusOptions = [
   { value: "draft", label: "草稿" }
 ];
 
+const tenantTypeOptions = [
+  { value: "standard", label: "标准租户" },
+  { value: "enterprise", label: "企业租户" },
+  { value: "partner", label: "渠道/代理租户" },
+  { value: "internal", label: "内部测试租户" }
+];
+
 const projectTypeOptions = [
   { value: "ios_app", label: "iOS App" },
   { value: "android_app", label: "Android App" },
@@ -126,9 +134,9 @@ const billingCycleOptions = [
 ];
 
 const billingModeOptions = [
-  { value: "subscription_usage", label: "订阅 + 用量" },
-  { value: "prepaid", label: "预付费" },
-  { value: "postpaid", label: "后付费" },
+  { value: "prepaid", label: "预付钱包（客户先充值后调用）" },
+  { value: "postpaid", label: "后付授信（按信用额度出账）" },
+  { value: "subscription_usage", label: "SaaS 套餐 + 用量" },
   { value: "revenue_share", label: "收入分成" }
 ];
 
@@ -162,6 +170,23 @@ const revenueShareStatusOptions = [
   { value: "pending", label: "待结算" },
   { value: "settled", label: "已结算" },
   { value: "reversed", label: "已冲正" }
+];
+
+const appReleaseStatusOptions = [
+  { value: "draft", label: "草稿" },
+  { value: "published", label: "已发布" },
+  { value: "paused", label: "暂停下载" },
+  { value: "archived", label: "归档" }
+];
+
+const distributionChannelOptions = [
+  { value: "app_store", label: "App Store" },
+  { value: "testflight", label: "TestFlight" },
+  { value: "official_apk", label: "官网 APK" },
+  { value: "huawei_market", label: "华为应用市场" },
+  { value: "xiaomi_market", label: "小米应用商店" },
+  { value: "yingyongbao", label: "应用宝" },
+  { value: "enterprise", label: "企业私发包" }
 ];
 
 type Permission = AdminSessionUser["permissions"][number];
@@ -206,7 +231,7 @@ const menuSections = [
     label: "租户运营",
     children: [
       { key: "/tenants", icon: <TeamOutlined />, label: "租户列表", permission: "platform.tenant.read_all", accountTypes: adminOnly },
-      { key: "/tenant-memberships", icon: <TeamOutlined />, label: "租户账号", permission: "platform.tenant.read_all", accountTypes: adminOnly },
+      { key: "/tenant-memberships", icon: <TeamOutlined />, label: "租户管理员账号", permission: "platform.tenant.read_all", accountTypes: adminOnly },
       { key: "/tenant-projects", icon: <DeploymentUnitOutlined />, label: "项目管理", permission: "tenant.project.read", accountTypes: adminAndTenant },
       { key: "/tenant-customers", icon: <TeamOutlined />, label: "客户账号", permission: "tenant.customer.read", accountTypes: adminAndTenant },
       { key: "/api-keys", icon: <KeyOutlined />, label: "API Key", permission: "api_key.read", accountTypes: adminAndTenant }
@@ -266,6 +291,7 @@ const menuSections = [
       { key: "/request-logs", icon: <FileSearchOutlined />, label: "请求日志", permission: "request_log.read", accountTypes: adminAndTenant },
       { key: "/provider-request-attempts", icon: <FileSearchOutlined />, label: "Provider 尝试", permission: "request_log.read", accountTypes: adminAndTenant },
       { key: "/configs", icon: <SettingOutlined />, label: "配置发布", permission: "config.read", accountTypes: adminOnly },
+      { key: "/app-releases", icon: <MobileOutlined />, label: "App 版本", permission: "config.read", accountTypes: adminOnly },
       { key: "/policy-documents", icon: <FileTextOutlined />, label: "协议政策", permission: "config.read", accountTypes: adminOnly },
       { key: "/content-reports", icon: <AuditOutlined />, label: "内容举报", permission: "audit.read", accountTypes: adminOnly },
       { key: "/account-deletion-requests", icon: <AuditOutlined />, label: "注销申请", permission: "audit.read", accountTypes: adminOnly },
@@ -393,31 +419,34 @@ function Shell({
                 adminOnly,
                 <ResourcePage
                   title="租户管理"
+                  description="新增租户是创建业务归属；租户管理员账号在单独页面创建。租户编码用于链接、注册归属和 API 上下文，新增时可留空由系统自动生成。删除租户会把客户、钱包、API Key 和历史使用数据迁移到默认租户，默认租户不可删除。"
                   endpoint="/api/admin/tenants"
                   rowKey="id"
                   columns={[
                     ["tenant_code", "租户编码"],
                     ["name", "租户名称"],
                     ["tenant_type", "租户类型"],
-                    ["billing_mode", "计费模式"],
+                    ["billing_mode", "计费模式", "select", undefined, undefined, billingModeOptions],
                     ["current_plan_code", "当前套餐"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
                     ["created_at", "创建时间"]
                   ]}
                   editableFields={[
-                    ["tenant_code", "租户编码"],
+                    ["tenant_code", "租户编码（留空自动生成）"],
                     ["name", "租户名称"],
-                    ["tenant_type", "租户类型"],
-                    ["billing_mode", "计费模式"],
-                    ["current_plan_code", "当前套餐"],
-                    ["credit_limit", "授信额度，单位分", "number"],
-                    ["prepaid_balance", "预付余额，单位分", "number"],
-                    ["monthly_budget", "月预算，单位分", "number"],
+                    ["tenant_type", "租户类型", "select", undefined, undefined, tenantTypeOptions],
+                    ["billing_mode", "计费模式", "select", undefined, undefined, billingModeOptions],
+                    ["current_plan_code", "当前套餐编码"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
                     ["settings", "租户设置 JSON", "json"]
                   ]}
                   canCreate={can("platform.tenant.write_all")}
                   canEdit={can("platform.tenant.write_all")}
+                  canDelete={can("platform.tenant.write_all")}
+                  deleteDisabled={(row) => row.tenant_type === "platform_default" || row.tenant_code === "platform_default_tenant" || row.settings?.owned_by_platform === true}
+                  deleteConfirmTitle="删除租户并迁移客户？"
+                  deleteConfirmDescription="系统会把该租户下的客户、钱包余额、API Key、聊天和账单上下文迁移到默认租户，然后将原租户归档隐藏。默认租户不可删除。"
+                  deleteReason="删除租户并迁移客户到默认租户"
                 />
               )}
             />
@@ -499,14 +528,15 @@ function Shell({
                 adminOnly,
                 <ResourcePage
                   title="租户套餐"
+                  description="这里配置的是卖给租户的 SaaS 服务套餐；Web/App 上展示给客户购买的是“客户套餐 / 付费商品”。金额统一按元录入，后端仍以整数分存储。"
                   endpoint="/api/admin/tenant-plans"
                   rowKey="id"
                   columns={[
                     ["plan_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["billing_cycle", "计费周期", "select", undefined, undefined, billingCycleOptions],
-                    ["base_fee_amount", "基础服务费，单位分"],
-                    ["included_credit", "包含抵扣额度，单位分"],
+                    ["base_fee_amount", "基础服务费（元）", "money"],
+                    ["included_credit", "包含抵扣额度（元）", "money"],
                     ["included_token_budget", "包含 Token 预算"],
                     ["support_level", "支持等级"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
@@ -515,9 +545,9 @@ function Shell({
                     ["plan_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["billing_cycle", "计费周期", "select", undefined, undefined, billingCycleOptions],
-                    ["base_fee_amount", "基础服务费，单位分", "number"],
+                    ["base_fee_amount", "基础服务费（元）", "money"],
                     ["currency", "币种"],
-                    ["included_credit", "包含抵扣额度，单位分", "number"],
+                    ["included_credit", "包含抵扣额度（元）", "money"],
                     ["included_token_budget", "包含 Token 预算", "number"],
                     ["max_projects", "项目数上限", "number"],
                     ["max_customers", "客户数上限", "number"],
@@ -562,8 +592,8 @@ function Shell({
                     ["next_billing_at", "下次出账 ISO"],
                     ["cancel_at", "取消时间 ISO"],
                     ["seat_count", "席位数", "number"],
-                    ["base_fee_amount", "基础服务费，单位分", "number"],
-                    ["included_credit", "包含抵扣额度，单位分", "number"],
+                    ["base_fee_amount", "基础服务费（元）", "money"],
+                    ["included_credit", "包含抵扣额度（元）", "money"],
                     ["metadata", "扩展信息 JSON", "json"]
                   ]}
                   canCreate={can("tenant.billing.write")}
@@ -587,8 +617,8 @@ function Shell({
                     ["rule_version", "版本"],
                     ["billing_mode", "计费模式", "select", undefined, undefined, billingModeOptions],
                     ["price_type", "计价方式", "select", undefined, undefined, priceTypeOptions],
-                    ["base_fee_amount", "基础服务费，单位分"],
-                    ["min_commit_amount", "最低消费，单位分"],
+                    ["base_fee_amount", "基础服务费（元）", "money"],
+                    ["min_commit_amount", "最低消费（元）", "money"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
@@ -598,10 +628,10 @@ function Shell({
                     ["status", "状态", "select", undefined, undefined, statusOptions],
                     ["billing_mode", "计费模式", "select", undefined, undefined, billingModeOptions],
                     ["price_type", "计价方式", "select", undefined, undefined, priceTypeOptions],
-                    ["base_fee_amount", "基础服务费，单位分", "number"],
-                    ["included_credit", "包含抵扣额度，单位分", "number"],
+                    ["base_fee_amount", "基础服务费（元）", "money"],
+                    ["included_credit", "包含抵扣额度（元）", "money"],
                     ["included_token_budget", "包含 Token 预算", "number"],
-                    ["min_commit_amount", "最低消费，单位分", "number"],
+                    ["min_commit_amount", "最低消费（元）", "money"],
                     ["cost_plus_markup_rate", "成本加价率"],
                     ["min_margin_multiplier", "最低毛利倍率"],
                     ["revenue_share_rate", "收入分成比例"],
@@ -633,7 +663,7 @@ function Shell({
                     ["max_context_tokens", "上下文上限"],
                     ["rpm_limit", "RPM"],
                     ["tpm_limit", "TPM"],
-                    ["monthly_budget", "月预算，单位分"]
+                    ["monthly_budget", "月预算（元）", "money"]
                   ]}
                   editableFields={[
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
@@ -642,8 +672,8 @@ function Shell({
                     ["max_context_tokens", "上下文上限", "number"],
                     ["rpm_limit", "RPM", "number"],
                     ["tpm_limit", "TPM", "number"],
-                    ["daily_budget", "日预算，单位分", "number"],
-                    ["monthly_budget", "月预算，单位分", "number"],
+                    ["daily_budget", "日预算（元）", "money"],
+                    ["monthly_budget", "月预算（元）", "money"],
                     ["metadata", "扩展信息 JSON", "json"]
                   ]}
                   canCreate={can("tenant.model.write")}
@@ -666,8 +696,8 @@ function Shell({
                     ["model_display_name", "展示名"],
                     ["price_version", "价格版本"],
                     ["pricing_mode", "计价模式", "select", undefined, undefined, pricingModeOptions],
-                    ["input_price_per_1k", "输入/1K，单位分"],
-                    ["output_price_per_1k", "输出/1K，单位分"],
+                    ["input_price_per_1k", "输入/1K（元）", "money"],
+                    ["output_price_per_1k", "输出/1K（元）", "money"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
@@ -676,8 +706,8 @@ function Shell({
                     ["price_version", "价格版本"],
                     ["currency", "币种"],
                     ["pricing_mode", "计价模式", "select", undefined, undefined, pricingModeOptions],
-                    ["input_price_per_1k", "输入/1K，单位分", "number"],
-                    ["output_price_per_1k", "输出/1K，单位分", "number"],
+                    ["input_price_per_1k", "输入/1K（元）", "money"],
+                    ["output_price_per_1k", "输出/1K（元）", "money"],
                     ["min_margin_multiplier", "最低毛利倍率"],
                     ["cost_plus_markup_rate", "成本加价率"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
@@ -707,9 +737,9 @@ function Shell({
                     ["period_end", "期间结束"],
                     ["total_requests", "请求数"],
                     ["total_tokens", "Token 数"],
-                    ["provider_cost_amount", "供应商成本，单位分"],
-                    ["tenant_wholesale_amount", "租户批发价，单位分"],
-                    ["end_user_revenue_amount", "客户付款金额，单位分"]
+                    ["provider_cost_amount", "供应商成本（元）", "money"],
+                    ["tenant_wholesale_amount", "租户批发价（元）", "money"],
+                    ["end_user_revenue_amount", "客户付款金额（元）", "money"]
                   ]}
                 />
               )}
@@ -727,10 +757,10 @@ function Shell({
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
                     ["payment_order_id", "支付订单"],
                     ["status", "状态", "select", undefined, undefined, revenueShareStatusOptions],
-                    ["payment_gross_amount", "付款总额，单位分"],
-                    ["payment_channel_fee", "支付通道费，单位分"],
-                    ["platform_share_amount", "平台分成，单位分"],
-                    ["tenant_share_amount", "租户分成，单位分"],
+                    ["payment_gross_amount", "付款总额（元）", "money"],
+                    ["payment_channel_fee", "支付通道费（元）", "money"],
+                    ["platform_share_amount", "平台分成（元）", "money"],
+                    ["tenant_share_amount", "租户分成（元）", "money"],
                     ["revenue_share_rate", "分成比例"]
                   ]}
                   editableFields={[
@@ -757,9 +787,9 @@ function Shell({
                     ["beneficiary_user_id", "受益账号", "select", "/api/admin/users", "email"],
                     ["source_user_id", "来源账号", "select", "/api/admin/users", "email"],
                     ["payment_order_id", "支付订单"],
-                    ["commission_base_amount", "佣金基数，单位分"],
+                    ["commission_base_amount", "佣金基数（元）", "money"],
                     ["commission_rate", "佣金比例"],
-                    ["commission_amount", "佣金金额，单位分"],
+                    ["commission_amount", "佣金金额（元）", "money"],
                     ["status", "状态"],
                     ["created_at", "创建时间"]
                   ]}
@@ -783,7 +813,7 @@ function Shell({
                   columns={[
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
                     ["user_id", "客户账号", "select", "/api/admin/users", "email"],
-                    ["amount", "提现金额，单位分"],
+                    ["amount", "提现金额（元）", "money"],
                     ["status", "状态"],
                     ["payout_method", "提现方式"],
                     ["payout_account_mask", "提现账号"],
@@ -905,9 +935,9 @@ function Shell({
                     ["product_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["product_type", "套餐类型", "select", undefined, undefined, paymentProductTypeOptions],
-                    ["face_value_amount", "到账额度，单位分"],
-                    ["bonus_amount", "赠送额度，单位分"],
-                    ["sale_amount", "售价，单位分"],
+                    ["face_value_amount", "到账额度（元）", "money"],
+                    ["bonus_amount", "赠送额度（元）", "money"],
+                    ["sale_amount", "售价（元）", "money"],
                     ["visible_platforms", "展示端"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
@@ -916,9 +946,9 @@ function Shell({
                     ["product_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["product_type", "套餐类型", "select", undefined, undefined, paymentProductTypeOptions],
-                    ["face_value_amount", "到账额度，单位分", "number"],
-                    ["bonus_amount", "赠送额度，单位分", "number"],
-                    ["sale_amount", "售价，单位分", "number"],
+                    ["face_value_amount", "到账额度（元）", "money"],
+                    ["bonus_amount", "赠送额度（元）", "money"],
+                    ["sale_amount", "售价（元）", "money"],
                     ["currency", "币种"],
                     ["ios_product_id", "App Store 商品 ID"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
@@ -1218,6 +1248,49 @@ function Shell({
               )}
             />
             <Route path="/configs" element={page("config.read", adminOnly, <ConfigPage canWrite={can("config.write")} canPublish={can("config.publish")} />)} />
+            <Route
+              path="/app-releases"
+              element={page(
+                "config.read",
+                adminOnly,
+                <ResourcePage
+                  title="App 版本下载"
+                  description="管理 Web 首页展示的 iOS / Android 下载入口。这里只配置版本、渠道、下载地址和更新策略；真实 App Store/TestFlight/官网 APK 文件仍由对应发布平台或对象存储托管。"
+                  endpoint="/api/admin/app-releases"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["platform", "平台", "select", undefined, undefined, platformOptions],
+                    ["distribution_channel", "分发渠道", "select", undefined, undefined, distributionChannelOptions],
+                    ["version", "版本号"],
+                    ["build_number", "Build"],
+                    ["release_status", "状态", "select", undefined, undefined, appReleaseStatusOptions],
+                    ["download_url", "下载地址"],
+                    ["published_at", "发布时间"]
+                  ]}
+                  editableFields={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["platform", "平台", "select", undefined, undefined, platformOptions.filter((item) => item.value === "ios" || item.value === "android")],
+                    ["distribution_channel", "分发渠道", "select", undefined, undefined, distributionChannelOptions],
+                    ["version", "版本号"],
+                    ["build_number", "Build", "number"],
+                    ["release_status", "状态", "select", undefined, undefined, appReleaseStatusOptions],
+                    ["min_supported_version", "最低支持版本"],
+                    ["force_update", "强制更新", "boolean"],
+                    ["download_url", "下载地址"],
+                    ["changelog", "更新说明"],
+                    ["file_size_bytes", "文件大小 Bytes", "number"],
+                    ["checksum_sha256", "SHA-256"],
+                    ["published_at", "发布时间 ISO"],
+                    ["metadata", "扩展信息 JSON", "json"]
+                  ]}
+                  canCreate={can("config.write")}
+                  canEdit={can("config.write")}
+                />
+              )}
+            />
             <Route
               path="/policy-documents"
               element={page(

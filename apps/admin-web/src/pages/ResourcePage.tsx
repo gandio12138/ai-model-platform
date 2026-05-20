@@ -1,4 +1,4 @@
-import { Button, Descriptions, Drawer, Form, Input, InputNumber, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
@@ -9,7 +9,7 @@ type FieldOption = { label: string; value: string };
 export type FieldSpec = [
   key: string,
   label: string,
-  kind?: "text" | "number" | "boolean" | "json" | "select",
+  kind?: "text" | "number" | "money" | "boolean" | "json" | "select",
   optionsEndpoint?: string,
   optionLabelKey?: string,
   staticOptions?: FieldOption[]
@@ -17,12 +17,18 @@ export type FieldSpec = [
 
 interface ResourcePageProps {
   title: string;
+  description?: string;
   endpoint: string;
   rowKey: string;
   columns: FieldSpec[];
   editableFields?: FieldSpec[];
   canCreate?: boolean;
   canEdit?: boolean;
+  canDelete?: boolean;
+  deleteDisabled?: (row: any) => boolean;
+  deleteConfirmTitle?: string;
+  deleteConfirmDescription?: string;
+  deleteReason?: string;
 }
 
 const fieldLabels: Record<string, string> = {
@@ -212,8 +218,51 @@ const fieldLabels: Record<string, string> = {
   subject_id: "主体 ID",
   ip_address: "IP",
   device_id: "设备 ID",
-  distribution_channel: "分发渠道"
+  distribution_channel: "分发渠道",
+  build_number: "Build",
+  release_status: "发布状态",
+  min_supported_version: "最低支持版本",
+  force_update: "强制更新",
+  download_url: "下载地址",
+  changelog: "更新说明",
+  file_size_bytes: "文件大小 Bytes",
+  checksum_sha256: "SHA-256"
 };
+
+const moneyFieldKeys = new Set([
+  "amount",
+  "base_fee_amount",
+  "bonus_amount",
+  "cash_balance",
+  "channel_amount",
+  "commission_amount",
+  "commission_base_amount",
+  "credit_limit",
+  "daily_budget",
+  "discount_amount",
+  "face_value_amount",
+  "frozen_balance",
+  "gross_amount",
+  "included_credit",
+  "input_price_per_1k",
+  "local_amount",
+  "min_commit_amount",
+  "monthly_budget",
+  "net_amount",
+  "output_price_per_1k",
+  "paid_amount",
+  "payment_channel_fee",
+  "payment_gross_amount",
+  "platform_share_amount",
+  "prepaid_balance",
+  "provider_cost_amount",
+  "sale_amount",
+  "subtotal_amount",
+  "tax_amount",
+  "tenant_share_amount",
+  "tenant_wholesale_amount",
+  "total_amount"
+]);
 
 const valueLabels: Record<string, Record<string, string>> = {
   platform: {
@@ -251,10 +300,17 @@ const valueLabels: Record<string, Record<string, string>> = {
     yearly: "年付"
   },
   billing_mode: {
-    subscription_usage: "订阅 + 用量",
-    prepaid: "预付费",
-    postpaid: "后付费",
+    subscription_usage: "SaaS 套餐 + 用量",
+    prepaid: "预付钱包",
+    postpaid: "后付授信",
     revenue_share: "收入分成"
+  },
+  tenant_type: {
+    platform_default: "默认租户",
+    standard: "标准租户",
+    enterprise: "企业租户",
+    partner: "渠道/代理租户",
+    internal: "内部测试租户"
   },
   price_type: {
     cost_plus: "成本加价",
@@ -309,6 +365,12 @@ const valueLabels: Record<string, Record<string, string>> = {
     verified: "已验证",
     received: "已接收"
   },
+  release_status: {
+    draft: "草稿",
+    published: "已发布",
+    paused: "暂停下载",
+    archived: "归档"
+  },
   policy_type: {
     terms: "用户协议",
     privacy: "隐私政策",
@@ -354,13 +416,25 @@ function getFieldLabel(key: string, labels: Record<string, string>) {
   return labels[key] ?? fieldLabels[key] ?? key;
 }
 
-function renderValue(value: unknown, key?: string, options?: FieldOption[]) {
+function formatMoney(value: unknown) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return String(value ?? "-");
+  return `¥${(amount / 100).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
+
+function renderValue(value: unknown, key?: string, kind?: FieldSpec[2], options?: FieldOption[]) {
   if (key === "visible_platforms" && typeof value === "string") {
     return value
       .split(",")
       .filter(Boolean)
       .map((platform) => valueLabels.platform?.[platform] ?? platform)
       .join("、") || "-";
+  }
+  if ((kind === "money" || (key && moneyFieldKeys.has(key))) && value !== null && value !== undefined) {
+    return <Typography.Text strong>{formatMoney(value)}</Typography.Text>;
   }
   if (options?.length && typeof value === "string") {
     return options.find((option) => option.value === value)?.label ?? value;
@@ -386,6 +460,8 @@ function buildPayload(values: Record<string, unknown>, fields: FieldSpec[]) {
     const value = values[key];
     if (kind === "json") {
       payload[key] = value ? JSON.parse(String(value)) : {};
+    } else if (kind === "money") {
+      payload[key] = value === undefined || value === null || value === "" ? null : Math.round(Number(value) * 100);
     } else {
       payload[key] = value;
     }
@@ -464,9 +540,29 @@ export default function ResourcePage(props: ResourcePageProps) {
       title: label,
       dataIndex: key,
       ellipsis: true,
-      render: (value: unknown) => renderValue(value, key, kind === "select" ? options[key] : undefined)
+      render: (value: unknown) => renderValue(value, key, kind, kind === "select" ? options[key] : undefined)
     }));
-    if (!editable.length) {
+    const renderActions = (_: unknown, row: any) => {
+      const deleteDisabled = props.deleteDisabled?.(row) ?? false;
+      return (
+        <Space>
+          <Button size="small" onClick={() => setDetail(row)}>
+            详情
+          </Button>
+          {editable.length > 0 && (
+            <Button size="small" onClick={() => startEdit(row)}>
+              编辑
+            </Button>
+          )}
+          {props.canDelete && (
+            <Button size="small" danger disabled={deleteDisabled} onClick={() => confirmDelete(row)}>
+              删除
+            </Button>
+          )}
+        </Space>
+      );
+    };
+    if (!editable.length && !props.canDelete) {
       return [
         ...base,
         {
@@ -485,21 +581,12 @@ export default function ResourcePage(props: ResourcePageProps) {
       ...base,
       {
         title: "操作",
-        width: 142,
+        width: props.canDelete ? 210 : 142,
         fixed: "right",
-        render: (_, row) => (
-          <Space>
-            <Button size="small" onClick={() => setDetail(row)}>
-              详情
-            </Button>
-            <Button size="small" onClick={() => startEdit(row)}>
-              编辑
-            </Button>
-          </Space>
-        )
+        render: renderActions
       }
     ];
-  }, [props.columns, editable.length, options]);
+  }, [props.columns, editable.length, options, props.canDelete, props.deleteDisabled]);
 
   function startEdit(row?: any) {
     setEditing(row ?? null);
@@ -508,9 +595,37 @@ export default function ResourcePage(props: ResourcePageProps) {
       if (kind === "json" && values[key] !== undefined) {
         values[key] = JSON.stringify(values[key] ?? {}, null, 2);
       }
+      if (kind === "money" && values[key] !== undefined && values[key] !== null) {
+        values[key] = Number(values[key]) / 100;
+      }
     }
     form.setFieldsValue(values);
     setOpen(true);
+  }
+
+  function confirmDelete(row: any) {
+    Modal.confirm({
+      title: props.deleteConfirmTitle ?? "确认删除这条记录？",
+      content: props.deleteConfirmDescription ?? "删除操作会写入审计日志，请确认业务影响。",
+      okText: "确认删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      async onOk() {
+        try {
+          await apiFetch(`${props.endpoint}/${row[props.rowKey]}`, {
+            method: "DELETE",
+            body: JSON.stringify({
+              reason: props.deleteReason ?? "admin delete from resource page"
+            })
+          });
+          message.success("已删除");
+          await load();
+        } catch (error) {
+          message.error((error as Error).message);
+          throw error;
+        }
+      }
+    });
   }
 
   async function submit(values: Record<string, unknown>) {
@@ -540,7 +655,7 @@ export default function ResourcePage(props: ResourcePageProps) {
       <div className="page-header">
         <div>
           <Typography.Title level={3}>{props.title}</Typography.Title>
-          <Typography.Text type="secondary">筛选、查看详情和执行受控操作</Typography.Text>
+          <Typography.Text type="secondary">{props.description ?? "筛选、查看详情和执行受控操作"}</Typography.Text>
         </div>
         <Space>
           <Input.Search
@@ -579,6 +694,8 @@ export default function ResourcePage(props: ResourcePageProps) {
             <Form.Item key={key} label={label} name={key} valuePropName={kind === "boolean" ? "checked" : "value"}>
               {kind === "number" ? (
                 <InputNumber className="full-width" />
+              ) : kind === "money" ? (
+                <InputNumber className="full-width" min={0} precision={2} step={1} addonAfter="元" />
               ) : kind === "boolean" ? (
                 <Switch />
               ) : kind === "select" ? (
@@ -616,7 +733,7 @@ export default function ResourcePage(props: ResourcePageProps) {
           <Descriptions column={1} bordered size="small">
             {Object.entries(detail).map(([key, value]) => (
               <Descriptions.Item key={key} label={getFieldLabel(key, labelMap)}>
-                {renderValue(value, key, options[key])}
+                {renderValue(value, key, undefined, options[key])}
               </Descriptions.Item>
             ))}
           </Descriptions>
