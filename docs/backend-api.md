@@ -1,6 +1,6 @@
 # Backend API Notes
 
-更新时间：2026-05-19
+更新时间：2026-05-20
 
 ## Customer Auth
 
@@ -93,8 +93,33 @@
 - `GET /api/payment/orders/:order_id`
 - `POST /api/payment/orders/:order_id/sync`
 - `POST /api/payment/orders/:order_id/cancel`
+- `POST /api/payment/ios/iap/transactions`
+- `POST /api/payment/webhooks/:channelCode`
 
-P0 中 `sync` 只记录查询事件，不会伪造支付成功。真实查单、验签、回调和退款在 P1 接入。
+P1 当前行为：
+
+- `sync` 只记录主动查单事件；未配置真实 adapter 时不会伪造支付成功。
+- `POST /api/payment/ios/iap/transactions` 在 dev/sandbox 可接收 Apple IAP transaction 并幂等入账；`NODE_ENV=production` 必须配置 Apple App Store Server API 密钥，否则返回 503。
+- Android 统一收银台对 App 暴露 `alipay_app_pay`、`wechat_app_pay`、`card_hosted_checkout`；服务端内部兼容现有 `alipay_app`、`wechat_app` 渠道配置。
+- 支付订单状态流转写入 `payment_order_events`，交易确认写入 `payment_transactions`。
+- 支付成功和权益到账分离：只有订单进入 `FULFILLED` 后才视为钱包到账。
+
+仍需真实商户/平台配置后完成 Alipay、WeChat、hosted card、Apple Server API 的验签、查单、回调确认和退款冲正。
+
+## Admin Payment / Risk Ops
+
+Admin 新增运营资源：
+
+- `GET /api/admin/payment/transactions`
+- `GET /api/admin/payment/order-events`
+- `GET /api/admin/payment/callbacks`
+- `GET /api/admin/reconciliation/records`
+- `GET /api/admin/provider-request-attempts`
+- `GET /api/admin/content-reports`
+- `PATCH /api/admin/content-reports/:id`
+- `GET /api/admin/account-deletion-requests`
+- `PATCH /api/admin/account-deletion-requests/:id`
+- `GET /api/admin/risk-events`
 
 ## Developer
 

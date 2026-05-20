@@ -493,6 +493,18 @@ export class AdminController {
     return this.admin.list("paymentCallbacks", query, req.user);
   }
 
+  @RequirePermissions("payment.read")
+  @Get("payment/transactions")
+  paymentTransactions(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("paymentTransactions", query, req.user);
+  }
+
+  @RequirePermissions("payment.read")
+  @Get("payment/order-events")
+  paymentOrderEvents(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("paymentOrderEvents", query, req.user);
+  }
+
   @RequirePermissions("payment.reconcile")
   @Get("reconciliation/records")
   reconciliationRecords(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -555,6 +567,12 @@ export class AdminController {
     return this.admin.list("requestLogs", query, req.user);
   }
 
+  @RequirePermissions("request_log.read")
+  @Get("provider-request-attempts")
+  providerRequestAttempts(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("providerRequestAttempts", query, req.user);
+  }
+
   @RequirePermissions("wallet.read")
   @Get("billing-records")
   billingRecords(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -584,5 +602,35 @@ export class AdminController {
   @Get("audit-logs")
   auditLogs(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.list("auditLogs", query, req.user);
+  }
+
+  @RequirePermissions("audit.read")
+  @Get("content-reports")
+  contentReports(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("contentReports", query, req.user);
+  }
+
+  @RequirePermissions("audit.read")
+  @Patch("content-reports/:id")
+  updateContentReport(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("contentReports", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("audit.read")
+  @Get("account-deletion-requests")
+  accountDeletionRequests(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("accountDeletionRequests", query, req.user);
+  }
+
+  @RequirePermissions("audit.read")
+  @Patch("account-deletion-requests/:id")
+  updateAccountDeletionRequest(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("accountDeletionRequests", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("audit.read")
+  @Get("risk-events")
+  riskEvents(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("riskEvents", query, req.user);
   }
 }

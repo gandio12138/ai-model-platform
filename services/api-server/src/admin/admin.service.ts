@@ -12,6 +12,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { AuditActor, AuditService } from "../common/audit.service.js";
 import { CryptoService } from "../common/crypto.service.js";
 import { parsePagination, requireReason } from "../common/http.js";
+import { PaymentService } from "../payment/payment.service.js";
 
 interface ResourceConfig {
   table: string;
@@ -471,6 +472,20 @@ const resourceMap: Record<string, ResourceConfig> = {
     writable: [],
     tenantScopeColumn: "tenant_id"
   },
+  paymentTransactions: {
+    table: "payment_transactions",
+    readPermission: "payment.read",
+    searchable: ["transaction_type", "channel_code", "channel_trade_no", "status"],
+    writable: [],
+    tenantScopeColumn: "tenant_id"
+  },
+  paymentOrderEvents: {
+    table: "payment_order_events",
+    readPermission: "payment.read",
+    searchable: ["event_type", "from_status", "to_status", "reason", "actor_type"],
+    writable: [],
+    tenantScopeColumn: "tenant_id"
+  },
   reconciliationRecords: {
     table: "reconciliation_records",
     readPermission: "payment.reconcile",
@@ -519,6 +534,13 @@ const resourceMap: Record<string, ResourceConfig> = {
     tenantScopeColumn: "tenant_id",
     customerScopeColumn: "user_id"
   },
+  providerRequestAttempts: {
+    table: "provider_request_attempts",
+    readPermission: "request_log.read",
+    searchable: ["provider_model_code", "status", "error_code"],
+    writable: [],
+    tenantScopeColumn: "tenant_id"
+  },
   billingRecords: {
     table: "billing_records",
     readPermission: "wallet.read",
@@ -535,6 +557,32 @@ const resourceMap: Record<string, ResourceConfig> = {
     writable: ["status", "metadata"],
     tenantScopeColumn: "tenant_id",
     customerScopeColumn: "beneficiary_user_id"
+  },
+  contentReports: {
+    table: "content_reports",
+    readPermission: "audit.read",
+    writePermission: "audit.read",
+    searchable: ["target_type", "target_id", "reason", "status"],
+    writable: ["status", "metadata"],
+    tenantScopeColumn: "tenant_id",
+    customerScopeColumn: "user_id"
+  },
+  accountDeletionRequests: {
+    table: "account_deletion_requests",
+    readPermission: "audit.read",
+    writePermission: "audit.read",
+    searchable: ["status", "reason", "requested_from"],
+    writable: ["status", "balance_policy", "metadata"],
+    tenantScopeColumn: "tenant_id",
+    customerScopeColumn: "user_id"
+  },
+  riskEvents: {
+    table: "risk_events",
+    readPermission: "audit.read",
+    searchable: ["event_type", "risk_level", "subject_type", "subject_id", "distribution_channel"],
+    writable: [],
+    tenantScopeColumn: "tenant_id",
+    customerScopeColumn: "user_id"
   },
   customerAssignments: {
     table: "admin_customer_accounts",
@@ -558,7 +606,8 @@ export class AdminService {
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(AuditService) private readonly audit: AuditService,
-    @Inject(CryptoService) private readonly crypto: CryptoService
+    @Inject(CryptoService) private readonly crypto: CryptoService,
+    @Inject(PaymentService) private readonly payment: PaymentService
   ) {}
 
   assertPlatformAdmin(user: any) {
@@ -1915,14 +1964,11 @@ export class AdminService {
     requireReason(body);
     const before = await this.findById(resourceMap.paymentOrders, orderId);
     await this.assertRecordScope(resourceMap.paymentOrders, before, user);
-    const { rows } = await this.db.query(
-      `update payment_orders
-          set status = 'REFUNDING',
-              metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
-              updated_at = now()
-        where id = $2
-        returning *`,
-      [JSON.stringify({ refund_reason: body.reason, refund_amount: body.amount ?? null }), orderId]
+    const result = await this.payment.requestRefund(
+      orderId,
+      body.amount === undefined || body.amount === null ? null : Number(body.amount),
+      String(body.reason),
+      "admin"
     );
     await this.audit.record({
       actor,
@@ -1930,10 +1976,10 @@ export class AdminService {
       targetType: "payment_orders",
       targetId: orderId,
       beforeValue: before,
-      afterValue: rows[0],
+      afterValue: result,
       reason: String(body.reason)
     });
-    return rows[0];
+    return result;
   }
 
   async syncOrder(orderId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
@@ -1941,24 +1987,17 @@ export class AdminService {
     requireReason(body);
     const before = await this.findById(resourceMap.paymentOrders, orderId);
     await this.assertRecordScope(resourceMap.paymentOrders, before, user);
-    const { rows } = await this.db.query(
-      `update payment_orders
-          set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
-              updated_at = now()
-        where id = $2
-        returning *`,
-      [JSON.stringify({ manual_sync_at: new Date().toISOString(), sync_reason: body.reason }), orderId]
-    );
+    const result = await this.payment.syncOrder(orderId, String(body.reason), "admin");
     await this.audit.record({
       actor,
       action: "payment.order.sync",
       targetType: "payment_orders",
       targetId: orderId,
       beforeValue: before,
-      afterValue: rows[0],
+      afterValue: result,
       reason: String(body.reason)
     });
-    return rows[0];
+    return result;
   }
 
   async publishConfig(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {

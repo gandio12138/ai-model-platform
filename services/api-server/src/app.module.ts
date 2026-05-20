@@ -7,6 +7,7 @@ import { PublicModule } from "./public/public.module.js";
 import { CustomerModule } from "./customer/customer.module.js";
 import { AppConfigModule } from "./app-config/app-config.module.js";
 import { AiGatewayModule } from "./ai/ai-gateway.module.js";
+import { PaymentModule } from "./payment/payment.module.js";
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { AiGatewayModule } from "./ai/ai-gateway.module.js";
     PublicModule,
     CustomerModule,
     AppConfigModule,
-    AiGatewayModule
+    AiGatewayModule,
+    PaymentModule
   ]
 })
 export class AppModule {}

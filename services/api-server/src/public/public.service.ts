@@ -1231,6 +1231,8 @@ export class PublicService {
     );
     return rows.map((row) => ({
       ...row,
+      internal_payment_method: row.payment_method,
+      payment_method: this.toPublicPaymentMethodCode(row.payment_method),
       fee_rate_bps: row.fee_rate_bps === null ? null : Number(row.fee_rate_bps)
     }));
   }
@@ -1285,7 +1287,7 @@ export class PublicService {
   }
 
   private async resolvePaymentChannel(context: CheckoutContext, value: unknown) {
-    const paymentMethod = String(value ?? "");
+    const paymentMethod = this.toInternalPaymentMethodCode(String(value ?? ""));
     if (!paymentMethod) {
       throw new BadRequestException("payment_method is required");
     }
@@ -1589,6 +1591,51 @@ export class PublicService {
   }
 
   private toPaymentAction(channel: any, order: any) {
+    if (channel.channel_type === "android_unified_checkout") {
+      const method = String(channel.payment_method);
+      const publicMethod = this.toPublicPaymentMethodCode(method);
+      return {
+        type: "android_unified_checkout",
+        status: "pending",
+        title: channel.display_name,
+        order_no: order.order_no,
+        payment_method: publicMethod,
+        client_payload: {
+          checkout_channel: "android_unified_checkout",
+          payment_method: publicMethod,
+          order_no: order.order_no,
+          amount: Number(order.amount),
+          currency: order.currency,
+          alipay:
+            method === "alipay_app"
+              ? {
+                  order_string:
+                    channel.config?.sandbox_order_string ??
+                    `sandbox_alipay_order_string_for_${order.order_no}`
+                }
+              : null,
+          wechat:
+            method === "wechat_app"
+              ? {
+                  app_id: channel.config?.app_id ?? "sandbox_wechat_app_id",
+                  partner_id: channel.config?.partner_id ?? "sandbox_partner_id",
+                  prepay_id: `sandbox_prepay_${order.order_no}`,
+                  package_value: "Sign=WXPay",
+                  nonce_str: order.order_no.slice(-12),
+                  timestamp: Math.floor(Date.now() / 1000).toString(),
+                  sign: "sandbox-signature"
+                }
+              : null,
+          card:
+            method === "card_hosted_checkout"
+              ? {
+                  url: channel.config?.hosted_checkout_url ?? null
+                }
+              : null
+        },
+        notice: "支付完成后仅代表客户端流程结束，到账以服务端查单和钱包入账为准。"
+      };
+    }
     if (channel.payment_method === "enterprise_transfer") {
       return {
         type: "company_transfer",
@@ -1618,6 +1665,20 @@ export class PublicService {
   private normalizeEmail(value: unknown) {
     const email = String(value ?? "").trim().toLowerCase();
     return email.includes("@") ? email : "";
+  }
+
+  private toPublicPaymentMethodCode(value: unknown) {
+    const method = String(value ?? "");
+    if (method === "alipay_app") return "alipay_app_pay";
+    if (method === "wechat_app") return "wechat_app_pay";
+    return method;
+  }
+
+  private toInternalPaymentMethodCode(value: unknown) {
+    const method = String(value ?? "");
+    if (method === "alipay_app_pay") return "alipay_app";
+    if (method === "wechat_app_pay") return "wechat_app";
+    return method;
   }
 
   private normalizePhone(value: unknown) {

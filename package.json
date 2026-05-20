@@ -11,6 +11,7 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @ai-platform/api-server test",
     "db:migrate": "pnpm --filter @ai-platform/api-server db:migrate",
     "db:seed": "pnpm --filter @ai-platform/api-server db:seed"
   },

@@ -232,6 +232,8 @@ class PaymentProductCard extends StatelessWidget {
       'apple_iap' => 'Apple IAP',
       'alipay_app_pay' => '支付宝',
       'wechat_app_pay' => '微信支付',
+      'alipay_app' => '支付宝',
+      'wechat_app' => '微信支付',
       'card_hosted_checkout' => '银行卡',
       _ => value,
     };

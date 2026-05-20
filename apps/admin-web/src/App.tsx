@@ -244,9 +244,13 @@ const menuSections = [
     label: "支付资金",
     children: [
       { key: "/payment-orders", icon: <PayCircleOutlined />, label: "支付订单", permission: "payment.read", accountTypes: adminAndTenant },
+      { key: "/payment-transactions", icon: <FileSearchOutlined />, label: "支付交易", permission: "payment.read", accountTypes: adminAndTenant },
+      { key: "/payment-order-events", icon: <FileTextOutlined />, label: "状态流转", permission: "payment.read", accountTypes: adminAndTenant },
       { key: "/payment-products", icon: <BankOutlined />, label: "客户套餐", permission: "payment.read", accountTypes: adminOnly },
       { key: "/payment-product-visibility", icon: <DeploymentUnitOutlined />, label: "套餐展示", permission: "payment.read", accountTypes: adminOnly },
       { key: "/payment-channels", icon: <ControlOutlined />, label: "渠道配置", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/payment-callbacks", icon: <FileSearchOutlined />, label: "支付回调", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/reconciliation-records", icon: <FileSearchOutlined />, label: "对账记录", permission: "payment.reconcile", accountTypes: adminOnly },
       { key: "/wallet-ledger", icon: <WalletOutlined />, label: "钱包流水", permission: "wallet.read", accountTypes: adminOnly }
     ]
   },
@@ -257,7 +261,11 @@ const menuSections = [
     children: [
       { key: "/users", icon: <TeamOutlined />, label: "账号管理", permission: "user.read", accountTypes: adminOnly },
       { key: "/request-logs", icon: <FileSearchOutlined />, label: "请求日志", permission: "request_log.read", accountTypes: adminAndTenant },
+      { key: "/provider-request-attempts", icon: <FileSearchOutlined />, label: "Provider 尝试", permission: "request_log.read", accountTypes: adminAndTenant },
       { key: "/configs", icon: <SettingOutlined />, label: "配置发布", permission: "config.read", accountTypes: adminOnly },
+      { key: "/content-reports", icon: <AuditOutlined />, label: "内容举报", permission: "audit.read", accountTypes: adminOnly },
+      { key: "/account-deletion-requests", icon: <AuditOutlined />, label: "注销申请", permission: "audit.read", accountTypes: adminOnly },
+      { key: "/risk-events", icon: <AuditOutlined />, label: "风控事件", permission: "audit.read", accountTypes: adminOnly },
       { key: "/audit-logs", icon: <AuditOutlined />, label: "审计日志", permission: "audit.read", accountTypes: adminOnly }
     ]
   }
@@ -753,6 +761,53 @@ function Shell({
             <Route path="/wallet-ledger" element={page("wallet.read", adminOnly, <WalletPage canAdjust={can("wallet.adjust")} />)} />
             <Route path="/payment-orders" element={page("payment.read", adminAndTenant, <PaymentOrdersPage canRefund={can("payment.refund")} canReconcile={can("payment.reconcile")} />)} />
             <Route
+              path="/payment-transactions"
+              element={page(
+                "payment.read",
+                adminAndTenant,
+                <ResourcePage
+                  title="支付交易"
+                  endpoint="/api/admin/payment/transactions"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["payment_order_id", "支付订单"],
+                    ["transaction_type", "交易类型"],
+                    ["channel_code", "渠道编码"],
+                    ["channel_trade_no", "渠道交易号"],
+                    ["status", "状态"],
+                    ["amount", "金额，单位分"],
+                    ["verified", "已验证", "boolean"],
+                    ["created_at", "创建时间"]
+                  ]}
+                />
+              )}
+            />
+            <Route
+              path="/payment-order-events"
+              element={page(
+                "payment.read",
+                adminAndTenant,
+                <ResourcePage
+                  title="支付订单状态流转"
+                  endpoint="/api/admin/payment/order-events"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["payment_order_id", "支付订单"],
+                    ["event_type", "事件类型"],
+                    ["from_status", "原状态"],
+                    ["to_status", "目标状态"],
+                    ["reason", "原因"],
+                    ["actor_type", "触发方"],
+                    ["created_at", "创建时间"]
+                  ]}
+                />
+              )}
+            />
+            <Route
               path="/payment-products"
               element={page(
                 "payment.read",
@@ -861,6 +916,56 @@ function Shell({
                     ["config", "配置 JSON", "json"]
                   ]}
                   canCreate={can("payment.reconcile")}
+                  canEdit={can("payment.reconcile")}
+                />
+              )}
+            />
+            <Route
+              path="/payment-callbacks"
+              element={page(
+                "payment.read",
+                adminOnly,
+                <ResourcePage
+                  title="支付回调"
+                  endpoint="/api/admin/payment/callbacks"
+                  rowKey="id"
+                  columns={[
+                    ["channel_code", "渠道编码"],
+                    ["event_type", "事件类型"],
+                    ["signature_valid", "签名有效", "boolean"],
+                    ["processed", "已处理", "boolean"],
+                    ["process_result", "处理结果"],
+                    ["created_at", "创建时间"]
+                  ]}
+                />
+              )}
+            />
+            <Route
+              path="/reconciliation-records"
+              element={page(
+                "payment.reconcile",
+                adminOnly,
+                <ResourcePage
+                  title="支付对账记录"
+                  endpoint="/api/admin/reconciliation/records"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["channel_code", "渠道编码"],
+                    ["order_no", "订单号"],
+                    ["channel_trade_no", "渠道交易号"],
+                    ["difference_type", "差异类型"],
+                    ["status", "状态"],
+                    ["local_amount", "本地金额"],
+                    ["channel_amount", "渠道金额"],
+                    ["created_at", "创建时间"]
+                  ]}
+                  editableFields={[
+                    ["status", "状态"],
+                    ["resolved_note", "处理备注"],
+                    ["metadata", "扩展信息 JSON", "json"]
+                  ]}
                   canEdit={can("payment.reconcile")}
                 />
               )}
@@ -1003,7 +1108,110 @@ function Shell({
                 />
               )}
             />
+            <Route
+              path="/provider-request-attempts"
+              element={page(
+                "request_log.read",
+                adminAndTenant,
+                <ResourcePage
+                  title="Provider 请求尝试"
+                  endpoint="/api/admin/provider-request-attempts"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["request_log_id", "请求日志"],
+                    ["provider_id", "Provider", "select", "/api/admin/providers", "name"],
+                    ["route_id", "路由"],
+                    ["provider_model_code", "上游模型"],
+                    ["attempt_no", "尝试次数"],
+                    ["status", "状态"],
+                    ["latency_ms", "延迟"],
+                    ["error_code", "错误码"],
+                    ["created_at", "创建时间"]
+                  ]}
+                />
+              )}
+            />
             <Route path="/configs" element={page("config.read", adminOnly, <ConfigPage canWrite={can("config.write")} canPublish={can("config.publish")} />)} />
+            <Route
+              path="/content-reports"
+              element={page(
+                "audit.read",
+                adminOnly,
+                <ResourcePage
+                  title="内容举报"
+                  endpoint="/api/admin/content-reports"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["user_id", "客户账号", "select", "/api/admin/users", "email"],
+                    ["target_type", "目标类型"],
+                    ["reason", "举报原因"],
+                    ["description", "描述"],
+                    ["status", "状态"],
+                    ["created_at", "创建时间"]
+                  ]}
+                  editableFields={[
+                    ["status", "状态"],
+                    ["metadata", "处理信息 JSON", "json"]
+                  ]}
+                  canEdit={can("audit.read")}
+                />
+              )}
+            />
+            <Route
+              path="/account-deletion-requests"
+              element={page(
+                "audit.read",
+                adminOnly,
+                <ResourcePage
+                  title="账号注销申请"
+                  endpoint="/api/admin/account-deletion-requests"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["user_id", "客户账号", "select", "/api/admin/users", "email"],
+                    ["requested_from", "来源端"],
+                    ["status", "状态"],
+                    ["balance_policy", "余额处理规则"],
+                    ["created_at", "创建时间"],
+                    ["processed_at", "处理时间"]
+                  ]}
+                  editableFields={[
+                    ["status", "状态"],
+                    ["balance_policy", "余额处理规则"],
+                    ["metadata", "处理信息 JSON", "json"]
+                  ]}
+                  canEdit={can("audit.read")}
+                />
+              )}
+            />
+            <Route
+              path="/risk-events"
+              element={page(
+                "audit.read",
+                adminOnly,
+                <ResourcePage
+                  title="风控事件"
+                  endpoint="/api/admin/risk-events"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["risk_type", "风控类型"],
+                    ["risk_level", "风控等级"],
+                    ["subject_type", "主体类型"],
+                    ["subject_id", "主体 ID"],
+                    ["ip_address", "IP"],
+                    ["distribution_channel", "分发渠道"],
+                    ["created_at", "创建时间"]
+                  ]}
+                />
+              )}
+            />
             <Route
               path="/audit-logs"
               element={page(

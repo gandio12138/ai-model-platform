@@ -144,7 +144,7 @@ export class AppConfigService {
   private resolvePaymentMethods(platform: string, methods: any[], policy: any | null) {
     const configured = methods.map((method) => String(method.payment_method)).filter(Boolean);
     const allowed = Array.isArray(policy?.allowed_payment_methods)
-      ? policy.allowed_payment_methods.map((method: unknown) => String(method))
+      ? policy.allowed_payment_methods.map((method: unknown) => this.toPublicPaymentMethodCode(method))
       : null;
     const filtered = allowed?.length
       ? configured.filter((method) => allowed.includes(method))
@@ -154,10 +154,17 @@ export class AppConfigService {
     }
     if (platform === "android") {
       return filtered.filter((method) =>
-        ["alipay_app", "wechat_app", "card_hosted_checkout", "unionpay_or_bank_card"].includes(method)
+        ["alipay_app_pay", "wechat_app_pay", "card_hosted_checkout", "unionpay_or_bank_card"].includes(method)
       );
     }
     return filtered;
+  }
+
+  private toPublicPaymentMethodCode(value: unknown) {
+    const method = String(value ?? "");
+    if (method === "alipay_app") return "alipay_app_pay";
+    if (method === "wechat_app") return "wechat_app_pay";
+    return method;
   }
 
   private defaultPaymentNotice(platform: string, methods: string[]) {

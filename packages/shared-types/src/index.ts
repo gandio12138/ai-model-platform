@@ -248,6 +248,8 @@ export interface PaymentProduct {
 
 export type PaymentMethodCode =
   | "apple_iap"
+  | "alipay_app_pay"
+  | "wechat_app_pay"
   | "alipay_app"
   | "wechat_app"
   | "card_hosted_checkout"

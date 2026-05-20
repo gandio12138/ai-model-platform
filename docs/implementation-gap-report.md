@@ -1,6 +1,6 @@
 # OneToken / AI Token Platform Implementation Gap Report
 
-更新时间：2026-05-19
+更新时间：2026-05-20
 
 本报告基于当前仓库实现、`README.md`、workspace 配置、`services/api-server`、`apps/admin-web`、`apps/checkout-web`、`apps/mobile-flutter`、`packages/shared-types`、数据库 migrations，以及以下产品/技术文档审计：
 
@@ -9,6 +9,28 @@
 - `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-platform-design-v1.2-unified-android-payment.md`
 - `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-platform-full-implementation-plan-v2.0.md`
 - `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-platform-full-implementation-plan-v2.2-saas-billing.md`
+
+## 0. 当前实施进展
+
+### P0 已完成
+
+- 已补 `/api/app/config`、标准客户 Auth、`/v1/models`、`/v1/chat/completions`、App chat sessions、estimate、wallet ledger、API Key hash/mask、FakeProvider dev/test 边界和基础后端测试入口。
+- Web/App 已开始切到标准接口，旧 `/api/public/*` 保持兼容。
+
+### P1 本轮已推进
+
+- 已补支付订单状态机和状态流转测试。
+- 已补 `POST /api/payment/ios/iap/transactions`，支持 dev/sandbox Apple IAP transaction 幂等入账；prod 缺 Apple Server API 密钥时返回 503。
+- 已补 `POST /api/payment/webhooks/:channelCode`，回调先验签留痕，不配置真实 adapter 时不入账。
+- 已补 Android `android_unified_checkout` 的统一 payload 结构，并向 App 暴露 `alipay_app_pay` / `wechat_app_pay` / `card_hosted_checkout`。
+- 已补 Admin 支付交易、订单状态流转、支付回调、对账记录、Provider 尝试、内容举报、注销申请、风控事件入口。
+
+### P1 仍未完成
+
+- Alipay/WeChat/hosted card/Apple App Store Server API 的真实验签、查单、退款和对账 adapter。
+- refund 后钱包负向 ledger / 冲正闭环。
+- usage aggregate 周期任务与租户 invoice 真实出账闭环。
+- Admin 专用支付订单详情 drawer、状态时间线、回调/ledger/对账联动详情。
 
 ## 1. 当前已经实现的功能
 
@@ -527,12 +549,12 @@
 ### P1：补支付和租户计费生产结构
 
 1. Web payment adapters：Alipay Web、WeChat Native、hosted card、enterprise transfer skeleton。
-2. iOS IAP 服务端验证结构和 transaction 幂等。
-3. Android unified checkout order/client_payload/sync 结构。
-4. 支付 webhook 验签入口和 callback 记录。
+2. iOS IAP 服务端验证结构和 transaction 幂等：已完成提交入口、幂等记录和 dev/sandbox fulfillment，真实 Apple 验签待接入。
+3. Android unified checkout order/client_payload/sync 结构：已完成统一 payload 和方法名兼容，真实 SDK payload 待商户配置。
+4. 支付 webhook 验签入口和 callback 记录：已完成回调记录和 dev 签名入口，真实验签 adapter 待接入。
 5. refund/reversal/negative ledger。
 6. usage aggregate job 和 tenant invoice 生成接入真实 usage/payment。
-7. Admin 支付、对账、账单、配置详情页增强。
+7. Admin 支付、对账、账单、配置详情页增强：已补支付/风控/合规资源入口，专用详情页仍待增强。
 
 ### P2：补运营、合规、佣金和 UI
 
