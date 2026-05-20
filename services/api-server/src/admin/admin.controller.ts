@@ -247,6 +247,12 @@ export class AdminController {
     return this.admin.list("tenantUsageAggregates", query, req.user);
   }
 
+  @RequirePermissions("tenant.billing.write")
+  @Post("tenant-usage-aggregates/rebuild")
+  rebuildTenantUsageAggregates(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.rebuildUsageAggregates(body, req.user, actor(req));
+  }
+
   @RequirePermissions("tenant.billing.read")
   @Get("tenant-revenue-shares")
   tenantRevenueShares(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -586,6 +592,24 @@ export class AdminController {
     return this.admin.list("commissions", query, req.user);
   }
 
+  @RequirePermissions("commission.read")
+  @Get("commission-withdrawals")
+  commissionWithdrawals(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("commissionWithdrawals", query, req.user);
+  }
+
+  @RequirePermissions("commission.approve")
+  @Patch("commission-withdrawals/:id")
+  updateCommissionWithdrawal(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("commissionWithdrawals", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("commission.approve")
+  @Post("commission-withdrawals/:id/review")
+  reviewCommissionWithdrawal(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.reviewCommissionWithdrawal(id, body, req.user, actor(req));
+  }
+
   @RequirePermissions("commission.approve")
   @Post("commissions/:id/approve")
   approveCommission(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -602,6 +626,24 @@ export class AdminController {
   @Get("audit-logs")
   auditLogs(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.list("auditLogs", query, req.user);
+  }
+
+  @RequirePermissions("config.read")
+  @Get("policy-documents")
+  policyDocuments(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("policyDocuments", query, req.user);
+  }
+
+  @RequirePermissions("config.write")
+  @Post("policy-documents")
+  createPolicyDocument(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.create("policyDocuments", body, req.user, actor(req));
+  }
+
+  @RequirePermissions("config.write")
+  @Patch("policy-documents/:id")
+  updatePolicyDocument(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.update("policyDocuments", id, body, req.user, actor(req));
   }
 
   @RequirePermissions("audit.read")

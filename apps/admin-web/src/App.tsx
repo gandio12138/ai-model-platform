@@ -222,7 +222,9 @@ const menuSections = [
       { key: "/tenant-invoices", icon: <FileTextOutlined />, label: "租户账单", permission: "tenant.billing.read", accountTypes: adminAndTenant },
       { key: "/tenant-billing-rules", icon: <ControlOutlined />, label: "计费规则", permission: "tenant.billing.read", accountTypes: adminOnly },
       { key: "/tenant-usage-aggregates", icon: <FileSearchOutlined />, label: "用量汇总", permission: "tenant.billing.read", accountTypes: adminAndTenant },
-      { key: "/tenant-revenue-shares", icon: <PayCircleOutlined />, label: "分成结算", permission: "tenant.billing.read", accountTypes: adminOnly }
+      { key: "/tenant-revenue-shares", icon: <PayCircleOutlined />, label: "分成结算", permission: "tenant.billing.read", accountTypes: adminOnly },
+      { key: "/commissions", icon: <PayCircleOutlined />, label: "代理佣金", permission: "commission.read", accountTypes: adminOnly },
+      { key: "/commission-withdrawals", icon: <WalletOutlined />, label: "佣金提现", permission: "commission.read", accountTypes: adminOnly }
     ]
   },
   {
@@ -263,6 +265,7 @@ const menuSections = [
       { key: "/request-logs", icon: <FileSearchOutlined />, label: "请求日志", permission: "request_log.read", accountTypes: adminAndTenant },
       { key: "/provider-request-attempts", icon: <FileSearchOutlined />, label: "Provider 尝试", permission: "request_log.read", accountTypes: adminAndTenant },
       { key: "/configs", icon: <SettingOutlined />, label: "配置发布", permission: "config.read", accountTypes: adminOnly },
+      { key: "/policy-documents", icon: <FileTextOutlined />, label: "协议政策", permission: "config.read", accountTypes: adminOnly },
       { key: "/content-reports", icon: <AuditOutlined />, label: "内容举报", permission: "audit.read", accountTypes: adminOnly },
       { key: "/account-deletion-requests", icon: <AuditOutlined />, label: "注销申请", permission: "audit.read", accountTypes: adminOnly },
       { key: "/risk-events", icon: <AuditOutlined />, label: "风控事件", permission: "audit.read", accountTypes: adminOnly },
@@ -740,6 +743,62 @@ function Shell({
               )}
             />
             <Route
+              path="/commissions"
+              element={page(
+                "commission.read",
+                adminOnly,
+                <ResourcePage
+                  title="代理佣金"
+                  endpoint="/api/admin/commissions"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["beneficiary_user_id", "受益账号", "select", "/api/admin/users", "email"],
+                    ["source_user_id", "来源账号", "select", "/api/admin/users", "email"],
+                    ["payment_order_id", "支付订单"],
+                    ["commission_base_amount", "佣金基数，单位分"],
+                    ["commission_rate", "佣金比例"],
+                    ["commission_amount", "佣金金额，单位分"],
+                    ["status", "状态"],
+                    ["created_at", "创建时间"]
+                  ]}
+                  editableFields={[
+                    ["status", "状态"],
+                    ["metadata", "扩展信息 JSON", "json"]
+                  ]}
+                  canEdit={can("commission.approve")}
+                />
+              )}
+            />
+            <Route
+              path="/commission-withdrawals"
+              element={page(
+                "commission.read",
+                adminOnly,
+                <ResourcePage
+                  title="佣金提现申请"
+                  endpoint="/api/admin/commission-withdrawals"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["user_id", "客户账号", "select", "/api/admin/users", "email"],
+                    ["amount", "提现金额，单位分"],
+                    ["status", "状态"],
+                    ["payout_method", "提现方式"],
+                    ["payout_account_mask", "提现账号"],
+                    ["requested_from", "来源端"],
+                    ["created_at", "创建时间"]
+                  ]}
+                  editableFields={[
+                    ["status", "状态"],
+                    ["reviewed_at", "审核时间 ISO"],
+                    ["metadata", "审核信息 JSON", "json"]
+                  ]}
+                  canEdit={can("commission.approve")}
+                />
+              )}
+            />
+            <Route
               path="/users"
               element={page(
                 "user.read",
@@ -1135,6 +1194,39 @@ function Shell({
             />
             <Route path="/configs" element={page("config.read", adminOnly, <ConfigPage canWrite={can("config.write")} canPublish={can("config.publish")} />)} />
             <Route
+              path="/policy-documents"
+              element={page(
+                "config.read",
+                adminOnly,
+                <ResourcePage
+                  title="协议政策"
+                  endpoint="/api/admin/policy-documents"
+                  rowKey="id"
+                  columns={[
+                    ["policy_type", "政策类型"],
+                    ["variant", "版本变体"],
+                    ["title", "标题"],
+                    ["status", "状态"],
+                    ["version", "版本号"],
+                    ["effective_at", "生效时间"],
+                    ["updated_at", "更新时间"]
+                  ]}
+                  editableFields={[
+                    ["policy_type", "政策类型"],
+                    ["variant", "版本变体"],
+                    ["title", "标题"],
+                    ["content", "正文"],
+                    ["status", "状态"],
+                    ["version", "版本号", "number"],
+                    ["effective_at", "生效时间 ISO"],
+                    ["metadata", "扩展信息 JSON", "json"]
+                  ]}
+                  canCreate={can("config.write")}
+                  canEdit={can("config.write")}
+                />
+              )}
+            />
+            <Route
               path="/content-reports"
               element={page(
                 "audit.read",
@@ -1201,7 +1293,7 @@ function Shell({
                   columns={[
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
                     ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
-                    ["risk_type", "风控类型"],
+                    ["event_type", "风控类型"],
                     ["risk_level", "风控等级"],
                     ["subject_type", "主体类型"],
                     ["subject_id", "主体 ID"],

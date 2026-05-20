@@ -13,7 +13,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @ai-platform/api-server test",
     "db:migrate": "pnpm --filter @ai-platform/api-server db:migrate",
-    "db:seed": "pnpm --filter @ai-platform/api-server db:seed"
+    "db:seed": "pnpm --filter @ai-platform/api-server db:seed",
+    "usage:aggregate": "pnpm --filter @ai-platform/api-server usage:aggregate"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

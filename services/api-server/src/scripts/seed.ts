@@ -967,6 +967,40 @@ async function main() {
   );
 
   await pool.query(
+    `insert into referral_codes (tenant_id, user_id, code, status, metadata)
+     values
+       ($1, $2, 'WEBVIP88', 'active', '{"source":"seed"}'),
+       ($1, $3, 'DEMOAPI1', 'active', '{"source":"seed"}')
+     on conflict (tenant_id, user_id) do update
+        set code = excluded.code,
+            updated_at = now()`,
+    [tenant.rows[0].id, webCustomer.rows[0].id, demoUser.rows[0].id]
+  );
+
+  await pool.query(
+    `insert into referral_relations
+      (tenant_id, referrer_user_id, referred_user_id, referred_tenant_customer_id,
+       referral_code_id, source, status, metadata)
+     select $1, $2, $3, $4, rc.id, 'seed', 'active', '{"source":"seed"}'::jsonb
+       from referral_codes rc
+      where rc.tenant_id = $1
+        and rc.user_id = $2
+     on conflict (tenant_id, referred_user_id) do nothing`,
+    [tenant.rows[0].id, webCustomer.rows[0].id, vipUser.rows[0].id, vipCustomerId]
+  );
+
+  await pool.query(
+    `insert into commission_records
+      (tenant_id, tenant_customer_id, beneficiary_user_id, source_user_id,
+       commission_base_amount, commission_rate, commission_amount, currency, status, metadata)
+     values
+       ($1, $2, $3, $4, 30000, 0.0800, 2400, 'CNY', 'available', '{"source":"seed","note":"VIP customer recharge commission"}'),
+       ($1, $2, $3, $4, 12000, 0.0500, 600, 'CNY', 'pending', '{"source":"seed","note":"Pending settlement commission"}')
+     on conflict do nothing`,
+    [tenant.rows[0].id, webCustomerId, webCustomer.rows[0].id, vipUser.rows[0].id]
+  );
+
+  await pool.query(
     `insert into configs (config_key, config_type, draft_value, published_value, status, config_version)
      values ('web_payment_entry', 'checkout', '{"enabled":true,"url":"https://pay.example.com"}', '{"enabled":true,"url":"https://pay.example.com"}', 'published', 1)
      on conflict (config_key) do nothing`

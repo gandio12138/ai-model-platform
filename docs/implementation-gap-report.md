@@ -29,8 +29,17 @@
 
 - Alipay/WeChat/hosted card/Apple App Store Server API 的真实验签、查单、退款和对账 adapter。
 - refund 后钱包负向 ledger / 冲正闭环。
-- usage aggregate 周期任务与租户 invoice 真实出账闭环。
+- tenant invoice 真实出账、支付状态和冲正闭环。
 - Admin 专用支付订单详情 drawer、状态时间线、回调/ledger/对账联动详情。
+
+### 非支付功能第一版已完成
+
+- 已补 Referral 数据表、邀请码、邀请关系、佣金列表、提现申请和 Admin 提现审核入口。
+- 已补协议/隐私/AI 免责声明/内容举报说明等政策文档表，并提供客户侧读取接口和 Admin 维护入口。
+- 已将客户注册、登录、注销申请、内容举报写入 `risk_events`，补齐客户侧高风险操作留痕。
+- 已补 `tenant_usage_aggregates` 重建脚本和 Admin 手动重建接口，用于从真实 `request_logs`/`billing_records` 聚合租户用量。
+- Web 前台已新增代理佣金面板，App 已将 Referral 和 Compliance 页面从占位改为真实接口读取。
+- `packages/shared-types` 已补 Referral、佣金提现和政策文档类型。
 
 ## 1. 当前已经实现的功能
 
@@ -135,35 +144,19 @@
 - 支付：订单表、渠道表、商品表、回调表、对账表已有；真实支付 adapter、验签、查单、回调幂等、退款状态机、iOS IAP 服务端验证、Android unified checkout SDK payload 仍缺。
 - 租户计费：套餐、订阅、发票、规则、用量聚合表和 Admin 页面已有；没有和 AI gateway、支付、月度任务、发票状态流转形成完整闭环。
 - Developer API Key：Web/Admin 可创建和撤销；缺 `/api/developer/*` 标准接口、enable/disable/delete、限流配置、模型白名单执行、`/v1/*` 鉴权。
-- App：页面结构基本齐，但后端接口缺失导致 app config、聊天、report、注销、referral、真实支付只能回退或占位。
+- App：页面结构基本齐，app config、聊天、report、注销、referral 已有后端接口；真实支付 SDK 与部分真机联调仍只能占位或依赖 sandbox/fake adapter。
 - Admin 配置：`configs` 和发布/回滚已存在，但缺 config version/diff、App Config 合成预览、面向 iOS/Android/Web 的发布验证。
 - UI：四端方向统一过，但 Web 前台仍是大单文件，Admin 大量页面是通用 ResourcePage，复杂运营详情页和状态流转体验不足。
 - 测试：Flutter 有基础测试；Node/Web/Admin 基本只有 typecheck/build，缺业务单测、集成测试和 E2E。
 
 ## 3. 当前完全没实现的功能
 
-- `/api/app/config` 标准接口及多来源配置合成。
-- `/api/auth/register`、`/api/auth/login`、`/api/auth/logout`、`/api/auth/refresh`、`/api/me`、`/api/account/delete-request` 标准客户端接口。
-- refresh token 存储、撤销和 session 生命周期管理。
-- OpenAI 兼容 API：
-  - `GET /v1/models`
-  - `POST /v1/chat/completions`
-  - API Key Bearer 鉴权；
-  - stream SSE；
-  - provider route selection；
-  - 实际 usage 扣费。
-- App 聊天服务端：
-  - `/api/chat/estimate`
-  - `/api/chat/sessions`
-  - `/api/chat/sessions/:id`
-  - `/api/chat/sessions/:id/messages`
-  - `DELETE /api/chat/sessions/:id`
-- Provider Adapter：
-  - OpenAI-compatible；
+- 真实 Provider Adapter：
+  - OpenAI-compatible 真实上游调用；
   - Anthropic；
   - Gemini；
   - DeepSeek/Qwen OpenAI-compatible；
-  - production 禁用 FakeProvider。
+  - AWS Bedrock 标准调用链。
 - 真实支付生产 adapter：
   - Alipay Web；
   - WeChat Native；
@@ -174,9 +167,9 @@
   - webhook 验签；
   - order sync 查单；
   - reconciliation 差异处理。
-- Referral public API、提现申请、邀请关系闭环。
-- Content report、account deletion request、risk events、敏感日志脱敏策略和限流模块。
-- 前后端共享完整 contract types。
+- 自动化月度租户 invoice 生成、下载/导出、支付状态流转和冲正。
+- 真实佣金结算到账、提现打款通道和财务审核流。
+- 敏感日志脱敏策略和统一限流模块。
 - 后端 Jest/e2e、Web/Admin Vitest/Testing Library、Playwright 覆盖。
 
 ## 4. 与五份文档不一致的地方
@@ -195,16 +188,13 @@
 ## 5. 后端缺口
 
 - 模块边界不完整：当前主要是 `admin` 和 `public` 两个大模块，缺 `app-config`、`customer-auth`、`ai-gateway`、`chat`、`wallet-ledger`、`payment-service`、`developer`、`referral`、`compliance` 等清晰模块。
-- `PublicService` 过大，混合 auth、checkout、wallet、API key、models、payment mock，后续需要拆分但要保持兼容路由。
-- 没有 refresh token 表和服务。
-- 没有统一客户 auth guard 支持 access/refresh/session lifecycle。
+- `PublicService` 过大，混合 auth、checkout、wallet、API key、models、payment、referral、compliance，后续需要拆分但要保持兼容路由。
 - 没有 request id / idempotency middleware 统一处理。
 - 没有统一 error response 结构。
-- 没有 provider adapter registry 和 secret 解密调用链。
+- Provider adapter registry 仍是第一版，真实上游 adapter 和健康检查需增强。
 - 没有生产 payment adapter registry。
-- 没有 AI usage billing service。
-- 没有 background job 或 command 用于 usage aggregation、invoice generation、reconciliation。
-- audit logs 主要覆盖 Admin 操作，客户侧高风险操作覆盖不足。
+- usage aggregation 已有命令和 Admin 手动触发，invoice generation、reconciliation 仍缺后台任务。
+- audit logs 主要覆盖 Admin 操作；客户侧风险事件已有第一版，但还需限流、脱敏和告警。
 
 ## 6. Web 前台缺口
 
@@ -215,7 +205,8 @@
 - 钱包和账单还需区分充值、消费、退款、冻结、解冻、佣金等类型。
 - API Key 只支持创建和撤销，缺 enable/disable/delete、限流、模型白名单、创建后一次性展示的更强安全提示。
 - 使用日志来自现有 request_logs，但 AI gateway 不存在导致真实日志来源缺失。
-- 设置页缺标准注销接口、内容举报接口、协议/隐私接口化。
+- 设置页已有标准注销和内容举报接口；协议/隐私/AI 免责声明已接口化，仍需更完整的 Web 展示体验。
+- 代理佣金已有第一版面板；提现详情、提现历史和财务状态说明仍需增强。
 - 缺 loading/empty/error/retry 的系统化组件抽象。
 - 缺 Web 单元测试和关键流程测试。
 
@@ -235,13 +226,9 @@
 
 ## 8. App 缺口
 
-- `/api/app/config` 后端缺失，当前 App 依赖 fallback。
-- 登录/注册使用 public 兼容接口，无 refresh/logout 正式闭环。
-- 聊天使用缺失接口 fallback，真实会话、流式、扣费未联通。
+- App Config、标准 Auth、聊天、钱包、账单、API Key、Referral 和合规接口已有第一版。
 - 支付 adapter 只有接口和 unsupported 实现，没有 IAP 插件、Android platform channel 或支付 SDK。
-- API Key update/delete 调用标准接口，但后端缺对应 developer endpoints。
-- Referral、report、account deletion 多为占位。
-- 账单用 wallet ledger 替代，缺 `/api/billing/records`。
+- Referral 页面和 Compliance 页面已接真实接口；举报和注销仍需更完整的移动端表单/确认流。
 - 缺 integration test 真机流程。
 - Android SDK、签名、支付 App 环境需要外部配置后才能真实验证。
 
@@ -261,29 +248,19 @@
 
 ## 10. AI 网关缺口
 
-- 缺 OpenAI-compatible `/v1/models` 和 `/v1/chat/completions`。
-- 缺 API Key Bearer 解析和 tenant/project/customer 识别。
-- 缺模型授权、租户价格、路由选择、provider credential 解密调用。
-- 缺 stream SSE。
-- 缺 FakeProviderAdapter dev/test 和 prod 禁用保护。
-- 缺 usage 统计：
-  - provider 返回 usage 优先；
-  - 未返回时估算并标记 estimated；
-  - input/output tokens、latency、status、cost 记录。
-- 缺实际扣费和余额不足拒绝。
-- 缺 idempotency_key 防重复扣费。
-- 缺 provider attempts、route health 和失败重试记录。
-- 缺 App chat session/message 持久化。
+- OpenAI-compatible `/v1/models` 和 `/v1/chat/completions` 已有第一版。
+- 已支持 API Key Bearer、tenant/project/customer 识别、SSE、FakeProvider dev/test、usage 统计、实际扣费、余额不足拒绝、`idempotency_key` 和 App chat session/message 持久化。
+- 仍需真实上游 Provider Adapter、provider route health、熔断、权重重试、credential 轮换、Provider 失败成本归因和更完整的模型白名单/限流执行。
 
 ## 11. 钱包/计费/账单缺口
 
 - 钱包 ledger 已有，但业务类型不完整，需要标准化 event_type/direction/balance_type/idempotency_key。
-- AI 调用消费未写 ledger / billing_records。
+- AI 调用消费已写 `wallet_ledger` / `billing_records`。
 - 充值赠送 cash/bonus 已有 dev 流程，但真实支付入账未闭环。
 - 冻结/解冻、退款、佣金、发票支付状态未完整闭环。
 - 余额不可为负规则需要 service 层加锁保障。
 - 后付费/信用额度、订阅+用量、最低消费等租户计费模式未完整接入。
-- tenant_usage_aggregates 未由真实请求自动聚合。
+- `tenant_usage_aggregates` 已有重建脚本和 Admin 手动触发；仍缺定时任务、增量聚合和异常补偿。
 - tenant invoice 生成基于已有数据雏形，缺周期任务、支付状态、冲正、下载/导出。
 
 ## 12. 测试缺口
@@ -301,7 +278,7 @@
   - payment order/callback/sync/refund/idempotency；
   - iOS IAP idempotency；
   - Android unified checkout；
-  - referral/compliance/RBAC/audit。
+  - referral/compliance/RBAC/audit 深度覆盖。
 - Web 缺：
   - 首页渲染；
   - 登录/注册；
@@ -319,11 +296,11 @@
   - 配置发布/回滚；
   - 租户账单；
   - request/audit logs。
-- Flutter 已有基础 unit/widget test，但缺真实 integration test、支付状态、logout、report、delete request。
+- Flutter 已有基础 unit/widget test，但缺真实 integration test、支付状态、logout、report、delete request、referral/compliance 页面覆盖。
 
 ## 13. 需要新增或修改的数据表
 
-### 必须新增
+### 已新增
 
 - `refresh_tokens`
 - `account_deletion_requests`
@@ -336,10 +313,13 @@
 - `provider_request_attempts`
 - `payment_transactions`
 - `payment_order_events`
-- `api_key_rate_limits`
 - `referral_codes`
 - `referral_relations`
 - `commission_withdrawals`
+
+### 必须新增
+
+- `api_key_rate_limits`
 - `model_route_health`
 
 ### 建议新增或演进
@@ -416,12 +396,14 @@
 - `GET /api/referral/commissions`
 - `POST /api/referral/withdrawals`
 - `POST /api/reports/content`
+- `GET /api/compliance/policies`
+- `GET /api/compliance/policies/:type`
 
 ### Admin
 
 - 支付订单详情、查单、退款、回调、对账详情增强。
 - App Config 合成预览、diff、发布、回滚增强。
-- Account deletion、content report、risk events、provider health 页面接口。
+- Account deletion、content report、risk events、commission withdrawals、policy documents 页面接口。
 
 ## 15. 需要新增或修改的前端页面
 
@@ -437,8 +419,9 @@
   - 使用日志详情；
   - 注销申请；
   - 内容举报；
-  - 协议/隐私/AI 内容免责声明；
+  - 协议/隐私/AI 内容免责声明专页；
   - loading/empty/error/retry 统一组件。
+  - 代理佣金提现历史和状态详情。
 
 ### Admin
 
@@ -464,9 +447,8 @@
 - Android unified checkout 支付方式、支付 App 未安装、待确认、超时、查单状态。
 - API Key 创建后一次性完整 key 展示。
 - Request logs 页面。
-- Referral summary/commission/withdrawal 页面。
-- Report content 提交页。
-- Account deletion 二次确认页。
+- Referral summary/commission/withdrawal 页面已完成第一版。
+- Compliance 政策页面已接真实接口；Report content 提交页和 Account deletion 二次确认页仍需增强。
 - Debug config/preview 页面增强。
 
 ## 17. 需要外部密钥、证书、商户号、Apple 配置、Android 签名才能完成的事项
@@ -553,16 +535,16 @@
 3. Android unified checkout order/client_payload/sync 结构：已完成统一 payload 和方法名兼容，真实 SDK payload 待商户配置。
 4. 支付 webhook 验签入口和 callback 记录：已完成回调记录和 dev 签名入口，真实验签 adapter 待接入。
 5. refund/reversal/negative ledger。
-6. usage aggregate job 和 tenant invoice 生成接入真实 usage/payment。
+6. usage aggregate job 已有命令和 Admin 手动触发；tenant invoice 生成仍需接入真实 usage/payment。
 7. Admin 支付、对账、账单、配置详情页增强：已补支付/风控/合规资源入口，专用详情页仍待增强。
 
 ### P2：补运营、合规、佣金和 UI
 
-1. Referral / commission public API 和 Admin 审核。
-2. Content report、account deletion、risk events、audit logs。
+1. Referral / commission public API 和 Admin 审核已完成第一版。
+2. Content report、account deletion、risk events 已完成第一版，audit logs/告警仍需增强。
 3. Web 前台拆分模块并统一设计系统。
 4. Admin 专用详情页和运营化 dashboard。
-5. Flutter 真实接口补齐、支付状态页完善、组件 preview 增强。
+5. Flutter Referral/Compliance 真实接口已补；支付状态页、举报/注销表单、组件 preview 仍需增强。
 6. 文档补齐 backend-api、payment-integration、mobile-test-plan、production-checklist。
 
 ### P3：上线前增强

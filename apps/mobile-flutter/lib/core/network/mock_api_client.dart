@@ -292,6 +292,65 @@ class MockOneTokenApi implements OneTokenApi {
   }
 
   @override
+  Future<ReferralSummary> fetchReferralSummary() async {
+    return const ReferralSummary(
+      inviteCode: 'WEBVIP88',
+      invitedCustomers: 3,
+      pendingCommission: 600,
+      availableCommission: 2400,
+      withdrawnCommission: 0,
+      currency: 'CNY',
+    );
+  }
+
+  @override
+  Future<List<CommissionRecord>> fetchReferralCommissions({
+    int page = 1,
+  }) async {
+    return [
+      CommissionRecord(
+        id: 'commission-1',
+        amount: 2400,
+        status: 'available',
+        createdAt: DateTime(2026, 5, 18, 21, 30),
+        sourceEmail: 'vip-customer@example.com',
+      ),
+      CommissionRecord(
+        id: 'commission-2',
+        amount: 600,
+        status: 'pending',
+        createdAt: DateTime(2026, 5, 19, 10, 20),
+        sourceEmail: 'new-user@example.com',
+      ),
+    ];
+  }
+
+  @override
+  Future<void> requestCommissionWithdrawal({
+    required int amount,
+    String? payoutMethod,
+    String? payoutAccount,
+  }) async {}
+
+  @override
+  Future<PolicyDocument> fetchPolicyDocument(String type) async {
+    final title = switch (type) {
+      'privacy' => '隐私政策',
+      'disclaimer' => 'AI 生成内容免责声明',
+      'report' => '内容举报说明',
+      'help' => '帮助中心',
+      _ => '用户协议',
+    };
+    return PolicyDocument(
+      type: type,
+      title: title,
+      content:
+          '$title：这是 dev mock 内容，正式环境会从 /api/compliance/policies/$type 获取发布版本。',
+      version: 1,
+    );
+  }
+
+  @override
   Future<void> reportContent({
     required String messageId,
     required String reason,

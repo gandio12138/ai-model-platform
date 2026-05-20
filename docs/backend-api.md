@@ -83,8 +83,15 @@
 - `GET /api/wallet`
 - `GET /api/wallet/ledger`
 - `GET /api/billing/records`
+- `POST /api/admin/tenant-usage-aggregates/rebuild`
 
 金额字段当前使用整数分。AI 调用扣费优先扣 bonus，再扣 cash。后付费 credit 仍需 P1/P2 完整策略接入。
+
+租户用量聚合可以通过 Admin 手动接口或命令行重建：
+
+```bash
+pnpm usage:aggregate -- --period-start=2026-05-01 --period-end=2026-06-01
+```
 
 ## Payment
 
@@ -131,9 +138,37 @@ Admin 新增运营资源：
 
 API Key 创建后只返回一次完整 key；数据库只保存 hash、prefix 和 suffix。
 
+## Referral
+
+- `GET /api/referral/summary`
+- `GET /api/referral/commissions`
+- `POST /api/referral/withdrawals`
+
+返回用户的邀请码、邀请客户数、待结算佣金、可提现佣金、已提现佣金和佣金明细。提现申请进入 `commission_withdrawals.pending`，需要 Admin 审核，不会由客户端直接入账。
+
+Admin 运营入口：
+
+- `GET /api/admin/commissions`
+- `GET /api/admin/commission-withdrawals`
+- `PATCH /api/admin/commission-withdrawals/:id`
+- `POST /api/admin/commission-withdrawals/:id/review`
+
 ## Compliance
 
 - `POST /api/reports/content`
 - `POST /api/account/delete-request`
+- `GET /api/compliance/policies`
+- `GET /api/compliance/policies/:type`
 
-当前写入待处理记录，后续需要 Admin 审核页面和处理流。
+内容举报和注销申请会写入待处理记录，并同步写入 `risk_events` 作为客户侧高风险操作留痕。政策文档支持 `terms`、`privacy`、`disclaimer`、`report`、`help` 等类型。
+
+Admin 运营入口：
+
+- `GET /api/admin/content-reports`
+- `PATCH /api/admin/content-reports/:id`
+- `GET /api/admin/account-deletion-requests`
+- `PATCH /api/admin/account-deletion-requests/:id`
+- `GET /api/admin/risk-events`
+- `GET /api/admin/policy-documents`
+- `POST /api/admin/policy-documents`
+- `PATCH /api/admin/policy-documents/:id`

@@ -138,6 +138,34 @@ export class CustomerController {
   }
 
   @UseGuards(PublicAuthGuard)
+  @Get("/api/referral/summary")
+  referralSummary(@Req() req: { user: PublicRequestUser }, @Query() query: Record<string, unknown>) {
+    return this.publicService.referralSummary(req.user, query);
+  }
+
+  @UseGuards(PublicAuthGuard)
+  @Get("/api/referral/commissions")
+  referralCommissions(@Req() req: { user: PublicRequestUser }, @Query() query: Record<string, unknown>) {
+    return this.publicService.referralCommissions(req.user, query);
+  }
+
+  @UseGuards(PublicAuthGuard)
+  @Post("/api/referral/withdrawals")
+  createReferralWithdrawal(@Req() req: { user: PublicRequestUser }, @Body() body: Record<string, unknown>) {
+    return this.publicService.createReferralWithdrawal(req.user, body);
+  }
+
+  @Get("/api/compliance/policies")
+  policyDocuments(@Query() query: Record<string, unknown>) {
+    return this.publicService.policyDocuments(query);
+  }
+
+  @Get("/api/compliance/policies/:type")
+  policyDocument(@Param("type") type: string, @Query() query: Record<string, unknown>) {
+    return this.publicService.policyDocuments({ ...query, type });
+  }
+
+  @UseGuards(PublicAuthGuard)
   @Post("/api/account/delete-request")
   deleteRequest(@Req() req: { user: PublicRequestUser }, @Body() body: Record<string, unknown>) {
     return this.publicService.createAccountDeletionRequest(req.user, body);

@@ -99,6 +99,13 @@ export class PublicService {
     }
 
     const customerContext = await this.ensureCustomerContext(user.id, context);
+    await this.ensureReferralCode(user.id, context.tenant.id);
+    await this.createReferralRelationIfPresent(body, user.id, customerContext.tenant_customer.id, context);
+    await this.recordRiskEvent(context, user.id, "auth.register", "low", {
+      subject_type: "user",
+      subject_id: user.id,
+      metadata: { email }
+    });
     return this.toSessionResponse(user, context, customerContext);
   }
 
@@ -143,6 +150,12 @@ export class PublicService {
 
     const context = await this.resolveCheckoutContext(body);
     const customerContext = await this.ensureCustomerContext(user.id, context);
+    await this.ensureReferralCode(user.id, context.tenant.id);
+    await this.recordRiskEvent(context, user.id, "auth.login", "low", {
+      subject_type: "user",
+      subject_id: user.id,
+      metadata: { email }
+    });
     return this.toSessionResponse(user, context, customerContext);
   }
 
@@ -721,7 +734,7 @@ export class PublicService {
           limit $4 offset $5`,
         params
       ),
-      this.db.query(
+      this.db.query<{ total: number }>(
         `select count(*)::int as total
            from wallet_ledger
           where tenant_id = $1
@@ -948,6 +961,11 @@ export class PublicService {
         JSON.stringify({ notice: "Balance and data deletion require manual compliance review." })
       ]
     );
+    await this.recordRiskEvent(context, user.id, "account.delete_request", "medium", {
+      subject_type: "user",
+      subject_id: user.id,
+      metadata: { request_id: rows[0].id, requested_from: body.requested_from ?? context.platform }
+    });
     return {
       request: rows[0],
       notice: "注销申请已提交。余额、发票、账单和合规数据会按平台规则人工审核处理。"
@@ -980,7 +998,174 @@ export class PublicService {
         JSON.stringify({ source: "customer_api" })
       ]
     );
+    await this.recordRiskEvent(context, user.id, "content.report", "low", {
+      subject_type: String(body.target_type ?? "chat_message"),
+      subject_id: String(body.target_id ?? body.message_id ?? rows[0].id),
+      metadata: { report_id: rows[0].id, reason }
+    });
     return { report: rows[0] };
+  }
+
+  async referralSummary(user: PublicRequestUser, query: Record<string, unknown>) {
+    const context = await this.resolveCheckoutContext(query);
+    await this.ensureCustomerContext(user.id, context);
+    const code = await this.ensureReferralCode(user.id, context.tenant.id);
+    const [relations, commissions, withdrawals] = await Promise.all([
+      this.db.query(
+        `select count(*)::int as total
+           from referral_relations
+          where tenant_id = $1
+            and referrer_user_id = $2
+            and status = 'active'`,
+        [context.tenant.id, user.id]
+      ),
+      this.db.query<{ status: string; amount: string }>(
+        `select status,
+                coalesce(sum(commission_amount), 0)::bigint as amount
+           from commission_records
+          where tenant_id = $1
+            and beneficiary_user_id = $2
+          group by status`,
+        [context.tenant.id, user.id]
+      ),
+      this.db.query<{ status: string; amount: string }>(
+        `select status,
+                coalesce(sum(amount), 0)::bigint as amount
+           from commission_withdrawals
+          where tenant_id = $1
+            and user_id = $2
+          group by status`,
+        [context.tenant.id, user.id]
+      )
+    ]);
+    const commissionByStatus = this.amountByStatus(commissions.rows);
+    const withdrawalByStatus = this.amountByStatus(withdrawals.rows);
+    const available = Number(commissionByStatus.available ?? 0);
+    const pendingWithdrawal = Number(withdrawalByStatus.pending ?? 0);
+    return {
+      invite_code: code.code,
+      invited_customers: Number(relations.rows[0]?.total ?? 0),
+      pending_commission: Number(commissionByStatus.pending ?? 0),
+      available_commission: Math.max(available - pendingWithdrawal, 0),
+      withdrawn_commission: Number(withdrawalByStatus.paid ?? 0) + Number(withdrawalByStatus.completed ?? 0),
+      currency: "CNY"
+    };
+  }
+
+  async referralCommissions(user: PublicRequestUser, query: Record<string, unknown>) {
+    const context = await this.resolveCheckoutContext(query);
+    await this.ensureCustomerContext(user.id, context);
+    const { page, pageSize, offset } = parsePagination(query);
+    const [items, count] = await Promise.all([
+      this.db.query(
+        `select cr.id,
+                cr.source_user_id,
+                su.email as source_email,
+                cr.payment_order_id,
+                cr.commission_base_amount,
+                cr.commission_rate,
+                cr.commission_amount,
+                cr.currency,
+                cr.status,
+                cr.frozen_until,
+                cr.created_at,
+                cr.metadata
+           from commission_records cr
+           left join users su on su.id = cr.source_user_id
+          where cr.tenant_id = $1
+            and cr.beneficiary_user_id = $2
+          order by cr.created_at desc
+          limit $3 offset $4`,
+        [context.tenant.id, user.id, pageSize, offset]
+      ),
+      this.db.query(
+        `select count(*)::int as total
+           from commission_records
+          where tenant_id = $1
+            and beneficiary_user_id = $2`,
+        [context.tenant.id, user.id]
+      )
+    ]);
+    return {
+      data: items.rows.map((row) => ({
+        ...row,
+        commission_base_amount: Number(row.commission_base_amount),
+        commission_rate: Number(row.commission_rate),
+        commission_amount: Number(row.commission_amount)
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+      page,
+      pageSize
+    };
+  }
+
+  async createReferralWithdrawal(user: PublicRequestUser, body: Record<string, unknown>) {
+    const context = await this.resolveCheckoutContext(body);
+    await this.ensureCustomerContext(user.id, context);
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException("amount must be positive cents");
+    }
+    const summary = await this.referralSummary(user, body);
+    if (amount > summary.available_commission) {
+      throw new BadRequestException("Available commission is insufficient");
+    }
+    const { rows } = await this.db.query(
+      `insert into commission_withdrawals
+        (tenant_id, user_id, amount, currency, status, payout_method,
+         payout_account_mask, requested_from, metadata)
+       values ($1, $2, $3, 'CNY', 'pending', $4, $5, $6, $7::jsonb)
+       returning id, amount, currency, status, payout_method, payout_account_mask,
+                 requested_from, created_at`,
+      [
+        context.tenant.id,
+        user.id,
+        Math.round(amount),
+        body.payout_method ? String(body.payout_method) : null,
+        this.maskPayoutAccount(body.payout_account),
+        String(body.requested_from ?? context.platform),
+        JSON.stringify({ note: "Manual approval is required before payout." })
+      ]
+    );
+    await this.recordRiskEvent(context, user.id, "commission.withdrawal_request", "medium", {
+      subject_type: "commission_withdrawal",
+      subject_id: rows[0].id,
+      metadata: { amount: Math.round(amount) }
+    });
+    return {
+      withdrawal: rows[0],
+      notice: "提现申请已提交，平台会在后台审核后处理。"
+    };
+  }
+
+  async policyDocuments(query: Record<string, unknown>) {
+    const variant = String(query.variant ?? query.privacy_notice_variant ?? "standard_cn");
+    const type = query.type ? String(query.type) : null;
+    const params: unknown[] = [variant];
+    const typeSql = type ? `and policy_type = $${params.push(type)}` : "";
+    const { rows } = await this.db.query(
+      `select distinct on (policy_type)
+              policy_type,
+              variant,
+              title,
+              content,
+              version,
+              effective_at,
+              metadata
+         from policy_documents
+        where status = 'published'
+          and (variant = $1 or variant = 'standard_cn')
+          ${typeSql}
+        order by policy_type,
+                 case when variant = $1 then 0 else 1 end,
+                 effective_at desc,
+                 version desc`,
+      params
+    );
+    return {
+      data: rows,
+      variant
+    };
   }
 
   async mockPay(user: PublicRequestUser, orderNo: string) {
@@ -1660,6 +1845,117 @@ export class PublicService {
       order_no: order.order_no,
       url: `/checkout/mock-pay?order_no=${encodeURIComponent(order.order_no)}`
     };
+  }
+
+  private async ensureReferralCode(userId: string, tenantId: string) {
+    const existing = await this.db.query(
+      `select id, code
+         from referral_codes
+        where tenant_id = $1
+          and user_id = $2
+          and status = 'active'
+        limit 1`,
+      [tenantId, userId]
+    );
+    if (existing.rows[0]) return existing.rows[0];
+
+    const code = `OT${randomToken(8)}`;
+    const { rows } = await this.db.query(
+      `insert into referral_codes (tenant_id, user_id, code, status, metadata)
+       values ($1, $2, $3, 'active', '{"source":"customer_api"}'::jsonb)
+       on conflict (tenant_id, user_id) do update
+          set updated_at = now()
+       returning id, code`,
+      [tenantId, userId, code]
+    );
+    return rows[0];
+  }
+
+  private async createReferralRelationIfPresent(
+    body: Record<string, unknown>,
+    referredUserId: string,
+    referredTenantCustomerId: string,
+    context: CheckoutContext
+  ) {
+    const inviteCode = String(body.invite_code ?? body.referral_code ?? "").trim();
+    if (!inviteCode) return;
+    const { rows } = await this.db.query(
+      `select id, user_id
+         from referral_codes
+        where code = $1
+          and tenant_id = $2
+          and status = 'active'
+        limit 1`,
+      [inviteCode, context.tenant.id]
+    );
+    const code = rows[0];
+    if (!code || code.user_id === referredUserId) return;
+    await this.db.query(
+      `insert into referral_relations
+        (tenant_id, referrer_user_id, referred_user_id, referred_tenant_customer_id,
+         referral_code_id, source, status, metadata)
+       values ($1, $2, $3, $4, $5, 'register', 'active', $6::jsonb)
+       on conflict (tenant_id, referred_user_id) do nothing`,
+      [
+        context.tenant.id,
+        code.user_id,
+        referredUserId,
+        referredTenantCustomerId,
+        code.id,
+        JSON.stringify({
+          platform: context.platform,
+          project_id: context.project?.id ?? null
+        })
+      ]
+    );
+  }
+
+  private amountByStatus(rows: Array<{ status: string; amount: string | number }>) {
+    return rows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = Number(row.amount ?? 0);
+      return acc;
+    }, {});
+  }
+
+  private async recordRiskEvent(
+    context: CheckoutContext,
+    userId: string,
+    eventType: string,
+    riskLevel: "low" | "medium" | "high" | "critical",
+    input: {
+      subject_type?: string | null;
+      subject_id?: string | null;
+      device_id?: string | null;
+      distribution_channel?: string | null;
+      metadata?: Record<string, unknown>;
+    } = {}
+  ) {
+    await this.db.query(
+      `insert into risk_events
+        (tenant_id, project_id, user_id, event_type, risk_level, subject_type,
+         subject_id, device_id, distribution_channel, metadata)
+       values ($1, $2, $3, $4, $5, $6,
+               $7, $8, $9, $10::jsonb)`,
+      [
+        context.tenant.id,
+        context.project?.id ?? null,
+        userId,
+        eventType,
+        riskLevel,
+        input.subject_type ?? null,
+        input.subject_id ?? null,
+        input.device_id ?? null,
+        input.distribution_channel ?? null,
+        JSON.stringify(input.metadata ?? {})
+      ]
+    );
+  }
+
+  private maskPayoutAccount(value: unknown) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    if (raw.length <= 6) return `***${raw.slice(-2)}`;
+    return `${raw.slice(0, 2)}***${raw.slice(-4)}`;
   }
 
   private normalizeEmail(value: unknown) {

@@ -53,9 +53,11 @@ import {
 import {
   ApiKeyRecord,
   BootstrapPayload,
+  CommissionRecord,
   ModelInfo,
   PaymentMethod,
   PaymentOrder,
+  ReferralSummary,
   SessionPayload,
   UsageLogItem,
   UsageSummary,
@@ -71,7 +73,7 @@ import {
   updateSessionUser
 } from "./api";
 
-type ConsoleView = "dashboard" | "tokens" | "logs" | "wallet" | "models" | "settings";
+type ConsoleView = "dashboard" | "tokens" | "logs" | "wallet" | "models" | "referral" | "settings";
 type SiteSection = "home" | "console" | "models" | "docs" | "auth";
 type AuthMode = "login" | "register";
 
@@ -131,6 +133,8 @@ export default function App() {
   const [walletLedger, setWalletLedger] = useState<WalletLedgerItem[]>([]);
   const [usageLogs, setUsageLogs] = useState<UsageLogItem[]>([]);
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [referralSummary, setReferralSummary] = useState<ReferralSummary | null>(null);
+  const [commissions, setCommissions] = useState<CommissionRecord[]>([]);
   const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -147,7 +151,7 @@ export default function App() {
         setUser(payload.user);
         updateSessionUser(payload.user);
         setWallet(payload.wallet);
-        return Promise.all([loadApiKeys(), loadWalletLedger(), loadUsageLogs()]);
+        return Promise.all([loadApiKeys(), loadWalletLedger(), loadUsageLogs(), loadReferral()]);
       })
       .catch(() => {
         setUser(null);
@@ -155,6 +159,8 @@ export default function App() {
         setWalletLedger([]);
         setUsageLogs([]);
         setUsageSummary(null);
+        setReferralSummary(null);
+        setCommissions([]);
         setApiKeys([]);
       });
   }, [context]);
@@ -228,6 +234,15 @@ export default function App() {
     }>(`/api/public/usage-logs?${toQuery({ ...context, pageSize: 12 })}`);
     setUsageLogs(payload.data);
     setUsageSummary(payload.summary);
+  }
+
+  async function loadReferral() {
+    const [summary, records] = await Promise.all([
+      apiFetch<ReferralSummary>(`/api/referral/summary?${toQuery(context)}`),
+      apiFetch<{ data: CommissionRecord[] }>(`/api/referral/commissions?${toQuery({ ...context, pageSize: 20 })}`)
+    ]);
+    setReferralSummary(summary);
+    setCommissions(records.data);
   }
 
   async function submitAuth(values: { email: string; password: string }) {
@@ -360,6 +375,22 @@ export default function App() {
       messageApi.success("密码已更新");
     } catch (error) {
       messageApi.error(error instanceof Error ? error.message : "修改密码失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function requestCommissionWithdrawal(values: { amount: number; payout_method?: string; payout_account?: string }) {
+    setSubmitting(true);
+    try {
+      await apiFetch<{ notice: string }>("/api/referral/withdrawals", {
+        method: "POST",
+        body: JSON.stringify({ ...values, ...context, requested_from: "web" })
+      });
+      await loadReferral();
+      messageApi.success("提现申请已提交");
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "提交提现失败");
     } finally {
       setSubmitting(false);
     }
@@ -522,6 +553,15 @@ export default function App() {
             />
           ) : null}
           {view === "models" ? <ModelMarket models={models} copyText={copyText} /> : null}
+          {view === "referral" ? (
+            <ReferralPanel
+              commissions={commissions}
+              copyText={copyText}
+              requestWithdrawal={requestCommissionWithdrawal}
+              submitting={submitting}
+              summary={referralSummary}
+            />
+          ) : null}
           {view === "settings" ? (
             <SettingsPage
               changePassword={changePassword}
@@ -887,6 +927,7 @@ function SideNav({
     { key: "logs", icon: <History size={17} />, label: "使用日志" },
     { key: "models", icon: <Boxes size={17} />, label: "模型广场" },
     { key: "wallet", icon: <WalletCards size={17} />, label: "钱包管理" },
+    { key: "referral", icon: <CircleDollarSign size={17} />, label: "代理佣金" },
     { key: "settings", icon: <Settings size={17} />, label: "个人设置" }
   ];
   return (
@@ -1741,6 +1782,81 @@ function SettingsPage({
           </Form>
         </section>
       </div>
+    </section>
+  );
+}
+
+function ReferralPanel({
+  commissions,
+  copyText,
+  requestWithdrawal,
+  submitting,
+  summary
+}: {
+  commissions: CommissionRecord[];
+  copyText: (text: string) => void;
+  requestWithdrawal: (values: { amount: number; payout_method?: string; payout_account?: string }) => void;
+  submitting: boolean;
+  summary: ReferralSummary | null;
+}) {
+  return (
+    <section className="panel page-panel">
+      <PanelTitle icon={<CircleDollarSign size={17} />} title="代理佣金" />
+      <div className="wallet-stats">
+        <MetricBlock value={summary?.invite_code ?? "-"} label="邀请码" />
+        <MetricBlock value={String(summary?.invited_customers ?? 0)} label="已邀请客户" />
+        <MetricBlock value={money(summary?.available_commission ?? 0)} label="可提现佣金" />
+        <MetricBlock value={money(summary?.pending_commission ?? 0)} label="待结算佣金" />
+      </div>
+      <div className="settings-forms">
+        <section>
+          <h3>
+            <Copy size={17} />
+            邀请码
+          </h3>
+          <p className="muted">客户注册时填写邀请码后，会形成邀请关系。佣金到账以后台结算和审核为准。</p>
+          <Button disabled={!summary?.invite_code} onClick={() => summary?.invite_code && copyText(summary.invite_code)}>
+            复制邀请码
+          </Button>
+        </section>
+        <section>
+          <h3>
+            <WalletCards size={17} />
+            提现申请
+          </h3>
+          <Form layout="vertical" onFinish={requestWithdrawal}>
+            <Form.Item label="提现金额，单位分" name="amount" rules={[{ required: true, message: "请输入提现金额" }]}>
+              <Input type="number" min={1} placeholder="例如 2400" />
+            </Form.Item>
+            <Form.Item label="提现方式" name="payout_method">
+              <Input placeholder="支付宝 / 银行卡 / 对公转账" />
+            </Form.Item>
+            <Form.Item label="收款账号" name="payout_account">
+              <Input placeholder="仅提交给后台审核，列表只展示脱敏值" />
+            </Form.Item>
+            <Button htmlType="submit" loading={submitting} type="primary">
+              提交提现申请
+            </Button>
+          </Form>
+        </section>
+      </div>
+      <section className="panel wallet-panel">
+        <PanelTitle icon={<History size={17} />} title="佣金明细" />
+        {commissions.length ? (
+          <div className="log-list">
+            {commissions.map((item) => (
+              <div className="log-row" key={item.id}>
+                <span>{item.created_at.replace("T", " ").slice(0, 19)}</span>
+                <strong>{money(item.commission_amount)}</strong>
+                <span>{item.source_email ?? item.source_user_id ?? "来源客户"}</span>
+                <Tag>{item.status}</Tag>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Empty description="暂无佣金记录" />
+        )}
+      </section>
     </section>
   );
 }

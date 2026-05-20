@@ -142,6 +142,29 @@ export interface UsageSummary {
   }>;
 }
 
+export interface ReferralSummary {
+  invite_code: string;
+  invited_customers: number;
+  pending_commission: number;
+  available_commission: number;
+  withdrawn_commission: number;
+  currency: string;
+}
+
+export interface CommissionRecord {
+  id: string;
+  source_user_id?: string | null;
+  source_email?: string | null;
+  payment_order_id?: string | null;
+  commission_base_amount: number;
+  commission_rate: number;
+  commission_amount: number;
+  currency: string;
+  status: string;
+  frozen_until?: string | null;
+  created_at: string;
+}
+
 export interface BootstrapPayload {
   tenant: { id: string; tenant_code: string; name: string };
   project: { id: string; project_code: string; name: string; platform: string } | null;

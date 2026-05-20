@@ -348,6 +348,84 @@ class ApiKeyRecord {
   }
 }
 
+class ReferralSummary {
+  const ReferralSummary({
+    required this.inviteCode,
+    required this.invitedCustomers,
+    required this.pendingCommission,
+    required this.availableCommission,
+    required this.withdrawnCommission,
+    required this.currency,
+  });
+
+  final String inviteCode;
+  final int invitedCustomers;
+  final int pendingCommission;
+  final int availableCommission;
+  final int withdrawnCommission;
+  final String currency;
+
+  factory ReferralSummary.fromJson(Map<String, dynamic> json) {
+    return ReferralSummary(
+      inviteCode: _string(json['invite_code']),
+      invitedCustomers: _int(json['invited_customers']),
+      pendingCommission: _int(json['pending_commission']),
+      availableCommission: _int(json['available_commission']),
+      withdrawnCommission: _int(json['withdrawn_commission']),
+      currency: _string(json['currency'], 'CNY'),
+    );
+  }
+}
+
+class CommissionRecord {
+  const CommissionRecord({
+    required this.id,
+    required this.amount,
+    required this.status,
+    required this.createdAt,
+    this.sourceEmail,
+  });
+
+  final String id;
+  final int amount;
+  final String status;
+  final DateTime createdAt;
+  final String? sourceEmail;
+
+  factory CommissionRecord.fromJson(Map<String, dynamic> json) {
+    return CommissionRecord(
+      id: _string(json['id']),
+      amount: _int(json['commission_amount']),
+      status: _string(json['status'], 'pending'),
+      createdAt: _date(json['created_at']),
+      sourceEmail: json['source_email']?.toString(),
+    );
+  }
+}
+
+class PolicyDocument {
+  const PolicyDocument({
+    required this.type,
+    required this.title,
+    required this.content,
+    required this.version,
+  });
+
+  final String type;
+  final String title;
+  final String content;
+  final int version;
+
+  factory PolicyDocument.fromJson(Map<String, dynamic> json) {
+    return PolicyDocument(
+      type: _string(json['policy_type']),
+      title: _string(json['title']),
+      content: _string(json['content']),
+      version: _int(json['version']),
+    );
+  }
+}
+
 class ChatEstimate {
   const ChatEstimate({
     required this.modelCode,

@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/router.dart';
+import '../../core/errors/app_exception.dart';
 import '../../core/widgets/app_page.dart';
 import '../../design_system/tokens.dart';
 
-class CompliancePage extends StatelessWidget {
+class CompliancePage extends ConsumerWidget {
   const CompliancePage({required this.type, super.key});
 
   final String type;
 
   @override
-  Widget build(BuildContext context) {
-    final title = switch (type) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fallbackTitle = switch (type) {
       'privacy' => '隐私政策',
       'disclaimer' => 'AI 生成内容免责声明',
       'report' => '内容举报',
@@ -18,22 +21,45 @@ class CompliancePage extends StatelessWidget {
       _ => '用户协议',
     };
     return AppPage(
-      title: title,
-      child: PagePadding(
-        child: AppCard(
-          child: Text(
-            _content(title),
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
+      title: fallbackTitle,
+      child: FutureBuilder(
+        future: ref.read(apiProvider).fetchPolicyDocument(type),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const AppLoading();
+          }
+          if (snapshot.hasError) {
+            return AppEmptyState(
+              title: '政策内容加载失败',
+              description: errorMessage(snapshot.error!),
+            );
+          }
+          final policy = snapshot.data!;
+          return PagePadding(
+            child: AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    policy.title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    '版本 ${policy.version}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    policy.content,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
-  }
-
-  String _content(String title) {
-    if (type == 'report') {
-      return '如果你认为 AI 生成内容存在违法违规、侵权或安全风险，请在聊天消息菜单中提交举报。举报接口：POST /api/reports/content。';
-    }
-    return '$title 内容将由后台 CMS 或 App Config 下发。MVP 保留入口，确保协议、隐私、免责声明、客服和注销路径始终可见。';
   }
 }

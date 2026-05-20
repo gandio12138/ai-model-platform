@@ -358,13 +358,36 @@ export interface ReferralSummary {
 export interface CommissionRecord {
   id: string;
   source_user_id?: string | null;
+  source_email?: string | null;
   payment_order_id?: string | null;
   commission_base_amount: number;
   commission_rate: number;
   commission_amount: number;
   currency: string;
   status: string;
+  frozen_until?: string | null;
   created_at: string;
+}
+
+export interface CommissionWithdrawal {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  payout_method?: string | null;
+  payout_account_mask?: string | null;
+  requested_from?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+}
+
+export interface PolicyDocument {
+  policy_type: "terms" | "privacy" | "disclaimer" | "report" | "help" | string;
+  variant: string;
+  title: string;
+  content: string;
+  version: number;
+  effective_at: string;
 }
 
 export interface ContentReport {

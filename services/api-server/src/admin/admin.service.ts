@@ -558,6 +558,22 @@ const resourceMap: Record<string, ResourceConfig> = {
     tenantScopeColumn: "tenant_id",
     customerScopeColumn: "beneficiary_user_id"
   },
+  commissionWithdrawals: {
+    table: "commission_withdrawals",
+    readPermission: "commission.read",
+    writePermission: "commission.approve",
+    searchable: ["status", "payout_method", "requested_from"],
+    writable: ["status", "reviewed_at", "metadata"],
+    tenantScopeColumn: "tenant_id",
+    customerScopeColumn: "user_id"
+  },
+  policyDocuments: {
+    table: "policy_documents",
+    readPermission: "config.read",
+    writePermission: "config.write",
+    searchable: ["policy_type", "variant", "title", "status"],
+    writable: ["policy_type", "variant", "title", "content", "status", "version", "effective_at", "metadata"]
+  },
   contentReports: {
     table: "content_reports",
     readPermission: "audit.read",
@@ -2094,6 +2110,98 @@ export class AdminService {
       reason: String(body.reason)
     });
     return rows[0];
+  }
+
+  async reviewCommissionWithdrawal(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "commission.approve");
+    requireReason(body);
+    const before = await this.findById(resourceMap.commissionWithdrawals, id);
+    await this.assertRecordScope(resourceMap.commissionWithdrawals, before, user);
+    const nextStatus = String(body.status ?? "approved");
+    if (!["approved", "paid", "rejected"].includes(nextStatus)) {
+      throw new BadRequestException("status must be approved, paid or rejected");
+    }
+    const { rows } = await this.db.query(
+      `update commission_withdrawals
+          set status = $2,
+              reviewed_by = $3,
+              reviewed_at = now(),
+              metadata = coalesce(metadata, '{}'::jsonb) || $4::jsonb,
+              updated_at = now()
+        where id = $1
+        returning *`,
+      [
+        id,
+        nextStatus,
+        user.id,
+        JSON.stringify({
+          review_reason: String(body.reason),
+          payout_reference: body.payout_reference ?? null
+        })
+      ]
+    );
+    await this.audit.record({
+      actor,
+      action: "commission.withdrawal.review",
+      targetType: "commission_withdrawals",
+      targetId: id,
+      beforeValue: before,
+      afterValue: rows[0],
+      reason: String(body.reason)
+    });
+    return rows[0];
+  }
+
+  async rebuildUsageAggregates(body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "tenant.billing.write");
+    requireReason(body);
+    const periodStart = body.period_start ? String(body.period_start) : null;
+    const periodEnd = body.period_end ? String(body.period_end) : null;
+    const tenantId = body.tenant_id ? String(body.tenant_id) : null;
+    const { rowCount } = await this.db.query(
+      `insert into tenant_usage_aggregates
+        (tenant_id, project_id, model_id, period_start, period_end,
+         total_requests, total_tokens, provider_cost_amount, tenant_wholesale_amount,
+         end_user_revenue_amount, status, metadata)
+       select rl.tenant_id,
+              rl.project_id,
+              m.id,
+              coalesce($1::timestamptz, date_trunc('month', now())),
+              coalesce($2::timestamptz, date_trunc('month', now()) + interval '1 month'),
+              count(*)::bigint,
+              coalesce(sum(rl.total_tokens), 0)::bigint,
+              coalesce(sum(rl.actual_cost_amount), 0)::bigint,
+              ceil(coalesce(sum(rl.actual_cost_amount), 0) * 1.3)::bigint,
+              coalesce(sum(br.amount), 0)::bigint,
+              'open',
+              jsonb_build_object('source', 'admin_rebuild')
+         from request_logs rl
+         left join models m on m.public_model_code = rl.public_model_code
+         left join billing_records br on br.request_log_id = rl.id
+        where rl.tenant_id is not null
+          and rl.created_at >= coalesce($1::timestamptz, date_trunc('month', now()))
+          and rl.created_at < coalesce($2::timestamptz, date_trunc('month', now()) + interval '1 month')
+          and ($3::uuid is null or rl.tenant_id = $3::uuid)
+        group by rl.tenant_id, rl.project_id, m.id
+       on conflict (tenant_id, project_id, model_id, period_start, period_end) do update
+          set total_requests = excluded.total_requests,
+              total_tokens = excluded.total_tokens,
+              provider_cost_amount = excluded.provider_cost_amount,
+              tenant_wholesale_amount = excluded.tenant_wholesale_amount,
+              end_user_revenue_amount = excluded.end_user_revenue_amount,
+              metadata = tenant_usage_aggregates.metadata || excluded.metadata,
+              updated_at = now()`,
+      [periodStart, periodEnd, tenantId]
+    );
+    await this.audit.record({
+      actor,
+      action: "tenant_usage_aggregates.rebuild",
+      targetType: "tenant_usage_aggregates",
+      targetId: tenantId ?? "all",
+      afterValue: { rowCount, period_start: periodStart, period_end: periodEnd, tenant_id: tenantId },
+      reason: String(body.reason)
+    });
+    return { ok: true, affected: rowCount, period_start: periodStart, period_end: periodEnd, tenant_id: tenantId };
   }
 
   private async resolveProviderCredential(providerId: string, credentialId?: string) {

@@ -42,6 +42,14 @@ abstract class OneTokenApi {
   Future<ApiKeyRecord> createApiKey(String name);
   Future<void> updateApiKey(String id, String status);
   Future<void> deleteApiKey(String id);
+  Future<ReferralSummary> fetchReferralSummary();
+  Future<List<CommissionRecord>> fetchReferralCommissions({int page = 1});
+  Future<void> requestCommissionWithdrawal({
+    required int amount,
+    String? payoutMethod,
+    String? payoutAccount,
+  });
+  Future<PolicyDocument> fetchPolicyDocument(String type);
   Future<List<ChatSession>> fetchChatSessions();
   Future<ChatSession> createChatSession(String modelCode);
   Future<void> deleteChatSession(String id);
@@ -370,6 +378,64 @@ class DioOneTokenApi implements OneTokenApi {
   @override
   Future<void> deleteApiKey(String id) async {
     await _request(() => _dio.delete('/api/developer/api-keys/$id'));
+  }
+
+  @override
+  Future<ReferralSummary> fetchReferralSummary() async {
+    final response = await _request(
+      () => _dio.get(
+        '/api/referral/summary',
+        queryParameters: _context.toQuery(),
+      ),
+    );
+    return ReferralSummary.fromJson(_dataMap(response));
+  }
+
+  @override
+  Future<List<CommissionRecord>> fetchReferralCommissions({
+    int page = 1,
+  }) async {
+    final response = await _request(
+      () => _dio.get(
+        '/api/referral/commissions',
+        queryParameters: {..._context.toQuery(), 'page': page},
+      ),
+    );
+    return _dataList(
+      response,
+    ).map((item) => CommissionRecord.fromJson(item)).toList();
+  }
+
+  @override
+  Future<void> requestCommissionWithdrawal({
+    required int amount,
+    String? payoutMethod,
+    String? payoutAccount,
+  }) async {
+    await _request(
+      () => _dio.post(
+        '/api/referral/withdrawals',
+        data: {
+          ..._context.toQuery(),
+          'amount': amount,
+          'payout_method': payoutMethod,
+          'payout_account': payoutAccount,
+          'requested_from': _context.platform,
+        },
+      ),
+    );
+  }
+
+  @override
+  Future<PolicyDocument> fetchPolicyDocument(String type) async {
+    final response = await _request(
+      () => _dio.get(
+        '/api/compliance/policies/$type',
+        queryParameters: {'variant': 'standard_cn'},
+      ),
+    );
+    final list = _dataList(response);
+    return PolicyDocument.fromJson(list.isEmpty ? _dataMap(response) : list[0]);
   }
 
   @override
