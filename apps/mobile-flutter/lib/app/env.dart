@@ -32,6 +32,21 @@ class AppEnv {
   bool get isProd => flavor == AppFlavor.prod;
   String get flavorName => flavor.name;
 
+  AppEnv copyWith({String? apiBaseUrl}) {
+    return AppEnv(
+      flavor: flavor,
+      apiBaseUrl: apiBaseUrl ?? this.apiBaseUrl,
+      appName: appName,
+      appVersion: appVersion,
+      packageName: packageName,
+      bundleId: bundleId,
+      distributionChannel: distributionChannel,
+      region: region,
+      allowMockData: allowMockData,
+      debugBanner: debugBanner,
+    );
+  }
+
   AppPlatform get platform {
     try {
       if (Platform.isIOS) return AppPlatform.ios;

@@ -59,3 +59,48 @@ class MemoryTokenStore implements TokenStore {
   @override
   Future<void> save(TokenPair token) async => _token = token;
 }
+
+abstract class ApiBaseStore {
+  Future<String?> read();
+  Future<void> save(String value);
+  Future<void> clear();
+}
+
+class SecureApiBaseStore implements ApiBaseStore {
+  SecureApiBaseStore({FlutterSecureStorage? storage})
+    : _storage = storage ?? const FlutterSecureStorage();
+
+  final FlutterSecureStorage _storage;
+
+  static const _apiBaseUrlKey = 'onetoken.api_base_url';
+
+  @override
+  Future<String?> read() async {
+    final value = await _storage.read(key: _apiBaseUrlKey);
+    if (value == null || value.trim().isEmpty) return null;
+    return value.trim();
+  }
+
+  @override
+  Future<void> save(String value) async {
+    await _storage.write(key: _apiBaseUrlKey, value: value.trim());
+  }
+
+  @override
+  Future<void> clear() async {
+    await _storage.delete(key: _apiBaseUrlKey);
+  }
+}
+
+class MemoryApiBaseStore implements ApiBaseStore {
+  String? _value;
+
+  @override
+  Future<String?> read() async => _value;
+
+  @override
+  Future<void> save(String value) async => _value = value.trim();
+
+  @override
+  Future<void> clear() async => _value = null;
+}

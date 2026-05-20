@@ -49,6 +49,8 @@ class MockOneTokenApi implements OneTokenApi {
       paymentPageNotice: isIos
           ? '你正在通过 App Store 购买平台额度，实际金额以 Apple 支付页面显示为准。'
           : '你正在通过平台安卓统一收银台购买额度，不同支付方式可能存在到账和退款路径差异。',
+      iosIapEnabled: isIos,
+      androidUnifiedCheckoutEnabled: !isIos,
     );
   }
 
@@ -166,11 +168,22 @@ class MockOneTokenApi implements OneTokenApi {
     return PaymentOrder(
       id: 'order_mock_1',
       orderNo: 'OTMOCK202605190001',
-      status: 'pending',
+      status: 'PAYING',
       amount: productId == 'team_300' ? 30000 : 5000,
       paymentMethod: paymentMethod,
       checkoutChannel: checkoutChannel,
       clientPayload: const {'mock': true, 'next': 'SDK adapter placeholder'},
+      paymentAction: PaymentAction(
+        type: checkoutChannel == 'android_unified_checkout'
+            ? 'android_unified_checkout'
+            : 'ios_iap_placeholder',
+        status: 'pending',
+        title: paymentMethod,
+        orderNo: 'OTMOCK202605190001',
+        paymentMethod: paymentMethod,
+        notice: 'Mock 订单只用于 dev 预览，正式环境不会通过客户端模拟入账。',
+        clientPayload: const {'mock': true},
+      ),
     );
   }
 
@@ -179,7 +192,7 @@ class MockOneTokenApi implements OneTokenApi {
     return PaymentOrder(
       id: orderId,
       orderNo: orderId,
-      status: 'fulfilled',
+      status: 'FULFILLED',
       amount: 5000,
       paymentMethod: 'mock',
       checkoutChannel: 'mock',
@@ -189,6 +202,36 @@ class MockOneTokenApi implements OneTokenApi {
   @override
   Future<PaymentOrder> syncPaymentOrder(String orderId) =>
       fetchPaymentOrder(orderId);
+
+  @override
+  Future<PaymentOrder> cancelPaymentOrder(String orderId) async {
+    return PaymentOrder(
+      id: orderId,
+      orderNo: orderId,
+      status: 'CANCELLED',
+      amount: 5000,
+      paymentMethod: 'mock',
+      checkoutChannel: 'mock',
+    );
+  }
+
+  @override
+  Future<IosIapVerificationResult> submitIosIapTransaction({
+    required String productId,
+    required String transactionId,
+    required String signedTransactionInfo,
+    String? originalTransactionId,
+    String environment = 'Sandbox',
+    String? appAccountToken,
+  }) async {
+    return IosIapVerificationResult(
+      orderId: 'order_mock_iap',
+      orderNo: 'OTMOCKIAP202605190001',
+      orderStatus: 'FULFILLED',
+      transactionId: transactionId,
+      idempotent: false,
+    );
+  }
 
   @override
   Future<List<ApiKeyRecord>> fetchApiKeys() async => const [

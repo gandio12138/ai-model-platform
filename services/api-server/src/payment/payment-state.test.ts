@@ -19,5 +19,5 @@ test("payment status rejects moving terminal states back to active states", () =
 });
 
 test("terminal status list is explicit", () => {
-  assert.deepEqual(terminalPaymentStatuses(), ["FAILED", "CANCELLED", "REFUNDED"]);
+  assert.deepEqual(terminalPaymentStatuses(), ["FAILED", "CANCELLED", "EXPIRED", "REFUNDED", "REVERSED"]);
 });

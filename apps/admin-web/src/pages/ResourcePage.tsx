@@ -102,6 +102,8 @@ const fieldLabels: Record<string, string> = {
   end_user_revenue_amount: "客户付款金额",
   payment_order_id: "支付订单",
   payment_order_no: "支付订单号",
+  refund_no: "退款单号",
+  provider_refund_no: "渠道退款号",
   transaction_type: "交易类型",
   payment_gross_amount: "付款总额",
   payment_channel_fee: "支付通道费",
@@ -229,6 +231,7 @@ const valueLabels: Record<string, Record<string, string>> = {
   payment_method: {
     apple_iap: "Apple IAP",
     alipay_app: "支付宝 App 支付",
+    alipay_qr: "支付宝二维码支付",
     wechat_app: "微信 App 支付",
     alipay_web: "支付宝网页支付",
     wechat_web: "微信网页支付",

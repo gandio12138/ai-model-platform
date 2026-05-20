@@ -8,6 +8,7 @@ import '../../core/network/api_models.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/widgets/app_page.dart';
 import '../../design_system/tokens.dart';
+import 'payment_adapters.dart';
 
 class PaymentPage extends ConsumerStatefulWidget {
   const PaymentPage({super.key});
@@ -28,6 +29,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
       product,
       config.availablePaymentMethods,
       platform,
+      config,
     );
     final paymentMethod = _method ?? (methods.isEmpty ? null : methods.first);
     if (paymentMethod == null) return;
@@ -48,9 +50,18 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
               'bundle_id': launch.bundleId,
               'distribution_channel': launch.distributionChannel,
               'device_id': launch.deviceId,
+              'apple_product_id': product.appleProductId,
+              'payment_method': paymentMethod,
             },
           );
-      if (mounted) context.push('/payment/status/${order.orderNo}');
+      final launchResult = await _launchPayment(order, platform);
+      if (!mounted) return;
+      if (launchResult.message?.isNotEmpty == true) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(launchResult.message!)));
+      }
+      context.push('/payment/status/${order.orderNo}');
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -104,6 +115,7 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
                     product,
                     config.availablePaymentMethods,
                     platform,
+                    config,
                   ),
                   selectedMethod: _method,
                   submitting: _submitting,
@@ -132,14 +144,29 @@ class _PaymentPageState extends ConsumerState<PaymentPage> {
     PaymentProduct product,
     List<String> configMethods,
     String platform,
+    AppConfig config,
   ) {
     final methods = product.paymentMethods
         .where(configMethods.contains)
         .toList();
     if (platform == 'ios') {
+      if (!config.iosIapEnabled) return const [];
       return methods.where((item) => item == 'apple_iap').toList();
     }
+    if (platform == 'android' && !config.androidUnifiedCheckoutEnabled) {
+      return const [];
+    }
     return methods.where((item) => item != 'apple_iap').toList();
+  }
+
+  Future<NativePaymentResult> _launchPayment(
+    PaymentOrder order,
+    String platform,
+  ) {
+    final NativePaymentAdapter adapter = platform == 'ios'
+        ? IosIapPaymentAdapter()
+        : AndroidUnifiedCheckoutAdapter();
+    return adapter.launch(order);
   }
 
   String _defaultNotice(String platform) {
@@ -207,17 +234,20 @@ class PaymentProductCard extends StatelessWidget {
           Wrap(
             spacing: 8,
             children: [
-              for (final item in availableMethods)
-                ChoiceChip(
-                  label: Text(_methodName(item)),
-                  selected: method == item,
-                  onSelected: (_) => onMethodChanged?.call(item),
-                ),
+              if (availableMethods.isEmpty)
+                const AppBadge(label: '当前平台暂不可购买', color: AppColors.warning)
+              else
+                for (final item in availableMethods)
+                  ChoiceChip(
+                    label: Text(_methodName(item)),
+                    selected: method == item,
+                    onSelected: (_) => onMethodChanged?.call(item),
+                  ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
           AppButton(
-            label: '创建订单',
+            label: availableMethods.isEmpty ? '暂无可用支付方式' : '创建订单并继续支付',
             fullWidth: true,
             loading: submitting,
             onPressed: availableMethods.isEmpty ? null : onBuy,
@@ -230,6 +260,7 @@ class PaymentProductCard extends StatelessWidget {
   String _methodName(String value) {
     return switch (value) {
       'apple_iap' => 'Apple IAP',
+      'alipay_qr' => '支付宝',
       'alipay_app_pay' => '支付宝',
       'wechat_app_pay' => '微信支付',
       'alipay_app' => '支付宝',

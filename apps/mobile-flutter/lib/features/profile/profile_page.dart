@@ -7,6 +7,7 @@ import '../../app/router.dart';
 import '../../core/errors/app_exception.dart';
 import '../../core/widgets/app_page.dart';
 import '../../design_system/tokens.dart';
+import '../app_config/api_endpoint_dialog.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -57,6 +58,11 @@ class ProfilePage extends ConsumerWidget {
                 AppCard(
                   child: Column(
                     children: [
+                      _Setting(
+                        label: '开发设置：API 地址',
+                        value: ref.watch(apiBaseUrlProvider),
+                        onTap: () => showApiEndpointDialog(context, ref),
+                      ),
                       _Setting(
                         label: '用户协议',
                         onTap: () => context.push('/compliance/terms'),
@@ -152,10 +158,12 @@ class _Setting extends StatelessWidget {
   const _Setting({
     required this.label,
     required this.onTap,
+    this.value,
     this.danger = false,
   });
 
   final String label;
+  final String? value;
   final VoidCallback onTap;
   final bool danger;
 
@@ -163,12 +171,26 @@ class _Setting extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(
-        label,
-        style: TextStyle(
-          fontWeight: FontWeight.w800,
-          color: danger ? AppColors.danger : AppColors.text,
-        ),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: danger ? AppColors.danger : AppColors.text,
+            ),
+          ),
+          if (value?.isNotEmpty == true) ...[
+            const SizedBox(height: 4),
+            Text(
+              value!,
+              style: Theme.of(context).textTheme.bodySmall,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
       ),
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: onTap,

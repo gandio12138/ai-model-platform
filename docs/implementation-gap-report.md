@@ -9,6 +9,9 @@
 - `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-platform-design-v1.2-unified-android-payment.md`
 - `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-platform-full-implementation-plan-v2.0.md`
 - `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-platform-full-implementation-plan-v2.2-saas-billing.md`
+- `/Users/chengchengxu/Downloads/codex-payment-p1-implementation-prompt.md`
+- `/Users/chengchengxu/Desktop/api-token智能基础平台设计方案/ai-token-payment-provider-preparation-plan-2026-05-20.md`
+- `/Users/chengchengxu/Downloads/payment-env-example.env`
 
 ## 0. 当前实施进展
 
@@ -27,10 +30,20 @@
 
 ### P1 仍未完成
 
-- Alipay/WeChat/hosted card/Apple App Store Server API 的真实验签、查单、退款和对账 adapter。
-- refund 后钱包负向 ledger / 冲正闭环。
+- Web 端支付宝 `alipay.trade.precreate` 和微信支付 API v3 Native 二维码真实 adapter。
+- Alipay/WeChat 回调 raw body、验签、金额/app_id/mchid/seller 校验、主动查单补单和幂等入账。
+- refund 后钱包负向 ledger / 冲正闭环，缺 `payment_refunds` 表和渠道退款/查询。
+- Apple App Store Server API 真实验签和 Server Notifications。
 - tenant invoice 真实出账、支付状态和冲正闭环。
 - Admin 专用支付订单详情 drawer、状态时间线、回调/ledger/对账联动详情。
+
+### 支付 P1 本轮范围锁定
+
+- 必做：Web 支付宝二维码、Web 微信 Native 二维码、回调验签、主动查单、订单状态机、幂等钱包入账、退款冲正、Web 二维码收银台轮询成功页、Admin 支付订单详情联动。
+- 保留但受限：dev/test `mock-pay`。`NODE_ENV=production` 或 `PAYMENT_MOCK_ENABLED=false` 时必须不可见、不可触发入账。
+- 暂不做：银行卡、信用卡、企业转账、Stripe/hosted card、品牌 Android 市场支付、服务商分账、提现。
+- Android 仍坚持 `android_unified_checkout`，本轮不按华为/小米/OPPO/vivo/应用宝拆支付。
+- iOS 保持 Apple IAP 方向，真实 Apple Server API 验签和 Server Notifications 可作为本轮后半段接入；不把 Web 支付作为 iOS 默认路径。
 
 ### 非支付功能第一版已完成
 
@@ -234,17 +247,39 @@
 
 ## 9. 支付缺口
 
-- 生产支付状态机不完整：PENDING / PROCESSING / PAID / FULFILLED / FAILED / CANCELLED / REFUNDED 需要被 service 层统一执行。
-- 支付成功和权益到账没有完整分离；dev mock 直接 fulfilled。
-- 缺 payment_order_events 表或等效状态事件记录。
-- 缺 payment_transactions 表记录平台交易号、查单结果、资金状态。
-- 缺 webhook endpoint 和验签。
-- 缺 syncOrder 真实查单。
-- 缺 refund/reversal 真实接口和负向 ledger。
-- 缺 reconciliation job 和差异处理。
-- iOS IAP 表已有，但缺 App Store Server API 验证、notification、重复 transaction 幂等入账。
-- Android unified checkout 缺 `client_payload` 结构、SDK 调起参数、支付 App 未安装降级、订单轮询。
-- Web 支付缺二维码/redirect/hosted checkout/对公转账的真实展示和状态页。
+- 订单状态机、`payment_order_events`、`payment_transactions` 已有第一版，但真实渠道通知、查单、退款仍没有汇入同一套状态机。
+- 支付成功和权益到账概念已分离，但 Web dev `mock-pay` 仍可见且直接 fulfilled；需要生产强禁用和前端隐藏。
+- 缺 `PaymentConfigService`：未按 `payment-env-example.env` 统一加载 `PUBLIC_API_BASE_URL`、`CHECKOUT_WEB_BASE_URL`、`PAYMENT_MOCK_ENABLED`、Alipay/WeChat/Apple 密钥和证书路径/base64。
+- 缺 adapter registry 和 adapter 接口；真实支付逻辑不能继续堆在 `PublicService` 或单个 `PaymentService` 大函数里。
+- 缺支付宝二维码 adapter：
+  - `alipay.trade.precreate`；
+  - 支付宝 form 回调验签；
+  - `app_id`、`seller_id`、`out_trade_no`、`total_amount` 校验；
+  - `alipay.trade.query` 主动查单；
+  - `alipay.trade.refund` 和退款查询。
+- 缺微信 Native adapter：
+  - `/v3/pay/transactions/native`；
+  - 微信支付 API v3 签名；
+  - 回调签名验证；
+  - `resource.ciphertext` 解密；
+  - `appid`、`mchid`、`out_trade_no`、`amount.total`、`trade_state` 校验；
+  - 查单、退款和退款通知。
+- 缺 raw callback 支持：Nest 当前只接 JSON body，Alipay `application/x-www-form-urlencoded` 和 WeChat raw body/JWS 验签需要保留原始请求体。
+- 缺 `payment_refunds` 表和退款事件模型。
+- 缺退款钱包负向 ledger：`event_type='payment.refund'`、`direction='debit'`、`related_type='payment_refund'`。
+- 缺 Admin 支付订单详情聚合接口：
+  - 订单头；
+  - 状态时间线；
+  - 渠道交易；
+  - 回调；
+  - wallet ledger；
+  - 退款记录；
+  - 对账/查单结果。
+- 缺 Admin 回调 replay、订单查单、退款操作和 audit log 的专用工作流。
+- 缺 Web 二维码收银台、轮询、成功/失败/过期页；当前钱包页只展示订单 Alert 和 mock 完成按钮。
+- 缺 reconciliation job、过期订单 job、未完成订单 sync job。
+- iOS IAP 表和提交入口已有，但缺 App Store Server API 真实验证、Server Notifications、refund/revoke 冲正。
+- Android unified checkout 已有 payload 雏形，但缺 native SDK 调起和支付 App 未安装降级；这不进入 Web 二维码 P1 主干。
 
 ## 10. AI 网关缺口
 
@@ -380,7 +415,15 @@
 - `POST /api/payment/orders/:order_id/cancel`
 - `POST /api/payment/orders/:order_id/refund`
 - `POST /api/payment/ios/iap/transactions`
-- 支付 webhook endpoints，例如 `/api/payment/webhooks/alipay`、`/api/payment/webhooks/wechat`、`/api/payment/webhooks/apple`
+- `POST /api/payment/webhooks/alipay`
+- `POST /api/payment/webhooks/wechat`
+- `POST /api/payment/webhooks/wechat/refund`
+- `POST /api/payment/webhooks/apple/server-notifications`
+- `GET /api/admin/payment/orders/:id/detail`
+- `GET /api/admin/payment/orders/:id/timeline`
+- `POST /api/admin/payment/orders/:id/sync`
+- `POST /api/admin/payment/orders/:id/refund`
+- `POST /api/admin/payment/callbacks/:id/replay`
 
 ### Developer
 
@@ -530,13 +573,43 @@
 
 ### P1：补支付和租户计费生产结构
 
-1. Web payment adapters：Alipay Web、WeChat Native、hosted card、enterprise transfer skeleton。
-2. iOS IAP 服务端验证结构和 transaction 幂等：已完成提交入口、幂等记录和 dev/sandbox fulfillment，真实 Apple 验签待接入。
-3. Android unified checkout order/client_payload/sync 结构：已完成统一 payload 和方法名兼容，真实 SDK payload 待商户配置。
-4. 支付 webhook 验签入口和 callback 记录：已完成回调记录和 dev 签名入口，真实验签 adapter 待接入。
-5. refund/reversal/negative ledger。
-6. usage aggregate job 已有命令和 Admin 手动触发；tenant invoice 生成仍需接入真实 usage/payment。
-7. Admin 支付、对账、账单、配置详情页增强：已补支付/风控/合规资源入口，专用详情页仍待增强。
+1. 支付配置和迁移：
+   - 按 `/Users/chengchengxu/Downloads/payment-env-example.env` 更新 `.env.example`；
+   - 新增 `PaymentConfigService`，支持 `*_PATH` 和 `*_BASE64`；
+   - 新增/补齐 payment orders 字段、`payment_refunds`、callback raw/normalized 字段；
+   - 生产环境禁用 mock-pay。
+2. 支付 adapter 框架：
+   - `PaymentAdapter` 接口；
+   - `PaymentAdapterRegistry`；
+   - 统一 `NormalizedPaymentEvent` / `NormalizedRefundState`；
+   - 统一 `handleVerifiedPaymentEvent` 和 `handleVerifiedRefundEvent`，保证通知、查单、退款通知走同一套事务。
+3. Web 二维码支付：
+   - Alipay `alipay.trade.precreate`；
+   - WeChat `/v3/pay/transactions/native`；
+   - 订单返回 `payment_action.type='qr_code'`、`qr_content`、`expires_at`；
+   - Web 收银台展示二维码、倒计时、轮询、成功/失败/过期页。
+4. 回调和查单：
+   - Alipay form 回调验签和 `success`/`failure` 文本响应；
+   - WeChat raw body 签名验证、resource 解密和 JSON 成功/失败响应；
+   - `POST /api/payment/orders/:id/sync` 和 Admin 查单走 adapter query。
+5. 退款冲正：
+   - `payment_refunds`；
+   - Alipay/WeChat refund request；
+   - 退款查询/通知确认后写负向 wallet ledger；
+   - 重复退款通知不重复冲正。
+6. Admin 详情联动：
+   - 支付订单详情 drawer；
+   - 订单时间线、交易、回调、钱包流水、退款记录；
+   - 查单、退款、回调 replay 操作写 audit log。
+7. Apple IAP 生产化：
+   - App Store Server API JWS 验签；
+   - Server Notifications；
+   - refund/revoke 钱包冲正。
+8. 补偿任务和测试：
+   - `payment:expire-orders`；
+   - `payment:sync-unfinished`；
+   - Alipay/WeChat 验签失败、金额不一致、重复通知、查单入账、退款幂等、生产禁 mock、tenant scope 测试。
+9. usage aggregate job 已有命令和 Admin 手动触发；tenant invoice 生成仍需接入真实 usage/payment。
 
 ### P2：补运营、合规、佣金和 UI
 

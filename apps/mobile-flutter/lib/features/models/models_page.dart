@@ -14,8 +14,8 @@ class ModelsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return AppPage(
-      title: '模型选择',
-      subtitle: '按租户授权展示模型目录',
+      title: '模型目录',
+      subtitle: '对话页可直接切换模型，API Key 默认可调用全部已授权模型',
       child: FutureBuilder<List<ModelInfo>>(
         future: ref.read(apiProvider).fetchModels(),
         builder: (context, snapshot) {
@@ -93,7 +93,7 @@ class ModelCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.check_circle_rounded, color: AppColors.success),
+              const AppBadge(label: '全部 Key 可用', color: AppColors.success),
             ],
           ),
           const SizedBox(height: AppSpacing.md),

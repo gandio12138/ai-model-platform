@@ -197,12 +197,12 @@ async function main() {
   });
   const webProjectId = await project(tenant.rows[0].id, "web-checkout", "自营 Web 收银台", "web_checkout", "web", {
     web_domain: "pay.localhost",
-    payment_policy: { payment_methods: ["alipay_web", "wechat_web", "card_checkout", "enterprise_transfer"] }
+    payment_policy: { payment_methods: ["alipay_qr", "wechat_web", "card_checkout", "enterprise_transfer"] }
   });
   const apiProjectId = await project(tenant.rows[0].id, "developer-api", "自营开发者 API", "developer_api", "api");
   const externalWebProjectId = await project(externalTenant.rows[0].id, "external-web", "外部租户 Web 收银台", "web_checkout", "web", {
     web_domain: "external-pay.localhost",
-    payment_policy: { payment_methods: ["alipay_web", "wechat_web"] }
+    payment_policy: { payment_methods: ["alipay_qr", "wechat_web"] }
   });
 
   await pool.query(
@@ -696,7 +696,7 @@ async function main() {
     [tenant.rows[0].id, iosProjectId, "ios_apple_iap", "apple_iap", "iOS Apple IAP", "ios", "apple_iap", "app_store_collected", 3000, 10, { storekit: true, server_api_required: true }],
     [tenant.rows[0].id, androidProjectId, "android_alipay_app", "android_unified_checkout", "Android 支付宝 App 支付", "android", "alipay_app", "platform_collected", 60, 20, { adapter: "alipay_app" }],
     [tenant.rows[0].id, androidProjectId, "android_wechat_app", "android_unified_checkout", "Android 微信 App 支付", "android", "wechat_app", "platform_collected", 60, 30, { adapter: "wechat_app" }],
-    [tenant.rows[0].id, webProjectId, "web_alipay_pc", "alipay_web", "Web 支付宝电脑网站支付", "web", "alipay_web", "platform_collected", 60, 40, { adapter: "alipay_page" }],
+    [tenant.rows[0].id, webProjectId, "web_alipay_pc", "alipay_qr", "Web 支付宝二维码支付", "web", "alipay_qr", "platform_collected", 60, 40, { adapter: "alipay_qr" }],
     [tenant.rows[0].id, webProjectId, "web_wechat_native", "wechat_web", "Web 微信 Native 支付", "web", "wechat_native", "platform_collected", 60, 50, { adapter: "wechat_native" }],
     [tenant.rows[0].id, webProjectId, "web_card_checkout", "card_checkout", "Web 银行卡/信用卡托管收银台", "web", "card_checkout", "platform_collected", 200, 60, { adapter: "hosted_card_checkout" }],
     [tenant.rows[0].id, webProjectId, "web_enterprise_transfer", "enterprise_transfer", "Web 企业对公转账", "web", "enterprise_transfer", "tenant_or_platform_collected", 0, 70, { manual_reconciliation: true }]
@@ -709,6 +709,7 @@ async function main() {
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11::jsonb)
        on conflict (channel_code) do update
           set display_name = excluded.display_name,
+              channel_type = excluded.channel_type,
               platform = excluded.platform,
               payment_method = excluded.payment_method,
               settlement_mode = excluded.settlement_mode,
@@ -779,7 +780,7 @@ async function main() {
       "CN",
       true,
       "https://pay.example.com",
-      ["alipay_web", "wechat_native", "card_checkout", "enterprise_transfer"],
+      ["alipay_qr", "wechat_native", "card_checkout", "enterprise_transfer"],
       "Web 支付支持支付宝、微信、托管银行卡和企业对公转账。",
       false,
       true,
@@ -832,10 +833,10 @@ async function main() {
     );
   }
 
-  await paymentOrder(demoUser.rows[0].id, tenant.rows[0].id, webProjectId, demoCustomerId, "web", "web_alipay_pc", "alipay_web", 10000);
+  await paymentOrder(demoUser.rows[0].id, tenant.rows[0].id, webProjectId, demoCustomerId, "web", "web_alipay_pc", "alipay_qr", 10000);
   await paymentOrder(webCustomer.rows[0].id, tenant.rows[0].id, webProjectId, webCustomerId, "web", "web_wechat_native", "wechat_native", 30000);
   await paymentOrder(vipUser.rows[0].id, tenant.rows[0].id, androidProjectId, vipCustomerId, "android", "android_wechat_app", "wechat_app", 20000);
-  await paymentOrder(externalUser.rows[0].id, externalTenant.rows[0].id, externalWebProjectId, externalCustomerId, "web", "web_alipay_pc", "alipay_web", 30000);
+  await paymentOrder(externalUser.rows[0].id, externalTenant.rows[0].id, externalWebProjectId, externalCustomerId, "web", "web_alipay_pc", "alipay_qr", 30000);
 
   async function requestLog(
     requestKey: string,

@@ -254,6 +254,7 @@ export type PaymentMethodCode =
   | "wechat_app"
   | "card_hosted_checkout"
   | "unionpay_or_bank_card"
+  | "alipay_qr"
   | "alipay_web"
   | "wechat_native"
   | "card_checkout"
@@ -281,6 +282,8 @@ export type PaymentStatus =
   | "FULFILLED"
   | "FAILED"
   | "CANCELLED"
+  | "EXPIRED"
+  | "REFUNDING"
   | "REFUNDED";
 
 export interface PaymentOrder {

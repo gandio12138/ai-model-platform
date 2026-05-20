@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/bootstrap.dart';
 import '../../app/router.dart';
 import '../../core/errors/app_exception.dart';
+import '../../core/network/local_network_permission.dart';
 import '../../design_system/tokens.dart';
+import '../app_config/api_endpoint_dialog.dart';
 
 class AuthPage extends ConsumerStatefulWidget {
   const AuthPage({super.key});
@@ -18,6 +21,8 @@ class _AuthPageState extends ConsumerState<AuthPage> {
   final _password = TextEditingController(text: 'Web123456!');
   bool _registerMode = false;
   bool _loading = false;
+  bool _testingConnection = false;
+  String? _connectionStatus;
 
   @override
   void dispose() {
@@ -36,7 +41,7 @@ class _AuthPageState extends ConsumerState<AuthPage> {
       } else {
         await api.login(_account.text.trim(), _password.text, contextInfo);
       }
-      if (mounted) context.go('/home');
+      if (mounted) context.go('/chat');
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -45,6 +50,23 @@ class _AuthPageState extends ConsumerState<AuthPage> {
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _testConnection() async {
+    setState(() {
+      _testingConnection = true;
+      _connectionStatus = null;
+    });
+    try {
+      await ref
+          .read(apiProvider)
+          .fetchAppConfig(ref.read(launchContextProvider));
+      if (mounted) setState(() => _connectionStatus = 'API 连接正常');
+    } catch (error) {
+      if (mounted) setState(() => _connectionStatus = errorMessage(error));
+    } finally {
+      if (mounted) setState(() => _testingConnection = false);
     }
   }
 
@@ -89,6 +111,71 @@ class _AuthPageState extends ConsumerState<AuthPage> {
                 style: Theme.of(
                   context,
                 ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '当前 API',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      ref.watch(apiBaseUrlProvider),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      '真机访问本地后端时，请允许“无线局域网与蜂窝网络”。',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                    if (_connectionStatus != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        _connectionStatus!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _connectionStatus == 'API 连接正常'
+                              ? AppColors.success
+                              : AppColors.danger,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.sm),
+                    AppButton(
+                      label: '测试 API 连接',
+                      variant: AppButtonVariant.secondary,
+                      loading: _testingConnection,
+                      onPressed: _testConnection,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    AppButton(
+                      label: '修改 API 地址',
+                      variant: AppButtonVariant.secondary,
+                      onPressed: () => showApiEndpointDialog(context, ref),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    AppButton(
+                      label: '打开 iOS 网络设置',
+                      variant: AppButtonVariant.secondary,
+                      onPressed: () async {
+                        final opened = await openOneTokenAppSettings();
+                        if (!opened && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                '请手动进入系统设置，打开 OneToken 的无线局域网与蜂窝网络权限',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.xl),
               AppInput(

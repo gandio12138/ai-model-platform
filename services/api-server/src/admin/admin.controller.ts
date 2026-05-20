@@ -480,6 +480,12 @@ export class AdminController {
     return this.admin.list("paymentOrders", query, req.user);
   }
 
+  @RequirePermissions("payment.read")
+  @Get("payment/orders/:id/detail")
+  paymentOrderDetail(@Param("id") id: string, @Req() req: ReqWithUser) {
+    return this.admin.paymentOrderDetail(id, req.user);
+  }
+
   @RequirePermissions("payment.refund")
   @Post("payment/orders/:id/refund")
   refundOrder(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -509,6 +515,18 @@ export class AdminController {
   @Get("payment/order-events")
   paymentOrderEvents(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.list("paymentOrderEvents", query, req.user);
+  }
+
+  @RequirePermissions("payment.read")
+  @Get("payment/refunds")
+  paymentRefunds(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.list("paymentRefunds", query, req.user);
+  }
+
+  @RequirePermissions("payment.reconcile")
+  @Post("payment/callbacks/:id/replay")
+  replayPaymentCallback(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.replayPaymentCallback(id, body, req.user, actor(req));
   }
 
   @RequirePermissions("payment.reconcile")

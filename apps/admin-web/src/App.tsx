@@ -97,7 +97,7 @@ const paymentMethodOptions = [
   { value: "apple_iap", label: "Apple IAP" },
   { value: "alipay_app", label: "支付宝 App 支付" },
   { value: "wechat_app", label: "微信 App 支付" },
-  { value: "alipay_web", label: "支付宝网页支付" },
+  { value: "alipay_qr", label: "支付宝二维码支付" },
   { value: "wechat_native", label: "微信 Native 支付" },
   { value: "card_checkout", label: "银行卡/信用卡托管收银台" },
   { value: "enterprise_transfer", label: "企业对公转账" }
@@ -248,6 +248,7 @@ const menuSections = [
       { key: "/payment-orders", icon: <PayCircleOutlined />, label: "支付订单", permission: "payment.read", accountTypes: adminAndTenant },
       { key: "/payment-transactions", icon: <FileSearchOutlined />, label: "支付交易", permission: "payment.read", accountTypes: adminAndTenant },
       { key: "/payment-order-events", icon: <FileTextOutlined />, label: "状态流转", permission: "payment.read", accountTypes: adminAndTenant },
+      { key: "/payment-refunds", icon: <WalletOutlined />, label: "退款记录", permission: "payment.read", accountTypes: adminAndTenant },
       { key: "/payment-products", icon: <BankOutlined />, label: "客户套餐", permission: "payment.read", accountTypes: adminOnly },
       { key: "/payment-product-visibility", icon: <DeploymentUnitOutlined />, label: "套餐展示", permission: "payment.read", accountTypes: adminOnly },
       { key: "/payment-channels", icon: <ControlOutlined />, label: "渠道配置", permission: "payment.read", accountTypes: adminOnly },
@@ -861,6 +862,30 @@ function Shell({
                     ["to_status", "目标状态"],
                     ["reason", "原因"],
                     ["actor_type", "触发方"],
+                    ["created_at", "创建时间"]
+                  ]}
+                />
+              )}
+            />
+            <Route
+              path="/payment-refunds"
+              element={page(
+                "payment.read",
+                adminAndTenant,
+                <ResourcePage
+                  title="支付退款"
+                  endpoint="/api/admin/payment/refunds"
+                  rowKey="id"
+                  columns={[
+                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
+                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                    ["payment_order_id", "支付订单"],
+                    ["refund_no", "退款单号"],
+                    ["provider_refund_no", "渠道退款号"],
+                    ["channel_code", "渠道编码"],
+                    ["amount", "退款金额"],
+                    ["status", "状态"],
+                    ["reason", "原因"],
                     ["created_at", "创建时间"]
                   ]}
                 />

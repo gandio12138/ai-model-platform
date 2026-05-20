@@ -3,19 +3,31 @@ import {
   HttpException,
   Inject,
   Injectable,
-  NotFoundException
+  NotFoundException,
+  ServiceUnavailableException
 } from "@nestjs/common";
 import { PoolClient } from "pg";
 import { DatabaseService } from "../database/database.service.js";
 import { PublicRequestUser } from "../public/public-auth.guard.js";
 import { PublicService } from "../public/public.service.js";
+import { PaymentAdapterRegistry } from "./adapters/payment-adapter.registry.js";
+import {
+  NormalizedPaymentEvent,
+  NormalizedRefundState,
+  PaymentAdapterUnavailableError,
+  PaymentVerificationError,
+  PreparedPayment
+} from "./adapters/payment-adapter.js";
+import { PaymentConfigService } from "./payment-config.service.js";
 import { assertPaymentStatusTransition } from "./payment-state.js";
 
 @Injectable()
 export class PaymentService {
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
-    @Inject(PublicService) private readonly publicService: PublicService
+    @Inject(PublicService) private readonly publicService: PublicService,
+    @Inject(PaymentAdapterRegistry) private readonly adapters: PaymentAdapterRegistry,
+    @Inject(PaymentConfigService) private readonly paymentConfig: PaymentConfigService
   ) {}
 
   async submitIosIapTransaction(user: PublicRequestUser, body: Record<string, unknown>) {
@@ -148,61 +160,146 @@ export class PaymentService {
     });
   }
 
-  async recordWebhook(channelCode: string, headers: Record<string, unknown>, body: Record<string, unknown>) {
-    const signatureValid = this.verifyWebhookSignature(channelCode, headers, body);
-    const idempotencyKey = String(
-      body.idempotency_key ?? body.out_trade_no ?? body.order_no ?? body.transaction_id ?? `${channelCode}:${Date.now()}`
-    );
+  async prepareCustomerOrder(user: PublicRequestUser, orderNo: string) {
+    const order = await this.findCustomerOrderWithProductAndChannel(user.id, orderNo);
+    if (!order) throw new NotFoundException("Payment order not found");
+    const adapter = this.adapters.resolve({
+      channelCode: order.channel_code ?? order.checkout_channel,
+      paymentMethod: order.payment_method
+    });
+    if (!adapter) return this.toPaymentOrderResponse(order);
+
+    let prepared: PreparedPayment;
+    try {
+      prepared = await adapter.prepare({
+        order: order as any,
+        channel: order.channel_code ? order as any : null,
+        product: order as any
+      });
+    } catch (error) {
+      if (error instanceof PaymentAdapterUnavailableError && this.paymentConfig.mockEnabled && !this.paymentConfig.isProduction) {
+        prepared = this.mockPreparedPayment(order);
+      } else {
+        throw error;
+      }
+    }
+
     const { rows } = await this.db.query(
-      `insert into payment_callbacks
-        (channel_code, event_type, raw_headers, raw_body, signature_valid,
-         processed, process_result, idempotency_key)
-       values ($1, $2, $3::jsonb, $4::jsonb, $5, false, $6, $7)
-       on conflict (idempotency_key) do update
-          set raw_headers = excluded.raw_headers,
-              raw_body = excluded.raw_body
-       returning *`,
+      `update payment_orders
+          set status = case when status in ('CREATED', 'PENDING', 'PROCESSING') then 'PAYING' else status end,
+              qr_content = $2,
+              qr_expires_at = $3,
+              payment_action = $4::jsonb,
+              metadata = coalesce(metadata, '{}'::jsonb) || $5::jsonb,
+              updated_at = now()
+        where id = $1
+        returning *`,
       [
-        channelCode,
-        String(body.event_type ?? body.trade_status ?? "payment.webhook"),
-        JSON.stringify(headers),
-        JSON.stringify(body),
-        signatureValid,
-        signatureValid ? "received" : "signature_invalid",
-        `webhook:${channelCode}:${idempotencyKey}`
+        order.id,
+        prepared.qr_content ?? null,
+        prepared.expires_at ?? null,
+        JSON.stringify(prepared),
+        JSON.stringify({ payment_prepare_provider: prepared.provider })
       ]
     );
-    return {
-      callback: rows[0],
-      accepted: signatureValid,
-      message: signatureValid
-        ? "Webhook recorded. Adapter-specific fulfillment is pending."
-        : "Webhook recorded but signature verification failed."
-    };
-  }
-
-  async syncOrder(orderId: string, reason: string, actorType = "admin") {
-    const order = await this.findOrderById(this.db, orderId);
     await this.recordPaymentEvent(this.db, {
       orderId: order.id,
       tenantId: order.tenant_id,
       projectId: order.project_id,
-      eventType: "order.sync",
+      eventType: "order.prepare",
       fromStatus: order.status,
-      toStatus: order.status,
-      reason,
-      actorType,
-      metadata: {
-        note: "No production payment adapter is configured; status was not changed."
-      }
+      toStatus: rows[0].status,
+      reason: `${prepared.provider}_prepare`,
+      actorType: "customer",
+      metadata: { provider: prepared.provider, type: prepared.type }
     });
-    return order;
+    return this.toPaymentOrderResponse({
+      ...order,
+      ...rows[0],
+      payment_action: prepared
+    });
+  }
+
+  async syncCustomerOrder(user: PublicRequestUser, orderNo: string) {
+    const order = await this.findCustomerOrderWithProductAndChannel(user.id, orderNo);
+    if (!order) throw new NotFoundException("Payment order not found");
+    return this.syncOrderWithAdapter(order, "customer_sync", "customer");
+  }
+
+  async recordWebhook(
+    channelCode: string,
+    headers: Record<string, unknown>,
+    body: Record<string, unknown>,
+    rawBody?: string
+  ) {
+    const adapter = this.adapters.resolve({ channelCode, paymentMethod: channelCode });
+    const provider = channelCode.includes("wechat") ? "wechat" : channelCode.includes("alipay") ? "alipay" : channelCode;
+    if (!adapter) {
+      await this.recordFailedCallback(channelCode, headers, body, rawBody, "adapter_not_configured");
+      return { ok: false, provider, message: "Payment adapter is not configured" };
+    }
+    try {
+      const event = await adapter.verifyAndParseNotification({ channelCode, headers, body, rawBody });
+      if ("refundNo" in event) {
+        await this.handleVerifiedRefundEvent(channelCode, headers, body, rawBody, event);
+      } else {
+        await this.handleVerifiedPaymentEvent(channelCode, headers, body, rawBody, event);
+      }
+      return { ok: true, provider, message: "processed" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Webhook processing failed";
+      await this.recordFailedCallback(channelCode, headers, body, rawBody, message);
+      return {
+        ok: false,
+        provider,
+        message: error instanceof PaymentVerificationError ? message : "Webhook processing failed"
+      };
+    }
+  }
+
+  async syncOrder(orderId: string, reason: string, actorType = "admin") {
+    const order = await this.findOrderWithProductAndChannel(this.db, orderId);
+    return this.syncOrderWithAdapter(order, reason, actorType);
   }
 
   async requestRefund(orderId: string, amount: number | null, reason: string, actorType = "admin") {
     return this.db.transaction(async (client) => {
-      const order = await this.findOrderById(client, orderId, true);
+      const order = await this.findOrderWithProductAndChannel(client, orderId, true);
       assertPaymentStatusTransition(order.status, "REFUNDING");
+      const refundAmount = amount ?? Number(order.amount);
+      if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+        throw new BadRequestException("refund amount must be positive");
+      }
+      if (refundAmount > Number(order.amount) - Number(order.refunded_amount ?? 0)) {
+        throw new BadRequestException("refund amount exceeds refundable amount");
+      }
+      const refundNo = `RF${order.order_no}${Date.now().toString().slice(-6)}`;
+      const refund = await client.query(
+        `insert into payment_refunds
+          (payment_order_id, tenant_id, project_id, tenant_customer_id, user_id,
+           refund_no, channel_code, amount, currency, status, reason,
+           requested_by, idempotency_key, raw_request)
+         values ($1, $2, $3, $4, $5,
+                 $6, $7, $8, $9, 'REQUESTED', $10,
+                 null, $11, $12::jsonb)
+         on conflict (idempotency_key) do update
+            set updated_at = now()
+         returning *`,
+        [
+          order.id,
+          order.tenant_id,
+          order.project_id,
+          order.tenant_customer_id,
+          order.user_id,
+          refundNo,
+          order.payment_method,
+          refundAmount,
+          order.currency,
+          reason,
+          `refund:${order.id}:${refundAmount}`,
+          JSON.stringify({ reason, actor_type: actorType })
+        ]
+      );
       const { rows } = await client.query(
         `update payment_orders
             set status = 'REFUNDING',
@@ -215,7 +312,8 @@ export class PaymentService {
           order.id,
           reason,
           JSON.stringify({
-            refund_amount: amount,
+            refund_amount: refundAmount,
+            refund_id: refund.rows[0].id,
             refund_requested_at: new Date().toISOString()
           })
         ]
@@ -229,9 +327,214 @@ export class PaymentService {
         toStatus: "REFUNDING",
         reason,
         actorType,
-        metadata: { amount }
+        metadata: { amount: refundAmount, refund_id: refund.rows[0].id }
       });
-      return rows[0];
+      const adapter = this.adapters.resolve({
+        channelCode: order.channel_code ?? order.checkout_channel,
+        paymentMethod: order.payment_method
+      });
+      if (!adapter) {
+        return { ...rows[0], refund: refund.rows[0] };
+      }
+      const state = await adapter.refund({ order, refund: refund.rows[0] });
+      await client.query(
+        `update payment_refunds
+            set status = $2,
+                provider_refund_no = $3,
+                raw_response = $4::jsonb,
+                updated_at = now()
+          where id = $1`,
+        [
+          refund.rows[0].id,
+          state.refundState === "SUCCESS" ? "PROCESSING" : state.refundState,
+          state.providerRefundNo ?? null,
+          JSON.stringify(state.raw ?? {})
+        ]
+      );
+      if (state.refundState === "SUCCESS") {
+        await this.handleVerifiedRefundStateInTransaction(client, state);
+      }
+      return { ...rows[0], refund: { ...refund.rows[0], status: state.refundState } };
+    });
+  }
+
+  private async syncOrderWithAdapter(order: any, reason: string, actorType: string) {
+    const adapter = this.adapters.resolve({
+      channelCode: order.channel_code ?? order.checkout_channel,
+      paymentMethod: order.payment_method
+    });
+    if (!adapter) {
+      await this.recordPaymentEvent(this.db, {
+        orderId: order.id,
+        tenantId: order.tenant_id,
+        projectId: order.project_id,
+        eventType: "order.sync",
+        fromStatus: order.status,
+        toStatus: order.status,
+        reason,
+        actorType,
+        metadata: { note: "No production payment adapter is configured; status was not changed." }
+      });
+      return this.toPaymentOrderResponse(order);
+    }
+    const event = await adapter.query({ order });
+    if (event.tradeState === "SUCCESS") {
+      await this.handleVerifiedPaymentEvent(order.payment_method, {}, {}, undefined, event);
+      const updated = await this.findOrderWithProductAndChannel(this.db, order.id);
+      return this.toPaymentOrderResponse(updated);
+    }
+    await this.recordPaymentEvent(this.db, {
+      orderId: order.id,
+      tenantId: order.tenant_id,
+      projectId: order.project_id,
+      eventType: "order.sync",
+      fromStatus: order.status,
+      toStatus: order.status,
+      reason,
+      actorType,
+      metadata: { provider_state: event.tradeState, raw: event.raw }
+    });
+    return this.toPaymentOrderResponse(order);
+  }
+
+  private async handleVerifiedPaymentEvent(
+    channelCode: string,
+    headers: Record<string, unknown>,
+    body: Record<string, unknown>,
+    rawBody: string | undefined,
+    event: NormalizedPaymentEvent
+  ) {
+    await this.db.transaction(async (client) => {
+      const order = await this.findOrderWithProductAndChannel(client, event.orderNo, true);
+      await this.insertPaymentCallback(client, {
+        channelCode,
+        orderId: order.id,
+        tenantId: order.tenant_id,
+        eventType: "payment.notify",
+        providerEventId: event.eventId,
+        headers,
+        body,
+        rawBody,
+        signatureValid: true,
+        processed: false,
+        processResult: "verified",
+        normalizedEvent: event
+      });
+      if (Number(order.amount) !== event.amount) {
+        throw new PaymentVerificationError("Payment amount mismatch");
+      }
+      await client.query(
+        `update payment_orders
+            set provider_trade_no = coalesce(provider_trade_no, $2),
+                provider_order_status = $3,
+                paid_amount = case when $3 = 'SUCCESS' then $4 else paid_amount end,
+                updated_at = now()
+          where id = $1`,
+        [order.id, event.providerTradeNo ?? null, event.tradeState, event.amount]
+      );
+      if (event.tradeState !== "SUCCESS") {
+        await this.markCallbackProcessed(client, channelCode, event.eventId, "ignored_non_success");
+        return;
+      }
+      await this.recordPaymentTransaction(client, {
+        orderId: order.id,
+        tenantId: order.tenant_id,
+        projectId: order.project_id,
+        transactionType: "payment",
+        channelCode,
+        channelTradeNo: event.providerTradeNo ?? event.eventId,
+        status: event.tradeState,
+        amount: event.amount,
+        currency: event.currency,
+        verified: true,
+        idempotencyKey: `pay:${channelCode}:${event.eventId}`,
+        rawPayload: event.raw as Record<string, unknown>
+      });
+      if (order.status !== "PAID" && order.status !== "FULFILLED") {
+        await this.transitionOrder(client, order.id, order.status, "PAID", `${event.provider}_verified`, {
+          provider_trade_no: event.providerTradeNo ?? null,
+          event_id: event.eventId
+        });
+      }
+      await this.fulfillRechargeOrder(client, order.id, `${event.provider}_fulfillment`, {
+        event_id: event.eventId,
+        provider_trade_no: event.providerTradeNo ?? null
+      });
+      await this.markCallbackProcessed(client, channelCode, event.eventId, "fulfilled");
+    });
+  }
+
+  private async handleVerifiedRefundEvent(
+    channelCode: string,
+    headers: Record<string, unknown>,
+    body: Record<string, unknown>,
+    rawBody: string | undefined,
+    event: NormalizedRefundState
+  ) {
+    await this.db.transaction(async (client) => {
+      await this.insertPaymentCallback(client, {
+        channelCode,
+        orderId: null,
+        tenantId: null,
+        eventType: "refund.notify",
+        providerEventId: event.eventId,
+        headers,
+        body,
+        rawBody,
+        signatureValid: true,
+        processed: false,
+        processResult: "verified",
+        normalizedEvent: event
+      });
+      if (event.refundState === "SUCCESS") {
+        await this.handleVerifiedRefundStateInTransaction(client, event);
+      }
+      await this.markCallbackProcessed(client, channelCode, event.eventId, event.refundState.toLowerCase());
+    });
+  }
+
+  private async handleVerifiedRefundStateInTransaction(client: PoolClient, event: NormalizedRefundState) {
+    const refundRows = await client.query(
+      `select * from payment_refunds where refund_no = $1 for update`,
+      [event.refundNo]
+    );
+    const refund = refundRows.rows[0];
+    if (!refund) throw new NotFoundException("Payment refund not found");
+    if (refund.status === "SUCCEEDED") return;
+    const order = await this.findOrderWithProduct(client, refund.payment_order_id, true);
+    if (Number(refund.amount) !== event.amount) {
+      throw new PaymentVerificationError("Refund amount mismatch");
+    }
+    await this.reverseWalletForRefund(client, order, refund);
+    await client.query(
+      `update payment_refunds
+          set status = 'SUCCEEDED',
+              provider_refund_no = coalesce(provider_refund_no, $2),
+              raw_response = $3::jsonb,
+              succeeded_at = coalesce(succeeded_at, now()),
+              updated_at = now()
+        where id = $1`,
+      [refund.id, event.providerRefundNo ?? null, JSON.stringify(event.raw ?? {})]
+    );
+    await client.query(
+      `update payment_orders
+          set status = 'REFUNDED',
+              refunded_amount = coalesce(refunded_amount, 0) + $2,
+              refunded_at = coalesce(refunded_at, now()),
+              updated_at = now()
+        where id = $1`,
+      [order.id, Number(refund.amount)]
+    );
+    await this.recordPaymentEvent(client, {
+      orderId: order.id,
+      tenantId: order.tenant_id,
+      projectId: order.project_id,
+      eventType: "refund.succeeded",
+      fromStatus: order.status,
+      toStatus: "REFUNDED",
+      reason: "refund_confirmed",
+      actorType: "system",
+      metadata: { refund_id: refund.id, refund_no: refund.refund_no }
     });
   }
 
@@ -538,6 +841,67 @@ export class PaymentService {
     return rows[0];
   }
 
+  private async findOrderWithProductAndChannel(
+    client: { query: (text: string, params?: unknown[]) => Promise<any> },
+    orderId: string,
+    lock = false
+  ) {
+    const { rows } = await client.query(
+      `select po.*,
+              p.product_code,
+              p.name as product_name,
+              p.face_value_amount,
+              p.bonus_amount,
+              p.sale_amount,
+              pc.channel_code,
+              pc.channel_type,
+              pc.display_name as channel_display_name,
+              pc.config as channel_config
+         from payment_orders po
+         left join payment_products p on p.id = po.product_id
+         left join payment_channels pc
+           on pc.tenant_id = po.tenant_id
+          and pc.platform = po.platform
+          and (pc.project_id is null or pc.project_id = po.project_id)
+          and (pc.payment_method = po.payment_method or pc.channel_code = po.checkout_channel)
+        where po.id::text = $1 or po.order_no = $1
+        order by case when pc.project_id = po.project_id then 0 else 1 end
+        limit 1
+        ${lock ? "for update of po" : ""}`,
+      [orderId]
+    );
+    if (!rows[0]) throw new NotFoundException("Payment order not found");
+    return rows[0];
+  }
+
+  private async findCustomerOrderWithProductAndChannel(userId: string, orderId: string) {
+    const { rows } = await this.db.query(
+      `select po.*,
+              p.product_code,
+              p.name as product_name,
+              p.face_value_amount,
+              p.bonus_amount,
+              p.sale_amount,
+              pc.channel_code,
+              pc.channel_type,
+              pc.display_name as channel_display_name,
+              pc.config as channel_config
+         from payment_orders po
+         left join payment_products p on p.id = po.product_id
+         left join payment_channels pc
+           on pc.tenant_id = po.tenant_id
+          and pc.platform = po.platform
+          and (pc.project_id is null or pc.project_id = po.project_id)
+          and (pc.payment_method = po.payment_method or pc.channel_code = po.checkout_channel)
+        where (po.id::text = $1 or po.order_no = $1)
+          and po.user_id = $2
+        order by case when pc.project_id = po.project_id then 0 else 1 end
+        limit 1`,
+      [orderId, userId]
+    );
+    return rows[0] ?? null;
+  }
+
   private async findWallet(client: PoolClient, tenantId: string, userId: string, currency: string, lock = false) {
     const { rows } = await client.query(
       `select *
@@ -592,13 +956,187 @@ export class PaymentService {
     );
   }
 
-  private verifyWebhookSignature(channelCode: string, headers: Record<string, unknown>, body: Record<string, unknown>) {
-    if (process.env.NODE_ENV !== "production" && headers["x-onetoken-dev-signature"] === "accept") {
-      return true;
+  private async insertPaymentDebitLedger(
+    client: PoolClient,
+    input: {
+      walletId: string;
+      userId: string;
+      tenantId: string;
+      tenantCustomerId: string | null;
+      eventType: string;
+      balanceType: "cash" | "bonus";
+      amount: number;
+      currency: string;
+      balanceAfter: number;
+      refundId: string;
+      idempotencyKey: string;
     }
-    const secret = process.env[`PAYMENT_WEBHOOK_SECRET_${channelCode.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`];
-    if (!secret) return false;
-    return Boolean(body.signature) && String(body.signature).length > 12;
+  ) {
+    await client.query(
+      `insert into wallet_ledger
+        (wallet_id, user_id, tenant_id, tenant_customer_id, event_type, direction,
+         balance_type, amount, currency, balance_after, related_type, related_id,
+         idempotency_key, metadata)
+       values ($1, $2, $3, $4, $5, 'debit',
+               $6, $7, $8, $9, 'payment_refund', $10,
+               $11, '{}'::jsonb)
+       on conflict (idempotency_key) do nothing`,
+      [
+        input.walletId,
+        input.userId,
+        input.tenantId,
+        input.tenantCustomerId,
+        input.eventType,
+        input.balanceType,
+        input.amount,
+        input.currency,
+        input.balanceAfter,
+        input.refundId,
+        input.idempotencyKey
+      ]
+    );
+  }
+
+  private async reverseWalletForRefund(client: PoolClient, order: any, refund: any) {
+    const wallet = await this.findWallet(client, order.tenant_id, order.user_id, order.currency, true);
+    if (!wallet) throw new BadRequestException("Wallet not found");
+    const ratio = Math.min(Number(refund.amount) / Number(order.amount), 1);
+    const cashDebit = Math.round(Number(order.face_value_amount ?? order.amount) * ratio);
+    const bonusDebit = Math.round(Number(order.bonus_amount ?? 0) * ratio);
+    const cashAfter = Number(wallet.cash_balance) - cashDebit;
+    const bonusAfter = Number(wallet.bonus_balance) - bonusDebit;
+    await client.query(
+      `update wallets
+          set cash_balance = $2,
+              bonus_balance = $3,
+              updated_at = now()
+        where id = $1`,
+      [wallet.id, cashAfter, bonusAfter]
+    );
+    if (cashDebit > 0) {
+      await this.insertPaymentDebitLedger(client, {
+        walletId: wallet.id,
+        userId: order.user_id,
+        tenantId: order.tenant_id,
+        tenantCustomerId: order.tenant_customer_id,
+        eventType: "payment.refund",
+        balanceType: "cash",
+        amount: cashDebit,
+        currency: order.currency,
+        balanceAfter: cashAfter,
+        refundId: refund.id,
+        idempotencyKey: `refund:${refund.id}:cash`
+      });
+    }
+    if (bonusDebit > 0) {
+      await this.insertPaymentDebitLedger(client, {
+        walletId: wallet.id,
+        userId: order.user_id,
+        tenantId: order.tenant_id,
+        tenantCustomerId: order.tenant_customer_id,
+        eventType: "payment.refund_bonus",
+        balanceType: "bonus",
+        amount: bonusDebit,
+        currency: order.currency,
+        balanceAfter: bonusAfter,
+        refundId: refund.id,
+        idempotencyKey: `refund:${refund.id}:bonus`
+      });
+    }
+  }
+
+  private async insertPaymentCallback(
+    client: PoolClient,
+    input: {
+      channelCode: string;
+      orderId: string | null;
+      tenantId: string | null;
+      eventType: string;
+      providerEventId: string;
+      headers: Record<string, unknown>;
+      body: Record<string, unknown>;
+      rawBody?: string;
+      signatureValid: boolean;
+      processed: boolean;
+      processResult: string;
+      normalizedEvent: unknown;
+    }
+  ) {
+    await client.query(
+      `insert into payment_callbacks
+        (payment_order_id, tenant_id, channel_code, event_type, provider_event_id,
+         raw_headers, raw_body, raw_body_text, signature_valid, verified_at,
+         processed, process_result, processed_at, normalized_event, idempotency_key)
+       values ($1, $2, $3, $4, $5,
+               $6::jsonb, $7::jsonb, $8, $9, case when $9 then now() else null end,
+               $10, $11, case when $10 then now() else null end, $12::jsonb, $13)
+       on conflict (idempotency_key) do update
+          set payment_order_id = coalesce(payment_callbacks.payment_order_id, excluded.payment_order_id),
+              raw_headers = excluded.raw_headers,
+              raw_body = excluded.raw_body,
+              raw_body_text = excluded.raw_body_text,
+              signature_valid = excluded.signature_valid,
+              verified_at = excluded.verified_at,
+              normalized_event = excluded.normalized_event`,
+      [
+        input.orderId,
+        input.tenantId,
+        input.channelCode,
+        input.eventType,
+        input.providerEventId,
+        JSON.stringify(input.headers),
+        JSON.stringify(input.body),
+        input.rawBody ?? null,
+        input.signatureValid,
+        input.processed,
+        input.processResult,
+        JSON.stringify(input.normalizedEvent ?? {}),
+        `webhook:${input.channelCode}:${input.providerEventId}`
+      ]
+    );
+  }
+
+  private async recordFailedCallback(
+    channelCode: string,
+    headers: Record<string, unknown>,
+    body: Record<string, unknown>,
+    rawBody: string | undefined,
+    processError: string
+  ) {
+    await this.db.query(
+      `insert into payment_callbacks
+        (channel_code, event_type, provider_event_id, raw_headers, raw_body, raw_body_text,
+         signature_valid, processed, process_result, process_error, idempotency_key)
+       values ($1, $2, $3, $4::jsonb, $5::jsonb, $6,
+               false, false, 'failed', $7, $8)
+       on conflict (idempotency_key) do update
+          set process_error = excluded.process_error,
+              raw_headers = excluded.raw_headers,
+              raw_body = excluded.raw_body,
+              raw_body_text = excluded.raw_body_text`,
+      [
+        channelCode,
+        String(body.event_type ?? body.trade_status ?? "payment.webhook"),
+        String(body.notify_id ?? body.transaction_id ?? body.out_trade_no ?? `${channelCode}:${Date.now()}`),
+        JSON.stringify(headers),
+        JSON.stringify(body),
+        rawBody ?? null,
+        processError,
+        `webhook_failed:${channelCode}:${String(body.notify_id ?? body.transaction_id ?? body.out_trade_no ?? Date.now())}`
+      ]
+    );
+  }
+
+  private async markCallbackProcessed(client: PoolClient, channelCode: string, providerEventId: string, result: string) {
+    await client.query(
+      `update payment_callbacks
+          set processed = true,
+              processed_at = now(),
+              process_result = $3
+        where channel_code = $1
+          and provider_event_id = $2`,
+      [channelCode, providerEventId, result]
+    );
   }
 
   private toIapTransactionResponse(row: any) {
@@ -617,6 +1155,55 @@ export class PaymentService {
   private generateOrderNo() {
     const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
     return `ORD${timestamp}${Math.random().toString(36).slice(2, 12).toUpperCase()}`;
+  }
+
+  private mockPreparedPayment(order: any): PreparedPayment {
+    const expiresAt = new Date(Date.now() + this.paymentConfig.orderExpireMinutes * 60_000).toISOString();
+    return {
+      type: "qr_code",
+      provider: "mock",
+      order_no: order.order_no,
+      qr_content: `${this.paymentConfig.checkoutWebBaseUrl}/checkout/mock-pay?order_no=${encodeURIComponent(order.order_no)}`,
+      expires_at: expiresAt,
+      raw: { mock: true }
+    };
+  }
+
+  private toPaymentOrderResponse(order: any) {
+    const action = order.payment_action && Object.keys(order.payment_action).length
+      ? order.payment_action
+      : order.qr_content
+        ? {
+            type: "qr_code",
+            provider: order.payment_method,
+            order_no: order.order_no,
+            qr_content: order.qr_content,
+            expires_at: order.qr_expires_at
+          }
+        : null;
+    return {
+      id: order.id,
+      order_no: order.order_no,
+      product_id: order.product_id,
+      product_code: order.product_code,
+      product_name: order.product_name,
+      amount: Number(order.amount),
+      currency: order.currency,
+      payment_method: order.payment_method,
+      checkout_channel: order.checkout_channel,
+      status: order.status,
+      provider_trade_no: order.provider_trade_no ?? null,
+      provider_order_status: order.provider_order_status ?? null,
+      paid_at: order.paid_at,
+      fulfilled_at: order.fulfilled_at,
+      cancelled_at: order.cancelled_at,
+      refunded_at: order.refunded_at,
+      qr_expires_at: order.qr_expires_at,
+      payment_action: action,
+      metadata: order.metadata ?? {},
+      created_at: order.created_at,
+      updated_at: order.updated_at
+    };
   }
 }
 

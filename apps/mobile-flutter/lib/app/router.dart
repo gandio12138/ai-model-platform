@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -28,8 +30,9 @@ final launchContextProvider = Provider<AppLaunchContext>((ref) {
 });
 
 final apiProvider = Provider<OneTokenApi>((ref) {
+  final env = ref.watch(appEnvProvider);
   return createOneTokenApi(
-    env: ref.watch(appEnvProvider),
+    env: env.copyWith(apiBaseUrl: ref.watch(apiBaseUrlProvider)),
     tokenStore: ref.watch(tokenStoreProvider),
   );
 });
@@ -45,14 +48,18 @@ final authStateProvider = FutureProvider<bool>((ref) async {
   final token = await tokenStore.read();
   if (token == null) return false;
   try {
-    await ref.watch(apiProvider).me();
+    await ref.watch(apiProvider).me().timeout(const Duration(seconds: 8));
     return true;
   } on AppException catch (error) {
     if (error.statusCode == 401) {
       await tokenStore.clear();
       return false;
     }
-    rethrow;
+    return false;
+  } on TimeoutException {
+    return false;
+  } catch (_) {
+    return false;
   }
 });
 
@@ -123,18 +130,35 @@ class SplashPage extends ConsumerStatefulWidget {
 }
 
 class _SplashPageState extends ConsumerState<SplashPage> {
+  String _status = '正在连接 OneToken 服务';
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
-        await ref.read(appConfigProvider.future);
+        await ref
+            .read(appConfigProvider.future)
+            .timeout(const Duration(seconds: 8));
+        if (mounted) {
+          setState(() => _status = '配置已就绪，正在检查登录状态');
+        }
       } catch (_) {
-        // The next page can show the concrete configuration error.
+        if (mounted) {
+          setState(() => _status = '正在进入登录页');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 300));
       }
-      final loggedIn = await ref.read(authStateProvider.future);
+      bool loggedIn = false;
+      try {
+        loggedIn = await ref
+            .read(authStateProvider.future)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        loggedIn = false;
+      }
       if (!mounted) return;
-      context.go(loggedIn ? '/home' : '/auth');
+      context.go(loggedIn ? '/chat' : '/auth');
     });
   }
 
@@ -172,7 +196,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               const SizedBox(height: 8),
-              Text('正在初始化多租户配置', style: Theme.of(context).textTheme.bodySmall),
+              Text(_status, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
         ),
@@ -190,8 +214,8 @@ class MainShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
     final items = [
-      _NavItem('/home', Icons.home_rounded, '首页'),
       _NavItem('/chat', Icons.auto_awesome_rounded, '对话'),
+      _NavItem('/home', Icons.space_dashboard_rounded, '概览'),
       _NavItem('/models', Icons.dataset_rounded, '模型'),
       _NavItem('/wallet', Icons.account_balance_wallet_rounded, '钱包'),
       _NavItem('/profile', Icons.person_rounded, '我的'),

@@ -891,6 +891,146 @@ input {
   text-decoration: underline;
 }
 
+.mobile-downloads {
+  align-items: stretch;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 64, 175, 0.9)),
+    radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.3), transparent 32%);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.16);
+  color: #fff;
+  display: grid;
+  gap: 26px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr);
+  margin-top: 22px;
+  max-width: 1120px;
+  overflow: hidden;
+  padding: 26px;
+  position: relative;
+  text-align: left;
+  width: min(1120px, 100%);
+  z-index: 7;
+}
+
+.mobile-downloads::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+  content: "";
+  inset: 0;
+  opacity: 0.24;
+  pointer-events: none;
+  position: absolute;
+}
+
+.mobile-download-copy,
+.mobile-download-grid {
+  position: relative;
+  z-index: 1;
+}
+
+.mobile-download-copy > span {
+  color: #7dd3fc;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.mobile-download-copy h2 {
+  color: #f8fafc;
+  font-size: 24px;
+  line-height: 1.25;
+  margin: 0 0 10px;
+}
+
+.mobile-download-copy p {
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 14px;
+  line-height: 1.78;
+  margin: 0;
+  max-width: 430px;
+}
+
+.mobile-download-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mobile-download-card {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(226, 232, 240, 0.16);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 216px;
+  padding: 18px;
+}
+
+.mobile-download-icon {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  color: #bfdbfe;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  margin-bottom: 18px;
+  width: 44px;
+}
+
+.mobile-download-card h3 {
+  color: #fff;
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.mobile-download-card p {
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.mobile-download-button {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-radius: 12px;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 800;
+  height: 40px;
+  justify-content: center;
+  margin-top: auto;
+  padding: 0 16px;
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.mobile-download-button:hover:not(:disabled) {
+  background: #dbeafe;
+  color: #1e40af;
+  transform: translateY(-1px);
+}
+
+.mobile-download-button:disabled {
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(226, 232, 240, 0.72);
+  cursor: not-allowed;
+}
+
 .landing-footer {
   align-items: center;
   color: #6b7280;
@@ -2038,6 +2178,10 @@ input {
   grid-template-columns: 28px 1.2fr 82px 130px 90px 150px 110px 80px 136px 136px 136px 72px;
 }
 
+.key-scope-note {
+  margin-bottom: 18px;
+}
+
 .log-grid {
   grid-template-columns: 148px 120px 100px 80px 170px 120px 90px 90px 90px 120px 80px;
 }
@@ -2341,6 +2485,43 @@ input {
 
 .order-alert {
   margin: 16px;
+}
+
+.payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.qr-cashier {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  gap: 18px;
+  margin: 0 16px 16px;
+  padding: 16px;
+}
+
+.qr-cashier strong {
+  color: var(--text);
+  display: block;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.qr-cashier span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .qr-cashier {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .redeem-row {
@@ -3344,6 +3525,10 @@ input {
   .app-configs {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .mobile-downloads {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 900px) {
@@ -3499,6 +3684,18 @@ input {
 
   .integration-tags {
     grid-template-columns: 1fr;
+  }
+
+  .mobile-downloads {
+    padding: 22px;
+  }
+
+  .mobile-download-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-download-card {
+    min-height: 190px;
   }
 }
 

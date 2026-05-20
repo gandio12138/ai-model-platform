@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:4000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const TOKEN_KEY = "checkout_token";
 const USER_KEY = "checkout_user";
 
@@ -202,8 +202,11 @@ export interface PaymentOrder {
   };
   payment_action?: {
     type: string;
-    status: string;
-    title: string;
+    status?: string;
+    title?: string;
+    provider?: string;
+    qr_content?: string;
+    expires_at?: string;
     url?: string;
     order_no?: string;
     instructions?: string[];

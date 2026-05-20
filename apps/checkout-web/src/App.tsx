@@ -6,7 +6,7 @@ import {
   Form,
   Input,
   Modal,
-  Select,
+  QRCode as AntQRCode,
   Spin,
   Switch,
   Tag,
@@ -77,9 +77,13 @@ type ConsoleView = "dashboard" | "tokens" | "logs" | "wallet" | "models" | "refe
 type SiteSection = "home" | "console" | "models" | "docs" | "auth";
 type AuthMode = "login" | "register";
 
-const tokenApiBase = import.meta.env.VITE_TOKEN_API_BASE ?? "http://127.0.0.1:4000/v1";
+const tokenApiBase =
+  import.meta.env.VITE_TOKEN_API_BASE ?? (typeof window !== "undefined" ? `${window.location.origin}/v1` : "/v1");
+const iosAppDownloadUrl = import.meta.env.VITE_IOS_APP_DOWNLOAD_URL ?? "";
+const androidAppDownloadUrl = import.meta.env.VITE_ANDROID_APP_DOWNLOAD_URL ?? "";
 
 const paymentMethodNames: Record<string, string> = {
+  alipay_qr: "支付宝",
   alipay_web: "支付宝",
   wechat_native: "微信支付",
   card_checkout: "银行卡",
@@ -197,6 +201,25 @@ export default function App() {
     }
   }, [availableMethods, selectedMethod]);
 
+  useEffect(() => {
+    if (!order || !getToken()) return;
+    if (["FULFILLED", "FAILED", "CANCELLED", "EXPIRED", "REFUNDED"].includes(order.status)) return;
+    const timer = window.setInterval(() => {
+      apiFetch<PaymentOrder>(`/api/payment/orders/${order.order_no}`)
+        .then(async (payload) => {
+          setOrder(payload);
+          if (payload.status === "FULFILLED") {
+            const me = await apiFetch<SessionPayload>(`/api/public/me?${toQuery(context)}`);
+            setWallet(me.wallet);
+            await loadWalletLedger();
+            window.history.pushState({}, "", `/payment/success?order_no=${encodeURIComponent(payload.order_no)}`);
+          }
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [context, order?.order_no, order?.status]);
+
   async function loadInitialData() {
     setLoading(true);
     try {
@@ -272,7 +295,7 @@ export default function App() {
     if (!selectedProduct || !selectedMethod) return;
     setSubmitting(true);
     try {
-      const payload = await apiFetch<PaymentOrder>("/api/public/payment/orders", {
+      const payload = await apiFetch<PaymentOrder>("/api/payment/orders", {
         method: "POST",
         body: JSON.stringify({
           ...context,
@@ -312,12 +335,36 @@ export default function App() {
     }
   }
 
-  async function createApiKey(values: { name: string; model_whitelist?: string[] }) {
+  async function syncPaymentOrder() {
+    if (!order) return;
+    setSubmitting(true);
+    try {
+      const payload = await apiFetch<PaymentOrder>(`/api/payment/orders/${order.order_no}/sync`, {
+        method: "POST"
+      });
+      setOrder(payload);
+      if (payload.status === "FULFILLED") {
+        const me = await apiFetch<SessionPayload>(`/api/public/me?${toQuery(context)}`);
+        setWallet(me.wallet);
+        await loadWalletLedger();
+        window.history.pushState({}, "", `/payment/success?order_no=${encodeURIComponent(payload.order_no)}`);
+        messageApi.success("支付已确认，额度已入账");
+      } else {
+        messageApi.info("暂未查询到支付成功结果");
+      }
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : "查单失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function createApiKey(values: { name: string }) {
     setSubmitting(true);
     try {
       const payload = await apiFetch<{ key: string; record: ApiKeyRecord }>("/api/public/api-keys", {
         method: "POST",
-        body: JSON.stringify({ ...values, ...context })
+        body: JSON.stringify({ name: values.name, ...context })
       });
       setCreatedKey(payload.key);
       setShowKeyModal(false);
@@ -548,6 +595,7 @@ export default function App() {
               setOrder={setOrder}
               setSelectedMethod={setSelectedMethod}
               setSelectedProductId={setSelectedProductId}
+              syncPaymentOrder={syncPaymentOrder}
               submitting={submitting}
               wallet={wallet}
             />
@@ -574,7 +622,6 @@ export default function App() {
       </div>
 
       <CreateKeyModal
-        models={models}
         open={showKeyModal}
         submitting={submitting}
         onCancel={() => setShowKeyModal(false)}
@@ -854,6 +901,52 @@ response = client.chat.completions.create(
           </div>
         </section>
 
+        <section className="mobile-downloads" aria-labelledby="mobile-download-title">
+          <div className="mobile-download-copy">
+            <span>Mobile App</span>
+            <h2 id="mobile-download-title">移动端随时使用 OneToken</h2>
+            <p>App 端优先承载 AI 对话、模型切换、钱包充值和账单查看，Web、App 与 API 共用同一个客户账号和余额。</p>
+          </div>
+          <div className="mobile-download-grid">
+            <article className="mobile-download-card">
+              <div className="mobile-download-icon">
+                <Phone size={22} />
+              </div>
+              <div>
+                <h3>iOS App</h3>
+                <p>支持 iPhone 真机、TestFlight 内测和 Apple IAP 充值链路。</p>
+              </div>
+              {iosAppDownloadUrl ? (
+                <a className="mobile-download-button" href={iosAppDownloadUrl} target="_blank" rel="noreferrer">
+                  下载 iOS
+                </a>
+              ) : (
+                <button className="mobile-download-button" disabled type="button">
+                  iOS 待配置
+                </button>
+              )}
+            </article>
+            <article className="mobile-download-card">
+              <div className="mobile-download-icon">
+                <Smartphone size={22} />
+              </div>
+              <div>
+                <h3>Android App</h3>
+                <p>支持官网 APK、应用市场包和安卓统一收银台支付链路。</p>
+              </div>
+              {androidAppDownloadUrl ? (
+                <a className="mobile-download-button" href={androidAppDownloadUrl} target="_blank" rel="noreferrer">
+                  下载 Android
+                </a>
+              ) : (
+                <button className="mobile-download-button" disabled type="button">
+                  Android 待配置
+                </button>
+              )}
+            </article>
+          </div>
+        </section>
+
         <footer className="landing-footer">
           <span>© 2026 OneToken. 版权所有</span>
           <span>
@@ -1064,7 +1157,7 @@ function Dashboard({
           <div className="mini-summary">
             <div>
               <strong>{models.length}</strong>
-              <span>可用模型</span>
+              <span>模型范围</span>
             </div>
             <div>
               <strong>{activeKeys}</strong>
@@ -1199,7 +1292,7 @@ function TokenManager({
               <span>- / -</span>
               <span>default</span>
               <code>{item.masked_key}</code>
-              <span>{item.model_whitelist.length ? `${item.model_whitelist.length} 个模型` : `${models.length} 个模型`}</span>
+              <span>全部已授权模型</span>
               <span>{item.ip_whitelist.length || "-"}</span>
               <span>{dateText(item.created_at)}</span>
               <span>{dateText(item.last_used_at)}</span>
@@ -1352,6 +1445,7 @@ function WalletManager(props: {
   setOrder: (order: PaymentOrder | null) => void;
   setSelectedMethod: (method: string) => void;
   setSelectedProductId: (id: string) => void;
+  syncPaymentOrder: () => void;
   submitting: boolean;
   wallet: Wallet | null;
 }) {
@@ -1377,8 +1471,8 @@ function WalletManager(props: {
         <PanelTitle icon={<CreditCard size={17} />} title="在线充值" />
         <Alert
           className="payment-note"
-          message="当前为开发环境支付页"
-          description="支付宝和微信支付展示模拟跳转，银行卡托管收银台未接入，对公转账需要后台人工对账。真实支付网关接入后才会跳转到对应渠道。"
+          message="扫码支付以服务端确认为准"
+          description="支付宝和微信会通过服务端回调或主动查单确认结果。页面只轮询订单状态，不会由前端自报支付成功。"
           type="info"
           showIcon
         />
@@ -1445,13 +1539,32 @@ function WalletManager(props: {
             type={props.order.status === "FULFILLED" ? "success" : "info"}
             action={
               props.order.status !== "FULFILLED" ? (
-                <Button size="small" type="primary" onClick={props.mockPay}>
-                  {props.order.payment_method === "enterprise_transfer" ? "模拟后台入账" : "模拟支付完成"}
-                </Button>
+                <div className="payment-actions">
+                  <Button size="small" onClick={props.syncPaymentOrder}>
+                    我已支付，查单
+                  </Button>
+                  {import.meta.env.DEV && props.order.payment_action?.provider === "mock" ? (
+                    <Button size="small" type="primary" onClick={props.mockPay}>
+                      模拟支付完成
+                    </Button>
+                  ) : null}
+                </div>
               ) : null
             }
             showIcon
           />
+        ) : null}
+        {props.order?.payment_action?.type === "qr_code" && props.order.payment_action.qr_content ? (
+          <div className="qr-cashier">
+            <AntQRCode value={props.order.payment_action.qr_content} size={184} />
+            <div>
+              <strong>{selectedMethodMeta ? paymentName(selectedMethodMeta) : "扫码支付"}</strong>
+              <p className="muted">请使用对应 App 扫码完成支付。支付成功后本页会自动确认订单状态。</p>
+              {props.order.payment_action.expires_at ? (
+                <span>二维码有效期至 {dateText(props.order.payment_action.expires_at)}</span>
+              ) : null}
+            </div>
+          </div>
         ) : null}
       </section>
       <section className="panel invite-panel">
@@ -1665,7 +1778,7 @@ resp = client.chat.completions.create(
               <div className="notice-list">
                 <p>在控制台创建 API 令牌，令牌明文只显示一次。</p>
                 <p>服务端调用时使用 HTTP Header：Authorization: Bearer $AI_TOKEN_API_KEY。</p>
-                <p>生产环境建议为每个业务系统创建独立令牌，并配置模型白名单和额度限制。</p>
+                <p>一个 API Key 默认可调用当前租户全部已授权模型，不同模型按各自价格消耗钱包余额。</p>
               </div>
             </section>
           ) : null}
@@ -1862,15 +1975,13 @@ function ReferralPanel({
 }
 
 function CreateKeyModal({
-  models,
   onCancel,
   onCreate,
   open,
   submitting
 }: {
-  models: ModelInfo[];
   onCancel: () => void;
-  onCreate: (values: { name: string; model_whitelist?: string[] }) => void;
+  onCreate: (values: { name: string }) => void;
   open: boolean;
   submitting: boolean;
 }) {
@@ -1880,17 +1991,13 @@ function CreateKeyModal({
         <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入令牌名称" }]}>
           <Input placeholder="例如：生产环境" />
         </Form.Item>
-        <Form.Item name="model_whitelist" label="可用模型">
-          <Select
-            allowClear
-            mode="multiple"
-            options={models.map((model) => ({
-              label: `${model.display_name} (${model.model_code})`,
-              value: model.model_code
-            }))}
-            placeholder="默认允许当前租户全部可用模型"
-          />
-        </Form.Item>
+        <Alert
+          className="key-scope-note"
+          message="默认可调用全部已授权模型"
+          description="对话页和 API 调用时直接传 model 切换模型，不同模型会按后台配置的价格消耗余额。"
+          type="info"
+          showIcon
+        />
         <Button block htmlType="submit" loading={submitting} type="primary">
           创建
         </Button>
@@ -1993,7 +2100,10 @@ function paymentActionText(order: PaymentOrder) {
   if (order.payment_method === "card_checkout") {
     return "银行卡托管收银台尚未接入，当前不能真实绑卡或扣款。";
   }
-  return "支付宝/微信真实网关尚未接入，本地开发环境可模拟支付完成。";
+  if (order.payment_action?.type === "qr_code") {
+    return "请扫码支付。到账以服务端回调验签或主动查单后的钱包入账结果为准。";
+  }
+  return "订单已创建，正在等待服务端支付通道返回支付参数。";
 }
 
 function ledgerEventName(value: string) {

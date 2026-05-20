@@ -56,8 +56,9 @@ Payment channels are configured by project/platform and payment method:
 
 - iOS App: Apple IAP.
 - Android App: unified checkout with Alipay App Pay and WeChat App Pay.
-- Web Checkout: Alipay web, WeChat Native, hosted card checkout, and enterprise
-  transfer.
+- Web Checkout P1: Alipay QR (`alipay.trade.precreate`) and WeChat Native QR.
+  Hosted card checkout, enterprise transfer, and Android market-specific payment
+  branches are intentionally outside the current production payment scope.
 
 AWS Bedrock Providers can store encrypted Bedrock API keys and sync available
 foundation models into the model catalog and model routes.
@@ -77,10 +78,11 @@ App client will use.
 - Products are displayed through `payment_product_visibility`, which lets the
   admin configure different iOS, Android, Web, and API presentation rules for
   the same underlying paid package.
-- Web checkout supports the seeded methods: Alipay web, WeChat Native, hosted
-  card checkout, and enterprise transfer. The current local flow uses a mock
-  payment completion endpoint to verify wallet fulfillment before real payment
-  adapters are added.
+- Web checkout supports QR cashier flow for Alipay QR and WeChat Native. The
+  browser only polls order status; wallet fulfillment is performed by server-side
+  provider notification or active order query.
+- Dev/test can keep mock QR fulfillment when `PAYMENT_MOCK_ENABLED=true`.
+  Production disables mock payment and never falls back to mock fulfillment.
 - The same customer web app includes Token API access setup: customer API Key
   creation, key masking/revocation, base URL display, bearer-token header
   example, and cURL request example.
@@ -104,6 +106,10 @@ pnpm db:seed
 pnpm dev
 ```
 
+Payment configuration is documented in `.env.example`. For production, configure
+Alipay / WeChat private keys and certificates through secret files or base64
+environment variables. Never commit real merchant keys or platform certificates.
+
 Default ports:
 
 ```text
@@ -117,6 +123,17 @@ Default Web checkout entry:
 ```text
 http://localhost:5174/?tenant_code=platform_default_tenant&project_code=web-checkout&platform=web
 ```
+
+LAN preview:
+
+```text
+http://<your-mac-lan-ip>:5174/?tenant_code=platform_default_tenant&project_code=web-checkout&platform=web
+```
+
+The Vite dev servers listen on `0.0.0.0` and proxy same-origin `/api` and `/v1`
+requests to `API_PROXY_TARGET` (`http://127.0.0.1:4000` by default). Keep
+`VITE_API_BASE` empty for LAN testing; setting it to `localhost` or `127.0.0.1`
+will make other devices call their own local machine instead of this Mac.
 
 Seeded accounts:
 

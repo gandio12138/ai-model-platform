@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 export interface ApiList<T = any> {
   data: T[];
@@ -54,4 +54,3 @@ export function toQuery(params: Record<string, unknown>) {
   });
   return search.toString();
 }
-

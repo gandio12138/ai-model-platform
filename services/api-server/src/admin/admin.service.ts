@@ -486,6 +486,15 @@ const resourceMap: Record<string, ResourceConfig> = {
     writable: [],
     tenantScopeColumn: "tenant_id"
   },
+  paymentRefunds: {
+    table: "payment_refunds",
+    readPermission: "payment.read",
+    writePermission: "payment.refund",
+    searchable: ["refund_no", "provider_refund_no", "status", "channel_code"],
+    writable: ["status", "reason", "metadata"],
+    tenantScopeColumn: "tenant_id",
+    customerScopeColumn: "user_id"
+  },
   reconciliationRecords: {
     table: "reconciliation_records",
     readPermission: "payment.reconcile",
@@ -1998,6 +2007,57 @@ export class AdminService {
     return result;
   }
 
+  async paymentOrderDetail(orderId: string, user: any) {
+    this.assertPermission(user, "payment.read");
+    const order = await this.findById(resourceMap.paymentOrders, orderId);
+    await this.assertRecordScope(resourceMap.paymentOrders, order, user);
+    const [events, transactions, callbacks, ledger, refunds, reconciliation] = await Promise.all([
+      this.db.query(
+        `select * from payment_order_events where payment_order_id = $1 order by created_at asc`,
+        [order.id]
+      ),
+      this.db.query(
+        `select * from payment_transactions where payment_order_id = $1 order by created_at desc`,
+        [order.id]
+      ),
+      this.db.query(
+        `select id, channel_code, event_type, provider_event_id, signature_valid,
+                processed, process_result, process_error, normalized_event, created_at, processed_at
+           from payment_callbacks
+          where payment_order_id = $1
+          order by created_at desc`,
+        [order.id]
+      ),
+      this.db.query(
+        `select *
+           from wallet_ledger
+          where related_id = $1
+             or (related_type = 'payment_refund' and related_id in (
+               select id from payment_refunds where payment_order_id = $1
+             ))
+          order by created_at desc`,
+        [order.id]
+      ),
+      this.db.query(
+        `select * from payment_refunds where payment_order_id = $1 order by created_at desc`,
+        [order.id]
+      ),
+      this.db.query(
+        `select * from reconciliation_records where order_no = $1 order by created_at desc`,
+        [order.order_no]
+      )
+    ]);
+    return {
+      order,
+      timeline: events.rows,
+      transactions: transactions.rows,
+      callbacks: callbacks.rows,
+      ledger: ledger.rows,
+      refunds: refunds.rows,
+      reconciliation: reconciliation.rows
+    };
+  }
+
   async syncOrder(orderId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
     this.assertPermission(user, "payment.reconcile");
     requireReason(body);
@@ -2010,6 +2070,29 @@ export class AdminService {
       targetType: "payment_orders",
       targetId: orderId,
       beforeValue: before,
+      afterValue: result,
+      reason: String(body.reason)
+    });
+    return result;
+  }
+
+  async replayPaymentCallback(callbackId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "payment.reconcile");
+    requireReason(body);
+    const callback = await this.findById(resourceMap.paymentCallbacks, callbackId);
+    await this.assertRecordScope(resourceMap.paymentCallbacks, callback, user);
+    const result = await this.payment.recordWebhook(
+      String(callback.channel_code),
+      callback.raw_headers ?? {},
+      callback.raw_body ?? {},
+      callback.raw_body_text ?? undefined
+    );
+    await this.audit.record({
+      actor,
+      action: "payment.callback.replay",
+      targetType: "payment_callbacks",
+      targetId: callbackId,
+      beforeValue: callback,
       afterValue: result,
       reason: String(body.reason)
     });

@@ -12,6 +12,7 @@ import {
   UseGuards
 } from "@nestjs/common";
 import { CustomerSessionService } from "../public/customer-session.service.js";
+import { PaymentService } from "../payment/payment.service.js";
 import { PublicAuthGuard, PublicRequestUser } from "../public/public-auth.guard.js";
 import { PublicService } from "../public/public.service.js";
 
@@ -19,6 +20,7 @@ import { PublicService } from "../public/public.service.js";
 export class CustomerController {
   constructor(
     @Inject(PublicService) private readonly publicService: PublicService,
+    @Inject(PaymentService) private readonly paymentService: PaymentService,
     @Inject(CustomerSessionService) private readonly sessions: CustomerSessionService
   ) {}
 
@@ -82,7 +84,8 @@ export class CustomerController {
     @Req() req: { user: PublicRequestUser },
     @Body() body: Record<string, unknown>
   ) {
-    return this.publicService.createPaymentOrder(req.user, body);
+    return this.publicService.createPaymentOrder(req.user, body)
+      .then((order) => this.paymentService.prepareCustomerOrder(req.user, String(order.order_no)));
   }
 
   @UseGuards(PublicAuthGuard)
@@ -94,7 +97,7 @@ export class CustomerController {
   @UseGuards(PublicAuthGuard)
   @Post("/api/payment/orders/:orderId/sync")
   syncPaymentOrder(@Req() req: { user: PublicRequestUser }, @Param("orderId") orderId: string) {
-    return this.publicService.syncPaymentOrder(req.user, orderId);
+    return this.paymentService.syncCustomerOrder(req.user, orderId);
   }
 
   @UseGuards(PublicAuthGuard)

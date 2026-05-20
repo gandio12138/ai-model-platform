@@ -541,11 +541,6 @@ export class PublicService {
       throw new BadRequestException("Project context is required");
     }
 
-    const modelWhitelist = this.asOptionalStringArray(body.model_whitelist);
-    if (modelWhitelist?.length) {
-      await this.validateModelWhitelist(context.tenant.id, modelWhitelist);
-    }
-
     const plaintext = `aitp_${randomBytes(24).toString("base64url")}`;
     const keyHash = createHash("sha256").update(plaintext).digest("hex");
     const { rows } = await this.db.query(
@@ -583,7 +578,7 @@ export class PublicService {
         plaintext.slice(0, 12),
         plaintext.slice(-6),
         keyHash,
-        modelWhitelist ?? null,
+        null,
         this.asOptionalStringArray(body.ip_whitelist) ?? null,
         numberOrNull(body.rpm_limit),
         numberOrNull(body.tpm_limit),
@@ -1169,6 +1164,10 @@ export class PublicService {
   }
 
   async mockPay(user: PublicRequestUser, orderNo: string) {
+    const mockEnabled = process.env.PAYMENT_MOCK_ENABLED !== "false";
+    if (process.env.NODE_ENV === "production" || !mockEnabled) {
+      throw new BadRequestException("Mock payment is disabled");
+    }
     return this.db.transaction(async (client) => {
       const orderRows = await client.query(
         `select po.*,
@@ -1328,9 +1327,8 @@ export class PublicService {
            from tenant_projects
           where id = $1
             and tenant_id = $2
-            and platform = $3
             and status = 'active'`,
-        [query.project_id, tenantId, platform]
+        [query.project_id, tenantId]
       );
       if (rows[0]) return rows[0];
       throw new NotFoundException("Project not found");
@@ -1776,6 +1774,23 @@ export class PublicService {
   }
 
   private toPaymentAction(channel: any, order: any) {
+    if (channel.channel_type === "ios_iap" || channel.payment_method === "apple_iap") {
+      return {
+        type: "ios_iap_placeholder",
+        status: "pending",
+        title: channel.display_name,
+        order_no: order.order_no,
+        payment_method: "apple_iap",
+        client_payload: {
+          checkout_channel: "ios_iap",
+          payment_method: "apple_iap",
+          order_no: order.order_no,
+          amount: Number(order.amount),
+          currency: order.currency
+        },
+        notice: "iOS 购买必须通过 StoreKit 完成，并提交服务端验签后才会入账。"
+      };
+    }
     if (channel.channel_type === "android_unified_checkout") {
       const method = String(channel.payment_method);
       const publicMethod = this.toPublicPaymentMethodCode(method);
@@ -1967,6 +1982,7 @@ export class PublicService {
     const method = String(value ?? "");
     if (method === "alipay_app") return "alipay_app_pay";
     if (method === "wechat_app") return "wechat_app_pay";
+    if (method === "alipay_web") return "alipay_qr";
     return method;
   }
 
@@ -1974,6 +1990,7 @@ export class PublicService {
     const method = String(value ?? "");
     if (method === "alipay_app_pay") return "alipay_app";
     if (method === "wechat_app_pay") return "wechat_app";
+    if (method === "alipay_qr") return "alipay_qr";
     return method;
   }
 

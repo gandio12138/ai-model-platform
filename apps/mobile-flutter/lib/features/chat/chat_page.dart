@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/router.dart';
@@ -19,6 +18,7 @@ class ChatPage extends ConsumerStatefulWidget {
 
 class _ChatPageState extends ConsumerState<ChatPage> {
   final _input = TextEditingController();
+  final _inputFocus = FocusNode();
   final _scroll = ScrollController();
   List<ModelInfo> _models = const [];
   ChatSession? _session;
@@ -38,6 +38,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void dispose() {
     _subscription?.cancel();
     _input.dispose();
+    _inputFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -80,18 +81,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _send() async {
     final content = _input.text.trim();
     if (content.isEmpty || _sending || _session == null) return;
+    FocusScope.of(context).unfocus();
     final userMessage = ChatMessage(
       id: 'local-user-${DateTime.now().microsecondsSinceEpoch}',
       role: ChatRole.user,
       content: content,
       createdAt: DateTime.now(),
     );
-    final estimate = await ref
-        .read(apiProvider)
-        .estimateChat(
-          modelCode: _modelCode,
-          messages: [..._messages, userMessage],
-        );
+    ChatEstimate estimate;
+    try {
+      estimate = await ref
+          .read(apiProvider)
+          .estimateChat(
+            modelCode: _modelCode,
+            messages: [..._messages, userMessage],
+          );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('发送前预估失败：${errorMessage(error)}')));
+      return;
+    }
     if (!mounted) return;
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
@@ -99,7 +110,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       builder: (context) => CostEstimateSheet(estimate: estimate),
     );
     if (confirmed != true) return;
-    if (!estimate.balanceEnough) return;
+    if (!estimate.balanceEnough) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('余额不足，请先充值后再发送')));
+      }
+      return;
+    }
+    await _subscription?.cancel();
     _input.clear();
     final assistant = ChatMessage(
       id: 'local-assistant-${DateTime.now().microsecondsSinceEpoch}',
@@ -122,6 +141,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         )
         .listen(
           (event) {
+            if (!mounted) return;
             final last = _messages.last;
             if (event.done) {
               setState(() {
@@ -143,27 +163,32 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             _scrollToEnd();
           },
           onError: (Object error) {
-            final last = _messages.last;
+            if (!mounted) return;
             setState(() {
-              _messages = [
-                ..._messages.take(_messages.length - 1),
-                last.copyWith(
-                  streaming: false,
-                  failed: true,
-                  content: last.content.isEmpty
-                      ? errorMessage(error)
-                      : last.content,
-                ),
-              ];
+              _messages = _messages
+                  .where((message) => message.id != assistant.id)
+                  .toList();
               _sending = false;
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('发送失败：${errorMessage(error)}')),
+            );
           },
         );
   }
 
   void _stop() {
     _subscription?.cancel();
-    setState(() => _sending = false);
+    setState(() {
+      _sending = false;
+      if (_messages.isNotEmpty && _messages.last.streaming) {
+        final last = _messages.last;
+        _messages = [
+          ..._messages.take(_messages.length - 1),
+          last.copyWith(streaming: false),
+        ];
+      }
+    });
   }
 
   void _scrollToEnd() {
@@ -181,6 +206,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     if (_loading) return const Scaffold(body: AppLoading(label: '加载会话'));
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,41 +234,38 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         child: Column(
           children: [
             Expanded(
-              child: _messages.isEmpty
-                  ? const AppEmptyState(
-                      title: '开始新的对话',
-                      description: '发送前会先展示预计 tokens、预计消耗和当前余额。',
-                    )
-                  : ListView.builder(
-                      controller: _scroll,
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) => ChatBubble(
-                        message: _messages[index],
-                        onReport: () => ref
-                            .read(apiProvider)
-                            .reportContent(
-                              messageId: _messages[index].id,
-                              reason: 'user_report',
-                            ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => FocusScope.of(context).unfocus(),
+                child: _messages.isEmpty
+                    ? const AppEmptyState(
+                        title: '开始新的对话',
+                        description: '发送前会先展示预计 tokens、预计消耗和当前余额。',
+                      )
+                    : ListView.builder(
+                        controller: _scroll,
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) =>
+                            ChatBubble(message: _messages[index]),
                       ),
-                    ),
+              ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(
-                12,
-                8,
-                12,
-                12 + MediaQuery.viewInsetsOf(context).bottom * 0,
-              ),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _input,
+                      focusNode: _inputFocus,
                       minLines: 1,
                       maxLines: 5,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _send(),
                       decoration: const InputDecoration(
                         hintText: '输入问题，发送前会先预估费用',
                       ),
@@ -268,10 +291,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 }
 
 class ChatBubble extends StatelessWidget {
-  const ChatBubble({required this.message, super.key, this.onReport});
+  const ChatBubble({required this.message, super.key});
 
   final ChatMessage message;
-  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -320,23 +342,6 @@ class ChatBubble extends StatelessWidget {
                 ),
               ),
             ],
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextButton(
-                  onPressed: () =>
-                      Clipboard.setData(ClipboardData(text: message.content)),
-                  child: Text(
-                    '复制',
-                    style: TextStyle(
-                      color: isUser ? Colors.white : AppColors.primary,
-                    ),
-                  ),
-                ),
-                if (!isUser)
-                  TextButton(onPressed: onReport, child: const Text('举报')),
-              ],
-            ),
           ],
         ),
       ),

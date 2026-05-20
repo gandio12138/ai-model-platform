@@ -9,20 +9,26 @@ export type PaymentOrderStatus =
   | "FULFILLED"
   | "FAILED"
   | "CANCELLED"
+  | "EXPIRED"
   | "REFUNDING"
-  | "REFUNDED";
+  | "REFUNDED"
+  | "PART_REFUNDED"
+  | "REVERSED";
 
 const allowedTransitions: Record<PaymentOrderStatus, PaymentOrderStatus[]> = {
-  CREATED: ["PENDING", "PAYING", "PROCESSING", "PAID", "FAILED", "CANCELLED"],
-  PENDING: ["PAYING", "PROCESSING", "PAID", "FAILED", "CANCELLED"],
-  PAYING: ["PROCESSING", "PAID", "FAILED", "CANCELLED"],
-  PROCESSING: ["PAID", "FAILED", "CANCELLED"],
+  CREATED: ["PENDING", "PAYING", "PROCESSING", "PAID", "FAILED", "CANCELLED", "EXPIRED"],
+  PENDING: ["PAYING", "PROCESSING", "PAID", "FAILED", "CANCELLED", "EXPIRED"],
+  PAYING: ["PROCESSING", "PAID", "FAILED", "CANCELLED", "EXPIRED"],
+  PROCESSING: ["PAID", "FAILED", "CANCELLED", "EXPIRED"],
   PAID: ["FULFILLED", "FAILED", "REFUNDING", "REFUNDED"],
   FULFILLED: ["REFUNDING", "REFUNDED"],
   FAILED: [],
   CANCELLED: [],
-  REFUNDING: ["REFUNDED", "FAILED"],
-  REFUNDED: []
+  EXPIRED: [],
+  REFUNDING: ["REFUNDED", "PART_REFUNDED", "FAILED", "FULFILLED"],
+  REFUNDED: [],
+  PART_REFUNDED: ["REFUNDING", "REVERSED"],
+  REVERSED: []
 };
 
 export function isPaymentOrderStatus(value: string): value is PaymentOrderStatus {
@@ -42,5 +48,5 @@ export function assertPaymentStatusTransition(from: string, to: string) {
 }
 
 export function terminalPaymentStatuses() {
-  return ["FAILED", "CANCELLED", "REFUNDED"] satisfies PaymentOrderStatus[];
+  return ["FAILED", "CANCELLED", "EXPIRED", "REFUNDED", "REVERSED"] satisfies PaymentOrderStatus[];
 }

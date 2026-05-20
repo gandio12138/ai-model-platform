@@ -17,8 +17,8 @@ class HomePage extends ConsumerWidget {
     final config = ref.watch(appConfigProvider);
     final env = ref.watch(appEnvProvider);
     return AppPage(
-      title: 'OneToken',
-      subtitle: '企业级大模型服务平台',
+      title: '账号概览',
+      subtitle: '余额、模型和开发者入口',
       actions: [
         IconButton(
           onPressed: () => context.push('/preview'),
@@ -46,7 +46,7 @@ class HomePage extends ConsumerWidget {
                 return const AppLoading();
               }
               return AppEmptyState(
-                title: '首页加载失败',
+                title: '概览加载失败',
                 description: errorMessage(error!),
                 actionLabel: '重试',
                 onAction: () => ref.invalidate(appConfigProvider),

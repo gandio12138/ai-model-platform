@@ -46,6 +46,17 @@ void main() {
     expect(order.fulfilled, isTrue);
   });
 
+  test('paid payment order still waits for fulfillment', () {
+    final order = PaymentOrder.fromJson({
+      'id': '1',
+      'order_no': 'o1',
+      'status': 'PAID',
+    });
+    expect(order.fulfilled, isFalse);
+    expect(order.paidWaitingFulfillment, isTrue);
+    expect(order.statusLabel, '已支付，待入账');
+  });
+
   test('parses billing record', () {
     final record = LedgerRecord.fromJson({
       'id': 'l1',

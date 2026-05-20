@@ -100,18 +100,27 @@ pnpm usage:aggregate -- --period-start=2026-05-01 --period-end=2026-06-01
 - `GET /api/payment/orders/:order_id`
 - `POST /api/payment/orders/:order_id/sync`
 - `POST /api/payment/orders/:order_id/cancel`
+- `POST /api/payment/orders/:order_id/refund`
 - `POST /api/payment/ios/iap/transactions`
-- `POST /api/payment/webhooks/:channelCode`
+- `POST /api/payment/webhooks/alipay`
+- `POST /api/payment/webhooks/wechat`
+- `POST /api/payment/webhooks/wechat/refund`
 
 P1 当前行为：
 
-- `sync` 只记录主动查单事件；未配置真实 adapter 时不会伪造支付成功。
+- 已新增 `PaymentConfigService`，支付环境变量按 `.env.example` 中的 Alipay / WeChat / Apple 模板配置，支持 `*_PATH` 和 `*_BASE64` 两种密钥读取方式。
+- Web 支付第一阶段只开放支付宝二维码 `alipay_qr` 和微信 Native `wechat_native` 主干；银行卡、企业转账、品牌 Android 市场支付暂不进入 P1。
+- 支付订单创建后会调用 adapter 生成 `payment_action.type='qr_code'`、`qr_content`、`expires_at`。本地 dev/test 未配置商户密钥时，可在 `PAYMENT_MOCK_ENABLED=true` 下返回 mock QR；生产环境不会回退 mock。
+- `sync` 会调用对应 adapter 主动查单；未配置真实 adapter 时只记录查单事件，不会伪造支付成功。
+- `POST /api/payment/webhooks/alipay` 处理支付宝 form 回调，验签后校验订单和金额，再进入统一入账事务。
+- `POST /api/payment/webhooks/wechat` 处理微信支付 API v3 raw body，验签和解密后进入统一入账事务。
+- 已新增 `payment_refunds`，退款申请会进入 `REFUNDING`，渠道确认成功后写 `payment.refund` 负向 wallet ledger。
 - `POST /api/payment/ios/iap/transactions` 在 dev/sandbox 可接收 Apple IAP transaction 并幂等入账；`NODE_ENV=production` 必须配置 Apple App Store Server API 密钥，否则返回 503。
 - Android 统一收银台对 App 暴露 `alipay_app_pay`、`wechat_app_pay`、`card_hosted_checkout`；服务端内部兼容现有 `alipay_app`、`wechat_app` 渠道配置。
 - 支付订单状态流转写入 `payment_order_events`，交易确认写入 `payment_transactions`。
 - 支付成功和权益到账分离：只有订单进入 `FULFILLED` 后才视为钱包到账。
 
-仍需真实商户/平台配置后完成 Alipay、WeChat、hosted card、Apple Server API 的验签、查单、回调确认和退款冲正。
+仍需真实商户/平台配置后做支付宝、微信、Apple Server API 的真机/沙箱验签、真实查单、真实退款和回调重放压测。
 
 ## Admin Payment / Risk Ops
 
@@ -119,7 +128,10 @@ Admin 新增运营资源：
 
 - `GET /api/admin/payment/transactions`
 - `GET /api/admin/payment/order-events`
+- `GET /api/admin/payment/refunds`
 - `GET /api/admin/payment/callbacks`
+- `GET /api/admin/payment/orders/:id/detail`
+- `POST /api/admin/payment/callbacks/:id/replay`
 - `GET /api/admin/reconciliation/records`
 - `GET /api/admin/provider-request-attempts`
 - `GET /api/admin/content-reports`

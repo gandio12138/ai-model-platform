@@ -1,6 +1,6 @@
 import 'app/bootstrap.dart';
 import 'app/env.dart';
 
-void main() {
-  runOneTokenApp(AppEnv.prod());
+Future<void> main() async {
+  await runOneTokenApp(AppEnv.prod());
 }

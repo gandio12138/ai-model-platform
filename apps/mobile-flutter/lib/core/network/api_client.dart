@@ -7,6 +7,7 @@ import '../config/app_context.dart';
 import '../errors/app_exception.dart';
 import '../storage/token_store.dart';
 import 'api_models.dart';
+import 'local_network_permission.dart';
 import 'mock_api_client.dart';
 
 abstract class OneTokenApi {
@@ -38,6 +39,15 @@ abstract class OneTokenApi {
   });
   Future<PaymentOrder> fetchPaymentOrder(String orderId);
   Future<PaymentOrder> syncPaymentOrder(String orderId);
+  Future<PaymentOrder> cancelPaymentOrder(String orderId);
+  Future<IosIapVerificationResult> submitIosIapTransaction({
+    required String productId,
+    required String transactionId,
+    required String signedTransactionInfo,
+    String? originalTransactionId,
+    String environment = 'Sandbox',
+    String? appAccountToken,
+  });
   Future<List<ApiKeyRecord>> fetchApiKeys();
   Future<ApiKeyRecord> createApiKey(String name);
   Future<void> updateApiKey(String id, String status);
@@ -113,6 +123,7 @@ class DioOneTokenApi implements OneTokenApi {
   final AppEnv env;
   final TokenStore tokenStore;
   final Dio _dio;
+  Future<void>? _localNetworkWarmup;
 
   AppLaunchContext get _context => AppLaunchContext.fromEnv(env);
   MockOneTokenApi get _fallback =>
@@ -329,6 +340,40 @@ class DioOneTokenApi implements OneTokenApi {
       () => _dio.post('/api/payment/orders/$orderId/sync'),
     );
     return PaymentOrder.fromJson(_dataMap(response));
+  }
+
+  @override
+  Future<PaymentOrder> cancelPaymentOrder(String orderId) async {
+    final response = await _request(
+      () => _dio.post('/api/payment/orders/$orderId/cancel'),
+    );
+    return PaymentOrder.fromJson(_dataMap(response));
+  }
+
+  @override
+  Future<IosIapVerificationResult> submitIosIapTransaction({
+    required String productId,
+    required String transactionId,
+    required String signedTransactionInfo,
+    String? originalTransactionId,
+    String environment = 'Sandbox',
+    String? appAccountToken,
+  }) async {
+    final response = await _request(
+      () => _dio.post(
+        '/api/payment/ios/iap/transactions',
+        data: {
+          ..._context.toQuery(),
+          'product_id': productId,
+          'transaction_id': transactionId,
+          'original_transaction_id': originalTransactionId,
+          'signed_transaction_info': signedTransactionInfo,
+          'environment': environment,
+          'app_account_token': appAccountToken,
+        },
+      ),
+    );
+    return IosIapVerificationResult.fromJson(_dataMap(response));
   }
 
   @override
@@ -565,21 +610,37 @@ class DioOneTokenApi implements OneTokenApi {
     Future<Response<dynamic>> Function() run,
   ) async {
     try {
+      _localNetworkWarmup ??= warmUpLocalNetworkPermission(env.apiBaseUrl);
+      await _localNetworkWarmup;
       return await run();
     } on DioException catch (error) {
       final statusCode = error.response?.statusCode;
       final data = error.response?.data;
       final message = data is Map && data['message'] != null
           ? data['message'].toString()
-          : _messageForStatus(statusCode, error.type);
+          : _messageForStatus(
+              statusCode,
+              error.type,
+              error.requestOptions.uri.toString(),
+              error.message ?? error.error?.toString(),
+            );
       throw AppException(message, statusCode: statusCode);
     }
   }
 
-  String _messageForStatus(int? statusCode, DioExceptionType type) {
+  String _messageForStatus(
+    int? statusCode,
+    DioExceptionType type,
+    String uri,
+    String? detail,
+  ) {
     if (type == DioExceptionType.connectionTimeout ||
         type == DioExceptionType.receiveTimeout) {
-      return '请求超时，请稍后重试';
+      return '请求超时：$uri';
+    }
+    if (type == DioExceptionType.connectionError ||
+        type == DioExceptionType.unknown) {
+      return '无法连接到 API：$uri${detail == null ? '' : '（$detail）'}';
     }
     if (statusCode != null && statusCode >= 500) {
       return '服务端异常，请稍后重试';
@@ -666,6 +727,8 @@ class DioOneTokenApi implements OneTokenApi {
       paymentPageNotice: isIos
           ? '你正在通过 App Store 购买平台额度，钱包到账以服务端确认结果为准。'
           : '你正在通过平台统一收银台购买额度，应用市场仅作为分发渠道，不进入支付主干。',
+      iosIapEnabled: isIos,
+      androidUnifiedCheckoutEnabled: !isIos,
     );
   }
 }

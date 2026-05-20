@@ -8,7 +8,9 @@ dotenv.config({ path: "../../.env" });
 dotenv.config();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    rawBody: process.env.PAYMENT_CALLBACK_RAW_BODY_ENABLED !== "false"
+  });
   app.enableCors({
     origin: true,
     credentials: true
@@ -16,9 +18,9 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: false }));
 
   const port = Number(process.env.API_PORT ?? 4000);
-  await app.listen(port);
-  console.log(`api-server listening on http://localhost:${port}`);
+  const host = process.env.API_HOST ?? "0.0.0.0";
+  await app.listen(port, host);
+  console.log(`api-server listening on http://${host}:${port}`);
 }
 
 bootstrap();
-

@@ -4,6 +4,13 @@ DateTime _date(Object? value) {
   return DateTime.now();
 }
 
+DateTime? _nullableDate(Object? value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is String && value.isNotEmpty) return DateTime.tryParse(value);
+  return null;
+}
+
 int _int(Object? value) {
   if (value is int) return value;
   if (value is num) return value.round();
@@ -102,6 +109,8 @@ class AppConfig {
     required this.contentSafetyNotice,
     required this.privacyNoticeVariant,
     required this.paymentPageNotice,
+    required this.iosIapEnabled,
+    required this.androidUnifiedCheckoutEnabled,
     this.webPaymentUrl,
   });
 
@@ -120,6 +129,8 @@ class AppConfig {
   final String contentSafetyNotice;
   final String privacyNoticeVariant;
   final String paymentPageNotice;
+  final bool iosIapEnabled;
+  final bool androidUnifiedCheckoutEnabled;
 
   factory AppConfig.fromJson(Map<String, dynamic> json) {
     return AppConfig(
@@ -147,6 +158,11 @@ class AppConfig {
       ),
       privacyNoticeVariant: _string(json['privacy_notice_variant'], 'default'),
       paymentPageNotice: _string(json['payment_page_notice']),
+      iosIapEnabled: _bool(json['ios_iap_enabled'], true),
+      androidUnifiedCheckoutEnabled: _bool(
+        json['android_unified_checkout_enabled'],
+        true,
+      ),
     );
   }
 }
@@ -266,28 +282,200 @@ class PaymentOrder {
     required this.paymentMethod,
     required this.checkoutChannel,
     this.clientPayload = const {},
+    this.paymentAction,
+    this.productName,
+    this.currency = 'CNY',
+    this.providerTradeNo,
+    this.providerOrderStatus,
+    this.paidAt,
+    this.fulfilledAt,
+    this.cancelledAt,
+    this.refundedAt,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
   final String orderNo;
   final String status;
   final int amount;
+  final String currency;
   final String paymentMethod;
   final String checkoutChannel;
   final Map<String, dynamic> clientPayload;
+  final PaymentAction? paymentAction;
+  final String? productName;
+  final String? providerTradeNo;
+  final String? providerOrderStatus;
+  final DateTime? paidAt;
+  final DateTime? fulfilledAt;
+  final DateTime? cancelledAt;
+  final DateTime? refundedAt;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
-  bool get fulfilled =>
-      status.toLowerCase() == 'fulfilled' || status.toLowerCase() == 'paid';
+  String get normalizedStatus => status.toUpperCase();
+
+  bool get fulfilled => normalizedStatus == 'FULFILLED';
+
+  bool get paidWaitingFulfillment => normalizedStatus == 'PAID';
+
+  bool get active => const {
+    'CREATED',
+    'PENDING',
+    'PAYING',
+    'PROCESSING',
+  }.contains(normalizedStatus);
+
+  bool get failed => const {'FAILED', 'ERROR'}.contains(normalizedStatus);
+
+  bool get cancelled => normalizedStatus == 'CANCELLED';
+
+  bool get expired => normalizedStatus == 'EXPIRED';
+
+  bool get refunded => const {
+    'REFUNDED',
+    'PART_REFUNDED',
+    'REVERSED',
+  }.contains(normalizedStatus);
+
+  bool get terminal => fulfilled || failed || cancelled || expired || refunded;
+
+  String get statusLabel {
+    return switch (normalizedStatus) {
+      'CREATED' || 'PENDING' => '待支付',
+      'PAYING' => '待支付',
+      'PROCESSING' => '确认中',
+      'PAID' => '已支付，待入账',
+      'FULFILLED' => '已到账',
+      'FAILED' || 'ERROR' => '支付失败',
+      'CANCELLED' => '已取消',
+      'EXPIRED' => '已过期',
+      'REFUNDING' => '退款中',
+      'REFUNDED' => '已退款',
+      'PART_REFUNDED' => '部分退款',
+      'REVERSED' => '已冲正',
+      _ => status,
+    };
+  }
 
   factory PaymentOrder.fromJson(Map<String, dynamic> json) {
+    final actionMap = _map(json['payment_action'] ?? json['client_payload']);
+    final action = actionMap.isEmpty ? null : PaymentAction.fromJson(actionMap);
     return PaymentOrder(
       id: _string(json['id']),
       orderNo: _string(json['order_no'] ?? json['order_id']),
       status: _string(json['status'], 'pending'),
       amount: _int(json['amount']),
+      currency: _string(json['currency'], 'CNY'),
       paymentMethod: _string(json['payment_method']),
       checkoutChannel: _string(json['checkout_channel']),
-      clientPayload: _map(json['client_payload'] ?? json['payment_action']),
+      clientPayload: _map(
+        json['client_payload'] ??
+            (actionMap['client_payload'] is Map
+                ? actionMap['client_payload']
+                : actionMap),
+      ),
+      paymentAction: action,
+      productName:
+          json['product_name']?.toString() ??
+          json['product_display_name']?.toString(),
+      providerTradeNo: json['provider_trade_no']?.toString(),
+      providerOrderStatus: json['provider_order_status']?.toString(),
+      paidAt: _nullableDate(json['paid_at']),
+      fulfilledAt: _nullableDate(json['fulfilled_at']),
+      cancelledAt: _nullableDate(json['cancelled_at']),
+      refundedAt: _nullableDate(json['refunded_at']),
+      createdAt: _nullableDate(json['created_at']),
+      updatedAt: _nullableDate(json['updated_at']),
+    );
+  }
+}
+
+class PaymentAction {
+  const PaymentAction({
+    required this.type,
+    this.provider,
+    this.title,
+    this.status,
+    this.orderNo,
+    this.paymentMethod,
+    this.qrContent,
+    this.expiresAt,
+    this.url,
+    this.notice,
+    this.clientPayload = const {},
+    this.instructions = const [],
+    this.raw = const {},
+  });
+
+  final String type;
+  final String? provider;
+  final String? title;
+  final String? status;
+  final String? orderNo;
+  final String? paymentMethod;
+  final String? qrContent;
+  final DateTime? expiresAt;
+  final String? url;
+  final String? notice;
+  final Map<String, dynamic> clientPayload;
+  final List<String> instructions;
+  final Map<String, dynamic> raw;
+
+  bool get isQrCode => type == 'qr_code' || type == 'mock_qr';
+
+  bool get isAndroidUnifiedCheckout => type == 'android_unified_checkout';
+
+  bool get isCompanyTransfer => type == 'company_transfer';
+
+  factory PaymentAction.fromJson(Map<String, dynamic> json) {
+    return PaymentAction(
+      type: _string(json['type']),
+      provider: json['provider']?.toString(),
+      title: json['title']?.toString(),
+      status: json['status']?.toString(),
+      orderNo: json['order_no']?.toString(),
+      paymentMethod: json['payment_method']?.toString(),
+      qrContent:
+          json['qr_content']?.toString() ??
+          json['code_url']?.toString() ??
+          json['url']?.toString(),
+      expiresAt: _nullableDate(json['expires_at'] ?? json['qr_expires_at']),
+      url: json['url']?.toString(),
+      notice: json['notice']?.toString(),
+      clientPayload: _map(json['client_payload']),
+      instructions: _stringList(json['instructions']),
+      raw: json,
+    );
+  }
+}
+
+class IosIapVerificationResult {
+  const IosIapVerificationResult({
+    required this.orderNo,
+    required this.orderStatus,
+    required this.transactionId,
+    required this.idempotent,
+    this.orderId,
+  });
+
+  final String? orderId;
+  final String orderNo;
+  final String orderStatus;
+  final String transactionId;
+  final bool idempotent;
+
+  factory IosIapVerificationResult.fromJson(Map<String, dynamic> json) {
+    final transaction = _map(json['transaction']);
+    return IosIapVerificationResult(
+      orderId: json['order_id']?.toString(),
+      orderNo: _string(json['order_no']),
+      orderStatus: _string(json['order_status']),
+      transactionId: _string(
+        transaction['transaction_id'] ?? json['transaction_id'],
+      ),
+      idempotent: _bool(json['idempotent']),
     );
   }
 }
