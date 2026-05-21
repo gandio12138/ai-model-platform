@@ -106,6 +106,7 @@ class AppConfig {
     required this.referralEnabled,
     required this.developerApiEnabled,
     required this.supportContact,
+    required this.support,
     required this.announcement,
     required this.contentSafetyNotice,
     required this.privacyNoticeVariant,
@@ -114,6 +115,10 @@ class AppConfig {
     required this.iosIapEnabled,
     required this.androidUnifiedCheckoutEnabled,
     required this.appDownload,
+    required this.branding,
+    required this.legal,
+    required this.copy,
+    required this.featureFlags,
     this.webPaymentUrl,
     this.tenantPlanCode,
   });
@@ -131,6 +136,7 @@ class AppConfig {
   final bool referralEnabled;
   final bool developerApiEnabled;
   final String supportContact;
+  final Map<String, dynamic> support;
   final String announcement;
   final String contentSafetyNotice;
   final String privacyNoticeVariant;
@@ -139,6 +145,18 @@ class AppConfig {
   final bool iosIapEnabled;
   final bool androidUnifiedCheckoutEnabled;
   final Map<String, dynamic> appDownload;
+  final Map<String, dynamic> branding;
+  final Map<String, dynamic> legal;
+  final Map<String, dynamic> copy;
+  final Map<String, dynamic> featureFlags;
+
+  bool get contentReportEnabled =>
+      _bool(featureFlags['content_report_enabled'], true);
+  bool get accountDeletionEnabled =>
+      _bool(featureFlags['account_deletion_enabled'], true);
+  String get aiDisclaimer =>
+      _string(copy['ai_disclaimer'], 'AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。');
+  String get helpCenterUrl => _string(support['help_center_url']);
 
   factory AppConfig.fromJson(Map<String, dynamic> json) {
     return AppConfig(
@@ -160,7 +178,8 @@ class AppConfig {
       modelListEnabled: _bool(json['model_list_enabled'], true),
       referralEnabled: _bool(json['referral_enabled']),
       developerApiEnabled: _bool(json['developer_api_enabled'], true),
-      supportContact: _string(json['support_contact'], 'support@onetoken.one'),
+      supportContact: _supportText(json['support_contact']),
+      support: _map(json['support_contact']),
       announcement: _string(json['announcement'], '欢迎使用 OneToken'),
       contentSafetyNotice: _string(
         json['content_safety_notice'],
@@ -177,8 +196,17 @@ class AppConfig {
       appDownload: json['app_download'] is Map
           ? Map<String, dynamic>.from(json['app_download'] as Map)
           : const <String, dynamic>{},
+      branding: _map(json['branding']),
+      legal: _map(json['legal']),
+      copy: _map(json['copy']),
+      featureFlags: _map(json['feature_flags']),
     );
   }
+}
+
+String _supportText(Object? value) {
+  final map = _map(value);
+  return _string(map['email'] ?? value, 'support@onetoken.one');
 }
 
 class Wallet {
@@ -235,8 +263,10 @@ class ModelInfo {
       code: _string(json['model_code'] ?? json['code']),
       name: _string(json['display_name'] ?? json['name']),
       providerName: _string(
-        json['provider_display_name'] ?? json['family'],
-        '高速线路',
+        json['model_company'] ??
+            json['family'] ??
+            json['provider_display_name'],
+        '其他',
       ),
       inputPer1k: _int(price['input_per_1k']),
       outputPer1k: _int(price['output_per_1k']),
@@ -632,14 +662,18 @@ class ChatEstimate {
   const ChatEstimate({
     required this.modelCode,
     required this.inputTokens,
+    required this.estimatedOutputTokens,
     required this.outputTokenLimit,
+    required this.maxOutputTokens,
     required this.estimatedCost,
     required this.currentBalance,
   });
 
   final String modelCode;
   final int inputTokens;
+  final int estimatedOutputTokens;
   final int outputTokenLimit;
+  final int maxOutputTokens;
   final int estimatedCost;
   final int currentBalance;
 
@@ -649,8 +683,14 @@ class ChatEstimate {
     return ChatEstimate(
       modelCode: _string(json['model'] ?? json['model_code']),
       inputTokens: _int(json['input_tokens']),
+      estimatedOutputTokens: _int(
+        json['estimated_output_tokens'] ?? json['output_token_limit'],
+      ),
       outputTokenLimit: _int(
         json['output_token_limit'] ?? json['max_output_tokens'],
+      ),
+      maxOutputTokens: _int(
+        json['max_output_tokens'] ?? json['output_token_limit'],
       ),
       estimatedCost: _int(json['estimated_cost']),
       currentBalance: _int(json['current_balance']),

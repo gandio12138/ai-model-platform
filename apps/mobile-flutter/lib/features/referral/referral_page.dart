@@ -15,7 +15,7 @@ class ReferralPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return AppPage(
-      title: '代理 / 佣金',
+      title: '邀请返佣',
       subtitle: '邀请关系和佣金以后台结算审核为准',
       child: FutureBuilder(
         future: Future.wait([

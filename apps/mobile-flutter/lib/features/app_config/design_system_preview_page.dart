@@ -15,7 +15,7 @@ class DesignSystemPreviewPage extends StatelessWidget {
     const model = ModelInfo(
       code: 'gpt-4o',
       name: 'GPT-4o',
-      providerName: '高速线路 1',
+      providerName: 'OpenAI',
       inputPer1k: 18,
       outputPer1k: 72,
       maxContextTokens: 128000,

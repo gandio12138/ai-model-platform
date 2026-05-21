@@ -133,6 +133,7 @@ class WalletPage extends ConsumerWidget {
                     ],
                   ),
                 ),
+                const SizedBox(height: AppSpacing.xxl),
               ],
             );
           },
@@ -191,7 +192,26 @@ class _WalletHero extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              AppBadge(label: wallet.currency),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.24),
+                  ),
+                ),
+                child: Text(
+                  wallet.currency,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
@@ -289,51 +309,132 @@ class _LedgerTile extends StatelessWidget {
         record.status == 'debit' ||
         record.type.contains('charge');
     final amount = record.amount.abs();
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.border)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            height: 36,
-            width: 36,
-            decoration: BoxDecoration(
-              color: (debit ? AppColors.warning : AppColors.success).withValues(
-                alpha: 0.1,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showLedgerDetail(context, record, debit),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: AppColors.border)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                height: 36,
+                width: 36,
+                decoration: BoxDecoration(
+                  color: (debit ? AppColors.warning : AppColors.success)
+                      .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  debit ? Icons.north_east_rounded : Icons.south_west_rounded,
+                  color: debit ? AppColors.warning : AppColors.success,
+                  size: 18,
+                ),
               ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              debit ? Icons.north_east_rounded : Icons.south_west_rounded,
-              color: debit ? AppColors.warning : AppColors.success,
-              size: 18,
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _ledgerName(record.type),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      formatDate(record.createdAt),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${debit ? '-' : '+'}${centsToCurrency(amount)}',
+                style: TextStyle(
+                  color: debit ? AppColors.warning : AppColors.success,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textMuted,
+                size: 18,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLedgerDetail(
+    BuildContext context,
+    LedgerRecord record,
+    bool debit,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _ledgerName(record.type),
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _DetailRow(
+                label: '金额',
+                value:
+                    '${debit ? '-' : '+'}${centsToCurrency(record.amount.abs())}',
+              ),
+              _DetailRow(label: '状态', value: record.status),
+              _DetailRow(label: '时间', value: formatDate(record.createdAt)),
+              _DetailRow(label: '流水 ID', value: record.id),
+              _DetailRow(label: '业务类型', value: record.type),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 84,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
             ),
           ),
-          const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _ledgerName(record.type),
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                Text(
-                  formatDate(record.createdAt),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            '${debit ? '-' : '+'}${centsToCurrency(amount)}',
-            style: TextStyle(
-              color: debit ? AppColors.warning : AppColors.success,
-              fontWeight: FontWeight.w900,
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
         ],

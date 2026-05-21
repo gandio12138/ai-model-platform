@@ -161,14 +161,15 @@ export class AiGatewayService {
     const pricing = await this.getPricing(context.tenantId, model);
     const outputLimit = this.resolveOutputLimit(body.max_tokens, pricing);
     const inputTokens = this.estimateTokens(messages.map((message) => message.content).join("\n"));
-    const estimatedCost = this.calculateCost(pricing, inputTokens, outputLimit);
+    const estimatedOutputTokens = Math.min(Math.max(inputTokens * 2, 256), outputLimit);
+    const estimatedCost = this.calculateCost(pricing, inputTokens, estimatedOutputTokens);
     const balance = await this.getAvailableBalance(context);
     const row = await this.db.query(
       `insert into chat_estimates
         (tenant_id, project_id, tenant_customer_id, user_id, model_code, prompt_tokens,
          max_output_tokens, estimated_cost_amount, currency, current_balance, enough_balance,
          metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '{}'::jsonb)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
        returning id, created_at`,
       [
         context.tenantId,
@@ -181,14 +182,16 @@ export class AiGatewayService {
         estimatedCost,
         pricing.currency,
         balance,
-        balance >= estimatedCost
+        balance >= estimatedCost,
+        JSON.stringify({ estimated_output_tokens: estimatedOutputTokens })
       ]
     );
     return {
       id: row.rows[0].id,
       model,
       input_tokens: inputTokens,
-      output_token_limit: outputLimit,
+      estimated_output_tokens: estimatedOutputTokens,
+      output_token_limit: estimatedOutputTokens,
       max_output_tokens: outputLimit,
       estimated_cost: estimatedCost,
       current_balance: balance,
@@ -750,7 +753,7 @@ export class AiGatewayService {
   private fakeCompletion(model: string, messages: ChatMessageInput[]) {
     const last = messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
     return [
-      `这是 OneToken FakeProvider 的开发/测试回复，模型 ${model} 已收到你的请求。`,
+      `这是 OneToken 开发/测试环境的模型回复，模型 ${model} 已收到你的请求。`,
       `问题摘要：${last.slice(0, 120) || "空消息"}`,
       "生产环境必须配置真实 Provider Adapter 和密钥后才能处理真实模型调用。"
     ].join("\n");

@@ -64,7 +64,7 @@ void main() {
     const model = ModelInfo(
       code: 'gpt-4o',
       name: 'GPT-4o',
-      providerName: '高速线路 1',
+      providerName: 'OpenAI',
       inputPer1k: 18,
       outputPer1k: 72,
       maxContextTokens: 128000,
@@ -92,7 +92,9 @@ void main() {
     const estimate = ChatEstimate(
       modelCode: 'gpt-4o',
       inputTokens: 1240,
+      estimatedOutputTokens: 1500,
       outputTokenLimit: 2000,
+      maxOutputTokens: 2000,
       estimatedCost: 83,
       currentBalance: 3520,
     );

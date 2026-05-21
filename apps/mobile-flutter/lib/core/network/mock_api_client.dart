@@ -45,6 +45,10 @@ class MockOneTokenApi implements OneTokenApi {
       referralEnabled: false,
       developerApiEnabled: true,
       supportContact: 'support@onetoken.one',
+      support: const {
+        'email': 'support@onetoken.one',
+        'help_center_url': 'https://www.onetoken.one/docs',
+      },
       announcement: 'Dev mock：当前使用本地模拟数据，不代表正式环境。',
       contentSafetyNotice: '请勿输入敏感个人信息，AI 生成内容仅供参考。',
       privacyNoticeVariant: 'default',
@@ -59,6 +63,20 @@ class MockOneTokenApi implements OneTokenApi {
         'show_on_web_home': true,
         'show_on_console': true,
         'show_on_payment_success': true,
+      },
+      branding: const {
+        'site_name': 'OneToken',
+        'hero_title': '一个 API Key，调用多家顶尖模型',
+      },
+      legal: const <String, dynamic>{},
+      copy: const {
+        'ai_disclaimer': 'AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。',
+        'estimated_cost_title': '发送前预估费用',
+      },
+      featureFlags: const {
+        'content_report_enabled': true,
+        'account_deletion_enabled': true,
+        'developer_api_enabled': true,
       },
     );
   }
@@ -308,7 +326,9 @@ class MockOneTokenApi implements OneTokenApi {
     return ChatEstimate(
       modelCode: modelCode,
       inputTokens: 1240,
+      estimatedOutputTokens: 1500,
       outputTokenLimit: 2000,
+      maxOutputTokens: 2000,
       estimatedCost: 83,
       currentBalance: _wallet.availableBalance,
     );
@@ -432,7 +452,7 @@ class MockOneTokenApi implements OneTokenApi {
     ModelInfo(
       code: 'gpt-4o',
       name: 'GPT-4o',
-      providerName: '高速线路 1',
+      providerName: 'OpenAI',
       inputPer1k: 18,
       outputPer1k: 72,
       maxContextTokens: 128000,
@@ -442,7 +462,7 @@ class MockOneTokenApi implements OneTokenApi {
     ModelInfo(
       code: 'claude-3-7-sonnet',
       name: 'Claude 3.7 Sonnet',
-      providerName: '高速线路 2',
+      providerName: 'Anthropic',
       inputPer1k: 24,
       outputPer1k: 120,
       maxContextTokens: 200000,
@@ -452,7 +472,7 @@ class MockOneTokenApi implements OneTokenApi {
     ModelInfo(
       code: 'qwen-max',
       name: '通义千问 Max',
-      providerName: '高速线路 3',
+      providerName: '阿里巴巴',
       inputPer1k: 12,
       outputPer1k: 36,
       maxContextTokens: 128000,

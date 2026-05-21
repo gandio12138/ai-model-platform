@@ -15,16 +15,22 @@ class HomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final config = ref.watch(appConfigProvider);
+    final configValue = config.maybeWhen(
+      data: (value) => value,
+      orElse: () => null,
+    );
     final env = ref.watch(appEnvProvider);
     return AppPage(
-      title: '账号概览',
+      title: '概览',
       subtitle: '余额、模型和开发者入口',
-      actions: [
-        IconButton(
-          onPressed: () => context.push('/preview'),
-          icon: const Icon(Icons.tune_rounded),
-        ),
-      ],
+      actions: env.isProd
+          ? const []
+          : [
+              IconButton(
+                onPressed: () => context.push('/preview'),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
       child: PagePadding(
         child: FutureBuilder(
           future: Future.wait([
@@ -87,8 +93,9 @@ class HomePage extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      const Text(
-                        '用一个钱包和 API Key 调用多个海外顶尖模型',
+                      Text(
+                        configValue?.branding['hero_title']?.toString() ??
+                            '一个账户，统一使用模型、API Key 和钱包余额',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 26,
@@ -129,9 +136,9 @@ class HomePage extends ConsumerWidget {
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: MetricCard(
-                        title: '可用模型',
+                        title: '可调用模型',
                         value: '${models.length}',
-                        subtitle: '支持流式与工具调用',
+                        subtitle: '对话页直接切换',
                         icon: Icons.dataset_rounded,
                       ),
                     ),
@@ -147,20 +154,47 @@ class HomePage extends ConsumerWidget {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      _QuickAction(
-                        label: '模型选择',
-                        icon: Icons.hub_rounded,
-                        onTap: () => context.go('/models'),
-                      ),
-                      _QuickAction(
-                        label: 'API Key 管理',
-                        icon: Icons.key_rounded,
-                        onTap: () => context.push('/developer'),
-                      ),
-                      _QuickAction(
-                        label: '账单明细',
-                        icon: Icons.receipt_long_rounded,
-                        onTap: () => context.push('/billing'),
+                      GridView.count(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: AppSpacing.sm,
+                        mainAxisSpacing: AppSpacing.sm,
+                        childAspectRatio: 1.72,
+                        physics: const NeverScrollableScrollPhysics(),
+                        shrinkWrap: true,
+                        children: [
+                          _QuickAction(
+                            label: '新建对话',
+                            icon: Icons.add_comment_rounded,
+                            onTap: () => context.go('/chat'),
+                          ),
+                          _QuickAction(
+                            label: '充值',
+                            icon: Icons.add_card_rounded,
+                            onTap: () => context.push('/payment'),
+                          ),
+                          if (configValue?.modelListEnabled ?? true)
+                            _QuickAction(
+                              label: '模型目录',
+                              icon: Icons.hub_rounded,
+                              onTap: () => context.go('/models'),
+                            ),
+                          if (configValue?.developerApiEnabled ?? true)
+                            _QuickAction(
+                              label: 'API Key',
+                              icon: Icons.key_rounded,
+                              onTap: () => context.push('/developer'),
+                            ),
+                          _QuickAction(
+                            label: '账单明细',
+                            icon: Icons.receipt_long_rounded,
+                            onTap: () => context.push('/billing'),
+                          ),
+                          _QuickAction(
+                            label: '使用日志',
+                            icon: Icons.history_rounded,
+                            onTap: () => context.push('/developer'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -198,6 +232,7 @@ class HomePage extends ConsumerWidget {
                       AppCard(child: Text(errorMessage(error))),
                   loading: () => const AppLoading(label: '读取 App 配置'),
                 ),
+                const SizedBox(height: AppSpacing.xxl),
               ],
             );
           },
@@ -220,12 +255,36 @@ class _QuickAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: AppColors.primary),
-      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-      trailing: const Icon(Icons.chevron_right_rounded),
-      onTap: onTap,
+    return Material(
+      color: AppColors.surfaceSoft,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: AppColors.primary),
+              const Spacer(),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, size: 18),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

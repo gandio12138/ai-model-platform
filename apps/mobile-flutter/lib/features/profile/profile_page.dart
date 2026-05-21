@@ -15,9 +15,18 @@ class ProfilePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final env = ref.watch(appEnvProvider);
+    final config = ref.watch(
+      appConfigProvider.select(
+        (value) =>
+            value.maybeWhen(data: (config) => config, orElse: () => null),
+      ),
+    );
+    final legal = config?.legal ?? const <String, dynamic>{};
+    final branding = config?.branding ?? const <String, dynamic>{};
+    final helpCenterUrl = config?.helpCenterUrl ?? '';
     return AppPage(
       title: '我的',
-      subtitle: env.flavorName,
+      subtitle: '账号、安全和帮助',
       child: PagePadding(
         child: FutureBuilder(
           future: ref.read(apiProvider).me(),
@@ -58,40 +67,49 @@ class ProfilePage extends ConsumerWidget {
                 AppCard(
                   child: Column(
                     children: [
-                      _Setting(
-                        label: '开发设置：API 地址',
-                        value: ref.watch(apiBaseUrlProvider),
-                        onTap: () => showApiEndpointDialog(context, ref),
-                      ),
+                      if (!env.isProd)
+                        _Setting(
+                          label: '开发设置：API 地址',
+                          value: ref.watch(apiBaseUrlProvider),
+                          onTap: () => showApiEndpointDialog(context, ref),
+                        ),
                       _Setting(
                         label: '用户协议',
+                        value: legal['terms_url']?.toString(),
                         onTap: () => context.push('/compliance/terms'),
                       ),
                       _Setting(
                         label: '隐私政策',
+                        value: legal['privacy_url']?.toString(),
                         onTap: () => context.push('/compliance/privacy'),
                       ),
                       _Setting(
                         label: 'AI 生成内容免责声明',
                         onTap: () => context.push('/compliance/disclaimer'),
                       ),
-                      _Setting(
-                        label: '内容举报',
-                        onTap: () => context.push('/compliance/report'),
-                      ),
+                      if (config?.contentReportEnabled ?? true)
+                        _Setting(
+                          label: '内容举报',
+                          onTap: () => context.push('/compliance/report'),
+                        ),
                       _Setting(
                         label: '帮助中心 / 客服',
+                        value: helpCenterUrl.isNotEmpty
+                            ? helpCenterUrl
+                            : config?.supportContact,
                         onTap: () => context.push('/compliance/help'),
                       ),
-                      _Setting(
-                        label: '代理 / 佣金',
-                        onTap: () => context.push('/referral'),
-                      ),
-                      _Setting(
-                        label: '账号注销',
-                        danger: true,
-                        onTap: () => _deleteAccount(context, ref),
-                      ),
+                      if (config?.referralEnabled ?? false)
+                        _Setting(
+                          label: '邀请返佣',
+                          onTap: () => context.push('/referral'),
+                        ),
+                      if (config?.accountDeletionEnabled ?? true)
+                        _Setting(
+                          label: '账号注销',
+                          danger: true,
+                          onTap: () => _deleteAccount(context, ref),
+                        ),
                     ],
                   ),
                 ),
@@ -106,10 +124,11 @@ class ProfilePage extends ConsumerWidget {
                   },
                 ),
                 const SizedBox(height: AppSpacing.md),
-                Text(
-                  'ICP备案与 App 备案信息由后台配置后展示',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+                if (branding['icp_text']?.toString().isNotEmpty == true)
+                  Text(
+                    branding['icp_text'].toString(),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
               ],
             );
           },

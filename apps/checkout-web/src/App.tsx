@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
+  Drawer,
   Empty,
   Form,
   Input,
   Modal,
   QRCode as AntQRCode,
+  Select,
   Spin,
-  Switch,
   Tag,
   message
 } from "antd";
@@ -83,6 +84,7 @@ const tokenApiBase =
   import.meta.env.VITE_TOKEN_API_BASE ?? (typeof window !== "undefined" ? `${window.location.origin}/v1` : "/v1");
 const iosAppDownloadUrl = import.meta.env.VITE_IOS_APP_DOWNLOAD_URL ?? "";
 const androidAppDownloadUrl = import.meta.env.VITE_ANDROID_APP_DOWNLOAD_URL ?? "";
+const isProductionBuild = import.meta.env.PROD;
 
 const paymentMethodNames: Record<string, string> = {
   alipay_qr: "支付宝",
@@ -92,7 +94,9 @@ const paymentMethodNames: Record<string, string> = {
   enterprise_transfer: "对公转账",
   apple_iap: "Apple IAP",
   alipay_app: "支付宝 App",
-  wechat_app: "微信 App"
+  alipay_app_pay: "支付宝 App",
+  wechat_app: "微信 App",
+  wechat_app_pay: "微信 App"
 };
 
 const announcements = [
@@ -120,6 +124,75 @@ const faqs = [
   "API 请求失败怎么办？",
   "数据安全如何保障？"
 ];
+
+function siteModules(config: SiteConfigPayload | null) {
+  return config?.site_config.modules ?? {
+    landing_model_coverage: true,
+    landing_integrations: true,
+    landing_app_download: true,
+    dashboard_announcements: true,
+    dashboard_faq: true,
+    referral: true,
+    developer_api: true,
+    app_download: true,
+    content_report: true,
+    account_deletion: true
+  };
+}
+
+function appDownloadTargets(appDownload: SiteConfigPayload["app_download"] | null | undefined) {
+  const iosUrl =
+    appDownload?.ios.app_store_url ||
+    appDownload?.ios.testflight_url ||
+    appDownload?.ios.download_url ||
+    (!isProductionBuild ? iosAppDownloadUrl : "");
+  const androidUrl =
+    appDownload?.android.apk_url ||
+    appDownload?.android.official_url ||
+    appDownload?.android.markets?.find((item) => item.enabled !== false)?.url ||
+    (!isProductionBuild ? androidAppDownloadUrl : "");
+  const qrUrl = appDownload?.qr_code_url ?? "";
+  return { iosUrl, androidUrl, qrUrl, hasAny: Boolean(iosUrl || androidUrl || qrUrl) };
+}
+
+function shouldShowAppDownload(
+  appDownload: SiteConfigPayload["app_download"] | null | undefined,
+  placement: "home" | "console" | "payment_success"
+) {
+  if (!appDownload?.enabled) return false;
+  if (placement === "home" && !appDownload.show_on_web_home) return false;
+  if (placement === "console" && !appDownload.show_on_console) return false;
+  if (placement === "payment_success" && !appDownload.show_on_payment_success) return false;
+  return appDownloadTargets(appDownload).hasAny;
+}
+
+function configuredApiBase(siteConfig: SiteConfigPayload | null) {
+  const configured = siteConfig?.site_config.copy?.public_api_base_url;
+  if (configured) return configured;
+  if (isProductionBuild && /localhost|127\.0\.0\.1/i.test(tokenApiBase)) {
+    return "https://api.onetoken.one/v1";
+  }
+  return tokenApiBase;
+}
+
+function modelCompany(model: Pick<ModelInfo, "display_name" | "family" | "model_code" | "model_company">) {
+  const raw = `${model.model_company ?? ""} ${model.family ?? ""} ${model.model_code} ${model.display_name}`.toLowerCase();
+  if (raw.includes("deepseek")) return "DeepSeek";
+  if (raw.includes("openai") || raw.includes("gpt-")) return "OpenAI";
+  if (raw.includes("anthropic") || raw.includes("claude")) return "Anthropic";
+  if (raw.includes("gemini") || raw.includes("google")) return "Google";
+  if (raw.includes("qwen") || raw.includes("alibaba") || raw.includes("阿里")) return "阿里巴巴";
+  if (raw.includes("midjourney")) return "Midjourney";
+  if (raw.includes("grok") || raw.includes("xai")) return "xAI";
+  return model.model_company ?? model.family ?? "其他";
+}
+
+function anonymizedSource(email?: string | null) {
+  if (!email) return "来源客户";
+  const [name, domain] = email.split("@");
+  if (!domain) return "来源客户";
+  return `${name.slice(0, 2)}***@${domain}`;
+}
 
 export default function App() {
   const [messageApi, contextHolder] = message.useMessage();
@@ -158,7 +231,12 @@ export default function App() {
         setUser(payload.user);
         updateSessionUser(payload.user);
         setWallet(payload.wallet);
-        return Promise.all([loadApiKeys(), loadWalletLedger(), loadUsageLogs(), loadReferral()]);
+        return Promise.all([
+          loadApiKeys(),
+          loadWalletLedger(),
+          loadUsageLogs(),
+          loadReferral().catch(() => undefined)
+        ]);
       })
       .catch(() => {
         setUser(null);
@@ -371,19 +449,44 @@ export default function App() {
     }
   }
 
-  async function createApiKey(values: { name: string }) {
+  async function createApiKey(values: {
+    name: string;
+    group?: string;
+    ip_whitelist?: string;
+    rpm_limit?: string;
+    tpm_limit?: string;
+    daily_budget?: string;
+    monthly_budget?: string;
+    expires_at?: string;
+    note?: string;
+  }) {
     setSubmitting(true);
     try {
+      const ipWhitelist = values.ip_whitelist
+        ?.split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
       const payload = await apiFetch<{ key: string; record: ApiKeyRecord }>("/api/public/api-keys", {
         method: "POST",
-        body: JSON.stringify({ name: values.name, ...context })
+        body: JSON.stringify({
+          name: values.name,
+          group: values.group,
+          ip_whitelist: ipWhitelist?.length ? ipWhitelist : undefined,
+          rpm_limit: values.rpm_limit ? Number(values.rpm_limit) : undefined,
+          tpm_limit: values.tpm_limit ? Number(values.tpm_limit) : undefined,
+          daily_budget: values.daily_budget ? Math.round(Number(values.daily_budget) * 100) : undefined,
+          monthly_budget: values.monthly_budget ? Math.round(Number(values.monthly_budget) * 100) : undefined,
+          expires_at: values.expires_at || undefined,
+          note: values.note,
+          ...context
+        })
       });
       setCreatedKey(payload.key);
       setShowKeyModal(false);
       setApiKeys((items) => [payload.record, ...items]);
-      messageApi.success("令牌已创建");
+      messageApi.success("API Key 已创建");
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "创建令牌失败");
+      messageApi.error(error instanceof Error ? error.message : "创建 API Key 失败");
     } finally {
       setSubmitting(false);
     }
@@ -396,9 +499,9 @@ export default function App() {
         method: "POST"
       });
       setApiKeys((items) => items.map((item) => (item.id === id ? revoked : item)));
-      messageApi.success("令牌已停用");
+      messageApi.success("API Key 已停用");
     } catch (error) {
-      messageApi.error(error instanceof Error ? error.message : "停用令牌失败");
+      messageApi.error(error instanceof Error ? error.message : "停用 API Key 失败");
     } finally {
       setSubmitting(false);
     }
@@ -444,7 +547,12 @@ export default function App() {
     try {
       await apiFetch<{ notice: string }>("/api/referral/withdrawals", {
         method: "POST",
-        body: JSON.stringify({ ...values, ...context, requested_from: "web" })
+        body: JSON.stringify({
+          ...values,
+          amount: Math.round(Number(values.amount) * 100),
+          ...context,
+          requested_from: "web"
+        })
       });
       await loadReferral();
       messageApi.success("提现申请已提交");
@@ -515,7 +623,7 @@ export default function App() {
       >
         {contextHolder}
         <section className="site-page market-page">
-          <ModelMarket models={models} copyText={copyText} />
+          <ModelMarket models={models} copyText={copyText} siteConfig={siteConfig} />
         </section>
       </PublicLayout>
     );
@@ -532,7 +640,7 @@ export default function App() {
         user={user}
       >
         {contextHolder}
-        <DocsPage models={models} copyText={copyText} />
+        <DocsPage models={models} copyText={copyText} siteConfig={siteConfig} />
       </PublicLayout>
     );
   }
@@ -572,6 +680,7 @@ export default function App() {
         <SideNav
           active={view}
           collapsed={sidebarCollapsed}
+          siteConfig={siteConfig}
           setActive={setView}
           toggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)}
         />
@@ -623,7 +732,7 @@ export default function App() {
               wallet={wallet}
             />
           ) : null}
-          {view === "models" ? <ModelMarket models={models} copyText={copyText} /> : null}
+          {view === "models" ? <ModelMarket models={models} copyText={copyText} siteConfig={siteConfig} /> : null}
           {view === "referral" ? (
             <ReferralPanel
               commissions={commissions}
@@ -638,6 +747,7 @@ export default function App() {
               changePassword={changePassword}
               submitting={submitting}
               updateProfile={updateProfile}
+              siteConfig={siteConfig}
               user={user}
             />
           ) : null}
@@ -653,11 +763,11 @@ export default function App() {
       <Modal
         footer={[
           <Button key="copy" icon={<Copy size={16} />} type="primary" onClick={() => copyText(createdKey)}>
-            复制令牌
+            复制 API Key
           </Button>
         ]}
         open={Boolean(createdKey)}
-        title="令牌已生成"
+        title="API Key 已生成"
         onCancel={() => setCreatedKey("")}
       >
         <Alert message="密钥只显示一次" description="关闭后只能看到脱敏后的密钥标识。" type="warning" showIcon />
@@ -692,7 +802,7 @@ function PublicLayout({
   const nav = siteConfig?.site_config.navigation?.filter((item) => item.visible !== false) ?? [
     { key: "home", label: "首页" },
     { key: "console", label: "控制台" },
-    { key: "models", label: "模型广场" },
+    { key: "models", label: "模型目录" },
     { key: "docs", label: "文档" }
   ];
   const siteName = siteConfig?.site_config.branding.site_name ?? "OneToken";
@@ -821,17 +931,13 @@ function HomePage({
   const appDownload = siteConfig?.app_download;
   const iosRelease = appDownload?.releases?.find((release) => release.platform === "ios") ?? appReleases.find((release) => release.platform === "ios");
   const androidRelease = appDownload?.releases?.find((release) => release.platform === "android") ?? appReleases.find((release) => release.platform === "android");
-  const iosDownloadUrl = appDownload?.ios.app_store_url || appDownload?.ios.testflight_url || appDownload?.ios.download_url || iosRelease?.download_url || iosAppDownloadUrl;
-  const androidDownloadUrl =
-    appDownload?.android.apk_url ||
-    appDownload?.android.official_url ||
-    appDownload?.android.markets?.find((item) => item.enabled !== false)?.url ||
-    androidRelease?.download_url ||
-    androidAppDownloadUrl;
+  const { iosUrl: iosDownloadUrl, androidUrl: androidDownloadUrl, qrUrl: appQrUrl } = appDownloadTargets(appDownload);
   const branding = siteConfig?.site_config.branding;
-  const heroTitle = branding?.hero_title ?? "一站式企业级大模型服务平台";
-  const heroSubtitle = branding?.hero_subtitle ?? "通过一个高速、稳定、统一的接口，轻松调用所有主流大模型。不限时间、按量计费、明细透明，在线充值后即可使用所有模型。";
-  const showDownloads = Boolean(appDownload?.enabled ?? (iosDownloadUrl || androidDownloadUrl)) && Boolean(appDownload?.show_on_web_home ?? true);
+  const modules = siteModules(siteConfig);
+  const apiBase = configuredApiBase(siteConfig);
+  const heroTitle = branding?.hero_title ?? "一个 API Key，调用多家顶尖模型";
+  const heroSubtitle = branding?.hero_subtitle ?? "统一接入 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型。按量计费、余额共享、账单透明，Web 与 App 共用同一个账户体系。";
+  const showDownloads = modules.landing_app_download && shouldShowAppDownload(appDownload, "home");
 
   return (
     <section className="home-page landing-home">
@@ -847,14 +953,14 @@ function HomePage({
         <div className="landing-halo" aria-hidden="true" />
 
         <div className="landing-hero">
-          <span className="landing-eyebrow">Enterprise AI Gateway</span>
+          <span className="landing-eyebrow">{branding?.hero_badge ?? "AI API Gateway"}</span>
           <h1>{heroTitle}</h1>
           <p>
             {heroSubtitle}
           </p>
           <div className="landing-actions">
             <Button className="landing-doc-button" size="large" onClick={() => setActive("docs")}>
-              文档中心
+              {branding?.secondary_cta ?? "查看文档"}
             </Button>
             <Button
               className="landing-primary-button"
@@ -862,9 +968,32 @@ function HomePage({
               type="primary"
               onClick={() => setActive(user ? "console" : "auth")}
             >
-              立即体验
+              {branding?.primary_cta ?? "立即接入"}
               <ChevronRight size={18} />
             </Button>
+          </div>
+          <div className="landing-command-panel" aria-label="OneToken 接入预览">
+            <div className="landing-command-copy">
+              <span>OpenAI Compatible</span>
+              <strong>{apiBase}</strong>
+              <p>替换 Base URL，使用同一组 API Key 即可在 Web、App 与服务端调用所有可用模型。</p>
+            </div>
+            <div className="landing-command-code">
+              <div className="code-window-bar">
+                <span />
+                <span />
+                <span />
+              </div>
+              <pre>{`const client = new OpenAI({
+  baseURL: "${apiBase}",
+  apiKey: process.env.AI_TOKEN_API_KEY
+});
+
+await client.chat.completions.create({
+  model: "${models[0]?.model_code ?? "gpt-4o"}",
+  messages: [{ role: "user", content: "你好" }]
+});`}</pre>
+            </div>
           </div>
         </div>
 
@@ -872,9 +1001,9 @@ function HomePage({
           <article className="capability-card coverage-card">
             <div className="capability-heading">
               <span className="capability-icon"><DatabaseZap size={18} /></span>
-              <h3>主流模型全覆盖</h3>
+              <h3>主流模型统一接入</h3>
             </div>
-            <p>统一维护 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型目录。客户侧只需要接入一套协议。</p>
+            <p>维护多家 Provider 和模型路由，客户端只需要接入一套 OpenAI 兼容协议。</p>
             <div className="model-coverage-line">
               <span>OpenAI</span>
               <span>Claude</span>
@@ -886,32 +1015,39 @@ function HomePage({
 
           <article className="capability-card code-card">
             <div className="capability-heading">
-              <span className="capability-icon"><Code2 size={18} /></span>
-              <h3>统一接口，模型轻松切换</h3>
+              <span className="capability-icon"><KeyRound size={18} /></span>
+              <h3>API Key 与钱包共享</h3>
             </div>
-            <div className="code-window">
-              <div className="code-window-bar">
-                <span />
-                <span />
-                <span />
-              </div>
-              <pre>{`from openai import OpenAI
-client = OpenAI(
-  base_url="https://onetoken.one",
-  api_key="sk-***"
-)
+            <p>同一个账户余额可用于 Web、App 和 API 调用，充值、扣费、赠送额度统一归集。</p>
+            <div className="shared-wallet-line">
+              <span>Web</span>
+              <i />
+              <strong>Wallet</strong>
+              <i />
+              <span>App</span>
+            </div>
+          </article>
 
-response = client.chat.completions.create(
-  model="${models[0]?.model_code ?? "gpt-4o"}",
-  # Gemini 3 Pro / DeepSeek V3 / Claude
-)`}</pre>
+          <article className="capability-card billing-card">
+            <div className="capability-heading">
+              <span className="capability-icon"><LineChart size={18} /></span>
+              <h3>按量计费，明细透明</h3>
+            </div>
+            <p>每次调用记录输入、输出、模型、耗时和费用，方便对账与成本控制。</p>
+            <div className="billing-mini-table" aria-hidden="true">
+              <span>模型</span>
+              <span>Tokens</span>
+              <span>扣费</span>
+              <strong>{models[0]?.model_code ?? "gpt-4o"}</strong>
+              <strong>3,482</strong>
+              <strong>¥0.61</strong>
             </div>
           </article>
 
           <article className="capability-card route-card">
             <div className="capability-heading">
               <span className="capability-icon"><Gauge size={18} /></span>
-              <h3>无限并发，永远在线</h3>
+              <h3>路由、限流与失败重试</h3>
             </div>
             <p>请求进入网关后自动完成路由、限流、失败重试和账单归集，调用链路保持稳定可观测。</p>
             <div className="route-line">
@@ -924,11 +1060,28 @@ response = client.chat.completions.create(
           </article>
         </section>
 
-        <section className="app-configs" aria-labelledby="integration-title">
+        {modules.landing_integrations ? <section className="app-configs" aria-labelledby="integration-title">
           <div className="app-config-copy">
             <span>Integrations</span>
             <h2 id="integration-title">常见应用配置</h2>
             <p>Cursor、Claude Code、Qwen Code、OpenAI Codex 等客户端可复用同一组 Base URL 和 API Key。</p>
+          </div>
+          <div className="integration-flow" aria-label="三步接入">
+            <div>
+              <em>01</em>
+              <strong>复制 Base URL</strong>
+              <span>{apiBase}</span>
+            </div>
+            <div>
+              <em>02</em>
+              <strong>创建 API Key</strong>
+              <span>完整密钥只展示一次</span>
+            </div>
+            <div>
+              <em>03</em>
+              <strong>指定模型 ID</strong>
+              <span>{models[0]?.model_code ?? "gpt-4o"}</span>
+            </div>
           </div>
           <div className="integration-tags" aria-label="常见集成工具">
             <span>Cursor</span>
@@ -944,7 +1097,7 @@ response = client.chat.completions.create(
               管理 API Key
             </button>
           </div>
-        </section>
+        </section> : null}
 
         {showDownloads ? <section className="mobile-downloads" aria-labelledby="mobile-download-title">
           <div className="mobile-download-copy">
@@ -953,7 +1106,7 @@ response = client.chat.completions.create(
             <p>{appDownload?.subtitle ?? "App 端优先承载 AI 对话、模型切换、钱包充值和账单查看，Web、App 与 API 共用同一个客户账号和余额。"}</p>
           </div>
           <div className="mobile-download-grid">
-            <article className="mobile-download-card">
+            {iosDownloadUrl ? <article className="mobile-download-card">
               <div className="mobile-download-icon">
                 <Phone size={22} />
               </div>
@@ -962,17 +1115,11 @@ response = client.chat.completions.create(
                 <p>{appDownload?.ios.release_notes ?? "支持 iPhone 真机、TestFlight 内测和 Apple IAP 充值链路。"}</p>
               </div>
               {(appDownload?.ios.version || iosRelease?.version) && <span className="mobile-release-meta">{appDownload?.ios.version ?? iosRelease?.version} · {iosRelease?.distribution_channel ?? "ios"}</span>}
-              {appDownload?.ios.enabled !== false && iosDownloadUrl ? (
-                <a className="mobile-download-button" href={iosDownloadUrl} target="_blank" rel="noreferrer">
-                  下载 iOS
-                </a>
-              ) : (
-                <button className="mobile-download-button" disabled type="button">
-                  iOS 待配置
-                </button>
-              )}
-            </article>
-            <article className="mobile-download-card">
+              <a className="mobile-download-button" href={iosDownloadUrl} target="_blank" rel="noreferrer">
+                下载 iOS
+              </a>
+            </article> : null}
+            {androidDownloadUrl ? <article className="mobile-download-card">
               <div className="mobile-download-icon">
                 <Smartphone size={22} />
               </div>
@@ -981,16 +1128,22 @@ response = client.chat.completions.create(
                 <p>{appDownload?.android.release_notes ?? "支持官网 APK、应用市场包和安卓统一收银台支付链路。"}</p>
               </div>
               {(appDownload?.android.version || androidRelease?.version) && <span className="mobile-release-meta">{appDownload?.android.version ?? androidRelease?.version} · {androidRelease?.distribution_channel ?? "android"}</span>}
-              {appDownload?.android.enabled !== false && androidDownloadUrl ? (
-                <a className="mobile-download-button" href={androidDownloadUrl} target="_blank" rel="noreferrer">
-                  下载 Android
-                </a>
-              ) : (
-                <button className="mobile-download-button" disabled type="button">
-                  Android 待配置
-                </button>
-              )}
-            </article>
+              <a className="mobile-download-button" href={androidDownloadUrl} target="_blank" rel="noreferrer">
+                下载 Android
+              </a>
+            </article> : null}
+            {appQrUrl ? <article className="mobile-download-card">
+              <div className="mobile-download-icon">
+                <QrCode size={22} />
+              </div>
+              <div>
+                <h3>扫码下载</h3>
+                <p>使用手机扫码打开后台配置的下载页。</p>
+              </div>
+              <a className="mobile-download-button" href={appQrUrl} target="_blank" rel="noreferrer">
+                打开二维码
+              </a>
+            </article> : null}
           </div>
         </section> : null}
 
@@ -1053,21 +1206,24 @@ function NetworkPlane() {
 function SideNav({
   active,
   collapsed,
+  siteConfig,
   setActive,
   toggleCollapsed
 }: {
   active: ConsoleView;
   collapsed: boolean;
+  siteConfig: SiteConfigPayload | null;
   setActive: (view: ConsoleView) => void;
   toggleCollapsed: () => void;
 }) {
+  const modules = siteModules(siteConfig);
   const items: Array<{ key: ConsoleView; icon: React.ReactNode; label: string }> = [
     { key: "dashboard", icon: <LayoutDashboard size={17} />, label: "数据看板" },
-    { key: "tokens", icon: <KeyRound size={17} />, label: "令牌管理" },
+    { key: "tokens", icon: <KeyRound size={17} />, label: "API Key 管理" },
     { key: "logs", icon: <History size={17} />, label: "使用日志" },
-    { key: "models", icon: <Boxes size={17} />, label: "模型广场" },
-    { key: "wallet", icon: <WalletCards size={17} />, label: "钱包管理" },
-    { key: "referral", icon: <CircleDollarSign size={17} />, label: "代理佣金" },
+    { key: "models", icon: <Boxes size={17} />, label: "模型目录" },
+    { key: "wallet", icon: <WalletCards size={17} />, label: "钱包" },
+    ...(modules.referral ? [{ key: "referral" as ConsoleView, icon: <CircleDollarSign size={17} />, label: "邀请返佣" }] : []),
     { key: "settings", icon: <Settings size={17} />, label: "个人设置" }
   ];
   return (
@@ -1126,14 +1282,18 @@ function Dashboard({
   const maxTrendRequests = Math.max(...trend.map((item) => item.requests), 1);
   const siteAnnouncements = siteConfig?.site_config.announcements?.filter((item) => item.visible !== false) ?? [];
   const siteFaqs = siteConfig?.site_config.faq?.filter((item) => item.visible !== false) ?? [];
-  const showAppDownload = Boolean(siteConfig?.app_download?.enabled && siteConfig.app_download.show_on_console);
+  const modules = siteModules(siteConfig);
+  const apiBase = configuredApiBase(siteConfig);
+  const showAppDownload = modules.app_download && shouldShowAppDownload(siteConfig?.app_download, "console");
+  const successCount = usageLogs.filter((item) => item.status === "success").length;
+  const successRate = usageLogs.length ? `${Math.round((successCount / usageLogs.length) * 1000) / 10}%` : "100%";
   return (
     <div className="dashboard-page">
       <div className="page-heading dashboard-heading">
         <div>
           <span className="page-kicker">Customer Console</span>
           <h1>早上好，{String(user.email).split("@")[0]}</h1>
-          <p>集中查看钱包余额、调用趋势、模型消耗和 API 接入状态。</p>
+          <p>查看余额、API Key、调用趋势、模型消耗和服务状态。</p>
         </div>
         <div className="page-actions">
           <Button aria-label="搜索" shape="circle" icon={<Search size={17} />} />
@@ -1141,11 +1301,26 @@ function Dashboard({
         </div>
       </div>
 
+      <div className="dashboard-quick-actions" aria-label="快捷操作">
+        <Button icon={<KeyRound size={16} />} type="primary" onClick={() => setView("tokens")}>
+          新建 API Key
+        </Button>
+        <Button icon={<Boxes size={16} />} onClick={() => setView("models")}>
+          查看模型目录
+        </Button>
+        <Button icon={<WalletCards size={16} />} onClick={() => setView("wallet")}>
+          充值
+        </Button>
+        <Button icon={<History size={16} />} onClick={() => setView("logs")}>
+          查看调用日志
+        </Button>
+      </div>
+
       <div className="stats-grid">
         <StatCard
-          title="账户数据"
+          title="账户余额"
           items={[
-            { icon: <CircleDollarSign size={18} />, label: "当前余额", value: money(wallet?.available_balance ?? 0) },
+            { icon: <CircleDollarSign size={18} />, label: siteConfig?.site_config.copy?.wallet_balance_label ?? "可用余额", value: money(wallet?.available_balance ?? 0) },
             { icon: <BarChart3 size={18} />, label: "历史消耗", value: money(usageSummary?.total_cost ?? 0) }
           ]}
           action={<Button size="small" onClick={() => setView("wallet")}>充值</Button>}
@@ -1158,17 +1333,17 @@ function Dashboard({
           ]}
         />
         <StatCard
-          title="资源消耗"
+          title="Token 消耗"
           items={[
-            { icon: <CircleDollarSign size={18} />, label: "统计额度", value: money(usageSummary?.total_cost ?? 0) },
-            { icon: <Code2 size={18} />, label: "统计 Tokens", value: numberText(usageSummary?.total_tokens ?? 0) }
+            { icon: <CircleDollarSign size={18} />, label: "本期扣费", value: money(usageSummary?.total_cost ?? 0) },
+            { icon: <Code2 size={18} />, label: "累计 Tokens", value: numberText(usageSummary?.total_tokens ?? 0) }
           ]}
         />
         <StatCard
           title="性能指标"
           items={[
             { icon: <Gauge size={18} />, label: "平均耗时", value: `${usageSummary?.avg_latency_ms ?? 0} ms` },
-            { icon: <Server size={18} />, label: "近 1 小时 TPM", value: numberText(usageSummary?.tpm ?? 0) }
+            { icon: <Server size={18} />, label: "成功率", value: successRate }
           ]}
         />
       </div>
@@ -1204,7 +1379,7 @@ function Dashboard({
 
         <section className="panel api-info">
           <PanelTitle icon={<Server size={17} />} title="API 信息" />
-          <ApiEndpoint label="主线路" note="核心线路" url={tokenApiBase} copyText={copyText} />
+          <ApiEndpoint label={siteConfig?.site_config.copy?.api_base_url_label ?? "API Base URL"} note="OpenAI 兼容接口" url={apiBase} copyText={copyText} />
           <ApiEndpoint label="日本优化线路" note="适合长任务" url="https://api.onetoken.one" copyText={copyText} />
           <div className="mini-summary">
             <div>
@@ -1213,7 +1388,7 @@ function Dashboard({
             </div>
             <div>
               <strong>{activeKeys}</strong>
-              <span>活跃令牌</span>
+              <span>活跃 API Key</span>
             </div>
           </div>
           {showAppDownload ? <AppDownloadMini appDownload={siteConfig!.app_download} /> : null}
@@ -1221,7 +1396,7 @@ function Dashboard({
       </div>
 
       <div className="bottom-grid">
-        <section className="panel">
+        {modules.dashboard_announcements ? <section className="panel">
           <PanelTitle icon={<Bell size={17} />} title="系统公告" extra={<Tag>显示最新20条</Tag>} />
           <div className="timeline">
             {(siteAnnouncements.length ? siteAnnouncements : announcements).map((item: any) => (
@@ -1232,8 +1407,8 @@ function Dashboard({
               </div>
             ))}
           </div>
-        </section>
-        <section className="panel">
+        </section> : null}
+        {modules.dashboard_faq ? <section className="panel">
           <PanelTitle icon={<BookOpen size={17} />} title="常见问答" />
           <div className="faq-list">
             {(siteFaqs.length ? siteFaqs : faqs).map((item: any) => (
@@ -1243,11 +1418,11 @@ function Dashboard({
               </button>
             ))}
           </div>
-        </section>
+        </section> : null}
         <section className="panel">
           <PanelTitle icon={<Gauge size={17} />} title="服务可用性" extra={<RefreshCw size={16} />} />
-          <ServiceStatus name="token.local" />
-          <ServiceStatus name="api.local" />
+          <ServiceStatus name="OneToken Gateway" />
+          <ServiceStatus name="Provider Routing" />
         </section>
       </div>
     </div>
@@ -1299,82 +1474,132 @@ function TokenManager({
   revokeApiKey: (id: string) => void;
   submitting: boolean;
 }) {
+  const [keyword, setKeyword] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [detail, setDetail] = useState<ApiKeyRecord | null>(null);
+  const filtered = apiKeys.filter((item) => {
+    const text = `${item.name} ${item.masked_key} ${item.status}`.toLowerCase();
+    return !keyword || text.includes(keyword.toLowerCase());
+  });
+  const selectedKeys = filtered.filter((item) => selectedIds.includes(item.id));
+  const toggleId = (id: string) =>
+    setSelectedIds((items) => (items.includes(id) ? items.filter((item) => item !== id) : [...items, id]));
+  const toggleAll = () =>
+    setSelectedIds((items) => (items.length === filtered.length ? [] : filtered.map((item) => item.id)));
   return (
     <section className="panel page-panel">
       <div className="table-title">
-        <PanelTitle icon={<KeyRound size={17} />} title="令牌管理" />
-        <Button size="small">紧凑列表</Button>
+        <PanelTitle icon={<KeyRound size={17} />} title="API Key 管理" />
+        <span className="table-subtitle">创建和管理用于模型调用的 API Key。完整密钥只会在创建成功后展示一次。</span>
       </div>
       <div className="toolbar">
         <Button icon={<Plus size={16} />} type="primary" onClick={openCreate}>
-          添加令牌
+          新建 API Key
         </Button>
-        <Button icon={<Copy size={16} />} onClick={() => copyText(apiKeys.map((item) => item.masked_key).join("\n"))}>
-          复制所选令牌
+        <Button
+          disabled={!selectedKeys.length}
+          icon={<Copy size={16} />}
+          onClick={() => copyText(selectedKeys.map((item) => item.id).join("\n"))}
+        >
+          复制选中 Key ID
         </Button>
-        <Button danger icon={<Trash2 size={16} />}>
-          删除所选令牌
+        <Button
+          danger
+          disabled={!selectedKeys.some((item) => item.status === "active")}
+          icon={<Trash2 size={16} />}
+          loading={submitting}
+          onClick={() => selectedKeys.filter((item) => item.status === "active").forEach((item) => revokeApiKey(item.id))}
+        >
+          停用选中 API Key
         </Button>
         <span className="toolbar-spacer" />
-        <Input className="toolbar-input" prefix={<Search size={16} />} placeholder="搜索关键字" />
-        <Input className="toolbar-input" prefix={<Search size={16} />} placeholder="密钥" />
+        <Input
+          className="toolbar-input"
+          prefix={<Search size={16} />}
+          placeholder="搜索名称 / Key"
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
+        />
         <Button>查询</Button>
-        <Button>重置</Button>
+        <Button onClick={() => setKeyword("")}>重置</Button>
       </div>
       <div className="data-table">
         <div className="table-head token-grid">
-          <span />
+          <input checked={Boolean(filtered.length && selectedIds.length === filtered.length)} onChange={toggleAll} type="checkbox" />
           <span>名称</span>
           <span>状态</span>
-          <span>剩余额度/总额度</span>
-          <span>分组</span>
-          <span>密钥</span>
-          <span>可用模型</span>
-          <span>IP限制</span>
+          <span>API Key</span>
+          <span>模型范围</span>
+          <span>限制</span>
           <span>创建时间</span>
           <span>最后使用时间</span>
           <span>过期时间</span>
-          <span />
+          <span>操作</span>
         </div>
-        {apiKeys.length ? (
-          apiKeys.map((item) => (
+        {filtered.length ? (
+          filtered.map((item) => (
             <div className="table-row token-grid" key={item.id}>
-              <input type="checkbox" />
+              <input checked={selectedIds.includes(item.id)} onChange={() => toggleId(item.id)} type="checkbox" />
               <strong>{item.name}</strong>
               <Tag color={item.status === "active" ? "green" : "default"}>{item.status === "active" ? "启用" : "已停用"}</Tag>
-              <span>- / -</span>
-              <span>default</span>
               <code>{item.masked_key}</code>
-              <span>全部已授权模型</span>
-              <span>{item.ip_whitelist.length || "-"}</span>
+              <span>{item.model_whitelist.length ? `${item.model_whitelist.length} 个模型` : "全部可调用模型"}</span>
+              <span>{limitText(item)}</span>
               <span>{dateText(item.created_at)}</span>
               <span>{dateText(item.last_used_at)}</span>
               <span>{dateText(item.expires_at)}</span>
-              <Button
-                danger
-                disabled={item.status !== "active"}
-                loading={submitting}
-                size="small"
-                onClick={() => revokeApiKey(item.id)}
-              >
-                停用
-              </Button>
+              <div className="table-actions">
+                <Button size="small" onClick={() => setDetail(item)}>详情</Button>
+                <Button
+                  danger
+                  disabled={item.status !== "active"}
+                  loading={submitting}
+                  size="small"
+                  onClick={() => revokeApiKey(item.id)}
+                >
+                  停用
+                </Button>
+              </div>
             </div>
           ))
         ) : (
           <div className="empty-table">
             <KeyRound size={48} />
-            <span>搜索无结果</span>
+            <strong>还没有 API Key</strong>
+            <span>创建一个 API Key 后，即可使用 OpenAI 兼容接口调用模型。</span>
+            <Button icon={<Plus size={16} />} type="primary" onClick={openCreate}>新建 API Key</Button>
           </div>
         )}
       </div>
+      <Drawer title="API Key 详情" open={Boolean(detail)} onClose={() => setDetail(null)} width={520}>
+        {detail ? (
+          <div className="detail-stack">
+            <DetailItem label="名称" value={detail.name} />
+            <DetailItem label="状态" value={detail.status === "active" ? "启用" : "已停用"} />
+            <DetailItem label="密钥标识" value={detail.masked_key} />
+            <DetailItem label="Key ID" value={detail.id} copyText={copyText} />
+            <DetailItem label="模型白名单" value={detail.model_whitelist.length ? detail.model_whitelist.join(", ") : "全部可调用模型"} />
+            <DetailItem label="IP 白名单" value={detail.ip_whitelist.length ? detail.ip_whitelist.join(", ") : "未限制"} />
+            <DetailItem label="限流" value={limitText(detail)} />
+            <DetailItem label="创建时间" value={dateText(detail.created_at)} />
+            <DetailItem label="最后使用" value={dateText(detail.last_used_at)} />
+            <DetailItem label="过期时间" value={dateText(detail.expires_at)} />
+            <Alert
+              message="停用 API Key"
+              description="停用后，该 Key 将无法继续调用模型。历史账单和调用记录仍会保留。"
+              type="warning"
+              showIcon
+            />
+          </div>
+        ) : null}
+      </Drawer>
     </section>
   );
 }
 
 function AppDownloadMini({ appDownload }: { appDownload: SiteConfigPayload["app_download"] }) {
-  const iosUrl = appDownload.ios.app_store_url || appDownload.ios.testflight_url || appDownload.ios.download_url;
-  const androidUrl = appDownload.android.apk_url || appDownload.android.official_url || appDownload.android.markets?.find((item) => item.enabled !== false)?.url;
+  const { iosUrl, androidUrl } = appDownloadTargets(appDownload);
+  if (!iosUrl && !androidUrl) return null;
   return (
     <div className="app-download-mini">
       <div>
@@ -1399,27 +1624,68 @@ function AppDownloadMini({ appDownload }: { appDownload: SiteConfigPayload["app_
   );
 }
 
-function ModelMarket({ copyText, models }: { copyText: (text: string) => void; models: ModelInfo[] }) {
-  const [provider, setProvider] = useState("全部供应商");
+function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string) => void; models: ModelInfo[]; siteConfig: SiteConfigPayload | null }) {
+  const [company, setCompany] = useState("全部公司");
+  const [billing, setBilling] = useState("全部类型");
+  const [capability, setCapability] = useState("全部能力");
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
-  const providers = useMemo(() => {
+  const companies = useMemo(() => {
     const counts = new Map<string, number>();
-    models.forEach((model) => counts.set(model.family ?? "未知供应商", (counts.get(model.family ?? "未知供应商") ?? 0) + 1));
-    return [["全部供应商", models.length] as const, ...Array.from(counts.entries())];
+    models.forEach((model) => {
+      const name = modelCompany(model);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    });
+    return [["全部公司", models.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
+  }, [models]);
+  const capabilities = useMemo(() => {
+    const stream = models.filter((model) => model.capabilities.stream).length;
+    const tools = models.filter((model) => model.capabilities.tools).length;
+    const json = models.filter((model) => model.capabilities.json_mode).length;
+    return [
+      ["全部能力", models.length] as const,
+      ["流式输出", stream] as const,
+      ["工具调用", tools] as const,
+      ["JSON 模式", json] as const
+    ];
   }, [models]);
   const filtered = models.filter((model) => {
-    const providerOk = provider === "全部供应商" || (model.family ?? "未知供应商") === provider;
-    const keywordOk = !keyword || model.model_code.toLowerCase().includes(keyword.toLowerCase()) || model.display_name.toLowerCase().includes(keyword.toLowerCase());
-    return providerOk && keywordOk;
+    const companyName = modelCompany(model);
+    const companyOk = company === "全部公司" || companyName === company;
+    const billingMode = String(model.price?.mode ?? "usage");
+    const billingOk =
+      billing === "全部类型" ||
+      (billing === "按量计费" && ["usage", "per_token", "token"].includes(billingMode)) ||
+      (billing === "按次计费" && billingMode === "per_request");
+    const capabilityOk =
+      capability === "全部能力" ||
+      (capability === "流式输出" && model.capabilities.stream) ||
+      (capability === "工具调用" && model.capabilities.tools) ||
+      (capability === "JSON 模式" && model.capabilities.json_mode);
+    const keywordOk =
+      !keyword ||
+      model.model_code.toLowerCase().includes(keyword.toLowerCase()) ||
+      model.display_name.toLowerCase().includes(keyword.toLowerCase()) ||
+      companyName.toLowerCase().includes(keyword.toLowerCase());
+    return companyOk && billingOk && capabilityOk && keywordOk;
   });
+  const toggleFavorite = (modelCode: string) => {
+    setFavorites((items) => (items.includes(modelCode) ? items.filter((item) => item !== modelCode) : [...items, modelCode]));
+  };
+  const copyExample = (modelCode: string) => {
+    copyText(`curl ${configuredApiBase(siteConfig)}/chat/completions \\
+  -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"${modelCode}","messages":[{"role":"user","content":"你好"}]}'`);
+  };
   return (
     <div className="market-layout">
       <aside className="filter-panel">
         <div className="filter-title">
           <strong>筛选</strong>
-          <Button size="small" onClick={() => setProvider("全部供应商")}>重置</Button>
+          <Button size="small" onClick={() => { setCompany("全部公司"); setBilling("全部类型"); setCapability("全部能力"); setKeyword(""); }}>重置</Button>
         </div>
-        <FilterGroup title="供应商" items={providers} active={provider} setActive={setProvider} />
+        <FilterGroup title="模型公司" items={companies} active={company} setActive={setCompany} />
         <FilterGroup
           title="计费类型"
           items={[
@@ -1427,29 +1693,20 @@ function ModelMarket({ copyText, models }: { copyText: (text: string) => void; m
             ["按量计费", models.length],
             ["按次计费", 0]
           ]}
-          active="全部类型"
-          setActive={() => undefined}
+          active={billing}
+          setActive={setBilling}
         />
-        <FilterGroup
-          title="端点类型"
-          items={[
-            ["全部端点", models.length],
-            ["openai", models.length],
-            ["anthropic", models.filter((model) => /claude|anthropic/i.test(model.model_code)).length]
-          ]}
-          active="全部端点"
-          setActive={() => undefined}
-        />
+        <FilterGroup title="能力标签" items={capabilities} active={capability} setActive={setCapability} />
       </aside>
       <section className="market-main">
         <div className="market-hero">
           <div>
-            <span className="market-kicker">Model Marketplace</span>
-            <h2>{provider}</h2>
-            <p>查看当前租户可用的 AI 模型、价格、能力和接入端点。</p>
+            <span className="market-kicker">Model Catalog</span>
+            <h2>模型目录</h2>
+            <p>{siteConfig?.site_config.copy?.model_catalog_intro ?? "查看当前账户可调用模型、价格、上下文长度和能力标签。"}</p>
             <div className="market-hero-stats">
               <span>{filtered.length} 个模型</span>
-              <span>{providers.length - 1} 个供应商</span>
+              <span>{companies.length - 1} 个模型公司</span>
               <span>OpenAI Compatible</span>
             </div>
           </div>
@@ -1458,13 +1715,8 @@ function ModelMarket({ copyText, models }: { copyText: (text: string) => void; m
         <div className="market-toolbar">
           <Input prefix={<Search size={16} />} placeholder="模糊搜索模型名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Button icon={<Copy size={16} />} onClick={() => copyText(filtered.map((model) => model.model_code).join("\n"))}>
-            复制
+            复制模型 ID
           </Button>
-          <span>充值价格显示</span>
-          <Switch size="small" />
-          <span>倍率</span>
-          <Switch size="small" />
-          <Button>表格视图</Button>
         </div>
         <div className="model-card-grid">
           {filtered.length ? (
@@ -1476,6 +1728,7 @@ function ModelMarket({ copyText, models }: { copyText: (text: string) => void; m
                     <div>
                       <h3>{model.display_name}</h3>
                       <code>{model.model_code}</code>
+                      <span className="model-company-label">{modelCompany(model)}</span>
                     </div>
                     <div>
                       <Button aria-label="复制模型编码" size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)} />
@@ -1499,6 +1752,19 @@ function ModelMarket({ copyText, models }: { copyText: (text: string) => void; m
                     <Tag color="purple">按量计费</Tag>
                     {model.capabilities.stream ? <Tag>流式</Tag> : null}
                     {model.capabilities.tools ? <Tag>工具</Tag> : null}
+                    {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
+                    <Tag color="green">当前账户可调用</Tag>
+                  </div>
+                  <div className="model-card-actions">
+                    <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)}>
+                      复制模型 ID
+                    </Button>
+                    <Button size="small" icon={<Code2 size={14} />} onClick={() => copyExample(model.model_code)}>
+                      查看接入示例
+                    </Button>
+                    <Button size="small" type={favorites.includes(model.model_code) ? "primary" : "default"} onClick={() => toggleFavorite(model.model_code)}>
+                      {favorites.includes(model.model_code) ? "已常用" : "加入常用"}
+                    </Button>
                   </div>
                 </div>
               </article>
@@ -1535,13 +1801,14 @@ function WalletManager(props: {
   const selectedMethodMeta = props.availableMethods.find(
     (method) => method.payment_method === props.selectedMethod
   );
-  const methodUnavailable = selectedMethodMeta?.payment_method === "card_checkout";
+  const visibleMethods = props.availableMethods.filter((method) => method.payment_method !== "card_checkout");
+  const methodUnavailable = !selectedMethodMeta || selectedMethodMeta.payment_method === "card_checkout";
   const billingCopy = tenantBillingModeCopy(props.tenantBillingMode);
   return (
     <>
       <div className="page-heading compact-heading">
         <div>
-          <h1>钱包管理</h1>
+          <h1>钱包</h1>
           <p>{billingCopy.description}</p>
         </div>
         <Button>账单</Button>
@@ -1553,17 +1820,39 @@ function WalletManager(props: {
         type="info"
         showIcon
       />
+      <section className="wallet-hero-panel" aria-label="钱包余额概览">
+        <div>
+          <span>Available Balance</span>
+          <strong>{money(props.wallet?.available_balance ?? 0)}</strong>
+          <p>Web、App 和 API 共用同一账户钱包。充值后可用于模型对话和 API 调用。</p>
+        </div>
+        <div className="wallet-hero-breakdown">
+          <div>
+            <span>现金余额</span>
+            <strong>{money(props.wallet?.cash_balance ?? 0)}</strong>
+          </div>
+          <div>
+            <span>赠送额度</span>
+            <strong>{money(props.wallet?.bonus_balance ?? 0)}</strong>
+          </div>
+          <div>
+            <span>冻结金额</span>
+            <strong>{money(props.wallet?.frozen_balance ?? 0)}</strong>
+          </div>
+        </div>
+      </section>
       <div className="wallet-stats">
-        <MetricBlock value={money(props.wallet?.available_balance ?? 0)} label="当前余额" />
+        <MetricBlock value={money(props.wallet?.available_balance ?? 0)} label="可用余额" />
         <MetricBlock value={money(props.wallet?.cash_balance ?? 0)} label="现金余额" />
         <MetricBlock value={money(props.wallet?.bonus_balance ?? 0)} label="赠送额度" />
+        <MetricBlock value={money(props.wallet?.frozen_balance ?? 0)} label="冻结金额" />
       </div>
       <section className="panel wallet-panel">
         <PanelTitle icon={<CreditCard size={17} />} title="在线充值" />
         <Alert
           className="payment-note"
-          message="扫码支付以服务端确认为准"
-          description="支付宝和微信会通过服务端回调或主动查单确认结果。页面只轮询订单状态，不会由前端自报支付成功。"
+          message="到账以服务端确认为准"
+          description="支付成功和权益到账以服务端回调验签、主动查单和钱包流水为准，前端不会自报支付成功。"
           type="info"
           showIcon
         />
@@ -1596,17 +1885,15 @@ function WalletManager(props: {
           ))}
         </div>
         <div className="method-row">
-          {props.availableMethods.map((method) => (
+          {visibleMethods.map((method) => (
             <button
               className={props.selectedMethod === method.payment_method ? "active" : ""}
-              disabled={method.payment_method === "card_checkout"}
               key={method.payment_method}
               onClick={() => props.setSelectedMethod(method.payment_method)}
               type="button"
             >
               {paymentIcon(method.payment_method)}
               {paymentName(method)}
-              {method.payment_method === "card_checkout" ? <small>待接入</small> : null}
             </button>
           ))}
         </div>
@@ -1645,7 +1932,7 @@ function WalletManager(props: {
             showIcon
           />
         ) : null}
-        {props.order?.status === "FULFILLED" && props.appDownload?.enabled && props.appDownload.show_on_payment_success ? (
+        {props.order?.status === "FULFILLED" && props.appDownload && shouldShowAppDownload(props.appDownload, "payment_success") ? (
           <AppDownloadMini appDownload={props.appDownload} />
         ) : null}
         {props.order?.payment_action?.type === "qr_code" && props.order.payment_action.qr_content ? (
@@ -1690,57 +1977,90 @@ function WalletManager(props: {
 }
 
 function UsageLogs({ logs, summary }: { logs: UsageLogItem[]; summary: UsageSummary | null }) {
+  const [compact, setCompact] = useState(false);
+  const [keyword, setKeyword] = useState("");
+  const [range, setRange] = useState<"all" | "today" | "week">("all");
+  const [status, setStatus] = useState("all");
+  const [detail, setDetail] = useState<UsageLogItem | null>(null);
+  const filtered = logs.filter((log) => {
+    const createdAt = new Date(log.created_at).getTime();
+    const now = Date.now();
+    const rangeOk =
+      range === "all" ||
+      (range === "today" && new Date(log.created_at).toDateString() === new Date().toDateString()) ||
+      (range === "week" && now - createdAt <= 7 * 24 * 60 * 60 * 1000);
+    const statusOk = status === "all" || log.status === status;
+    const text = `${log.request_id} ${log.model_code} ${log.source}`.toLowerCase();
+    return rangeOk && statusOk && (!keyword || text.includes(keyword.toLowerCase()));
+  });
+  const successCount = logs.filter((item) => item.status === "success").length;
+  const successRate = logs.length ? `${Math.round((successCount / logs.length) * 1000) / 10}%` : "100%";
   return (
     <section className="panel page-panel">
       <div className="table-title">
         <PanelTitle icon={<ClipboardList size={17} />} title="使用日志" />
-        <Button size="small">紧凑列表</Button>
+        <Button size="small" onClick={() => setCompact((value) => !value)}>
+          {compact ? "舒适列表" : "紧凑列表"}
+        </Button>
       </div>
       <div className="log-summary">
-        <MetricBlock value={money(summary?.total_cost ?? 0)} label="消耗额度" />
-        <MetricBlock value={String(summary?.rpm ?? 0)} label="近 1 小时 RPM" />
-        <MetricBlock value={numberText(summary?.tpm ?? 0)} label="近 1 小时 TPM" />
+        <MetricBlock value={money(summary?.total_cost ?? 0)} label="本期扣费" />
+        <MetricBlock value={numberText(summary?.total_requests ?? 0)} label="请求数" />
+        <MetricBlock value={numberText(summary?.total_tokens ?? 0)} label="Token 数" />
+        <MetricBlock value={`${summary?.avg_latency_ms ?? 0} ms`} label="平均耗时" />
+        <MetricBlock value={successRate} label="成功率" />
       </div>
       <div className="toolbar">
-        <Input className="toolbar-input" placeholder="开始时间" value="2026-05-19 00:00:00" readOnly />
-        <Input className="toolbar-input" placeholder="结束时间" value="2026-05-19 23:59:59" readOnly />
-        <Input className="toolbar-input" placeholder="令牌名称" />
-        <Input className="toolbar-input" placeholder="模型名称" />
-        <Input className="toolbar-input" placeholder="Request ID" />
+        <Button size="small" type={range === "today" ? "primary" : "default"} onClick={() => setRange("today")}>今天</Button>
+        <Button size="small" type={range === "week" ? "primary" : "default"} onClick={() => setRange("week")}>近 7 天</Button>
+        <Button size="small" type={range === "all" ? "primary" : "default"} onClick={() => setRange("all")}>全部</Button>
+        <Select
+          className="toolbar-select"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { label: "全部状态", value: "all" },
+            { label: "成功", value: "success" },
+            { label: "失败", value: "failed" }
+          ]}
+        />
+        <Input
+          className="toolbar-input"
+          placeholder="API Key / 模型 / Request ID"
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
+        />
         <Button>查询</Button>
-        <Button>重置</Button>
-        <Button>列设置</Button>
+        <Button onClick={() => { setKeyword(""); setStatus("all"); setRange("all"); }}>重置</Button>
       </div>
-      <div className="data-table">
+      <div className={`data-table ${compact ? "compact-table" : ""}`}>
         <div className="table-head log-grid">
           <span>时间</span>
-          <span>令牌</span>
-          <span>分组</span>
-          <span>类型</span>
+          <span>API Key</span>
           <span>模型</span>
-          <span>用时/首字</span>
-          <span>输入</span>
-          <span>输出</span>
-          <span>花费</span>
-          <span>IP</span>
+          <span>类型</span>
+          <span>输入/输出</span>
+          <span>耗时</span>
+          <span>扣费</span>
+          <span>状态</span>
+          <span>Request ID</span>
           <span>详情</span>
         </div>
-        {logs.length ? (
-          logs.map((log) => (
+        {filtered.length ? (
+          filtered.map((log) => (
             <div className="table-row log-grid" key={log.id}>
               <span>{dateText(log.created_at)}</span>
               <code>{log.request_id.slice(0, 14)}...</code>
-              <span>default</span>
+              <span>{log.model_code}</span>
               <Tag color={log.source === "app_chat" ? "blue" : "purple"}>
                 {log.source === "app_chat" ? "聊天" : "API"}
               </Tag>
-              <span>{log.model_code}</span>
+              <span>{numberText(log.prompt_tokens)} / {numberText(log.completion_tokens)}</span>
               <span>{log.latency_ms ?? 0} ms</span>
-              <span>{numberText(log.prompt_tokens)}</span>
-              <span>{numberText(log.completion_tokens)}</span>
               <span>{money(log.cost_amount)}</span>
-              <span>127.0.0.1</span>
               <Tag color={log.status === "success" ? "green" : "red"}>{log.status === "success" ? "成功" : "失败"}</Tag>
+              <code>{log.request_id}</code>
+              <Button size="small" onClick={() => setDetail(log)}>详情</Button>
             </div>
           ))
         ) : (
@@ -1750,13 +2070,32 @@ function UsageLogs({ logs, summary }: { logs: UsageLogItem[]; summary: UsageSumm
           </div>
         )}
       </div>
+      <Drawer title="请求详情" open={Boolean(detail)} onClose={() => setDetail(null)} width={520}>
+        {detail ? (
+          <div className="detail-stack">
+            <DetailItem label="Request ID" value={detail.request_id} />
+            <DetailItem label="模型" value={detail.model_code} />
+            <DetailItem label="调用类型" value={detail.source === "app_chat" ? "聊天" : "API"} />
+            <DetailItem label="状态" value={detail.status === "success" ? "成功" : "失败"} />
+            <DetailItem label="输入 Tokens" value={numberText(detail.prompt_tokens)} />
+            <DetailItem label="输出 Tokens" value={numberText(detail.completion_tokens)} />
+            <DetailItem label="总 Tokens" value={numberText(detail.total_tokens)} />
+            <DetailItem label="扣费" value={money(detail.cost_amount)} />
+            <DetailItem label="耗时" value={`${detail.latency_ms ?? 0} ms`} />
+            <DetailItem label="错误码" value={detail.error_code ?? "-"} />
+            <DetailItem label="来源 IP" value="已脱敏" />
+            <DetailItem label="创建时间" value={dateText(detail.created_at)} />
+          </div>
+        ) : null}
+      </Drawer>
     </section>
   );
 }
 
-function DocsPage({ copyText, models }: { copyText: (text: string) => void; models: ModelInfo[] }) {
+function DocsPage({ copyText, models, siteConfig }: { copyText: (text: string) => void; models: ModelInfo[]; siteConfig: SiteConfigPayload | null }) {
   const [activeDoc, setActiveDoc] = useState("quickstart");
   const modelCode = models[0]?.model_code ?? "gpt-4o-mini";
+  const apiBase = configuredApiBase(siteConfig);
   const navItems = [
     ["quickstart", "快速开始"],
     ["auth", "认证方式"],
@@ -1767,7 +2106,7 @@ function DocsPage({ copyText, models }: { copyText: (text: string) => void; mode
   const examples = [
     {
       title: "cURL",
-      code: `curl ${tokenApiBase}/chat/completions \\
+      code: `curl ${apiBase}/chat/completions \\
   -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -1781,7 +2120,7 @@ function DocsPage({ copyText, models }: { copyText: (text: string) => void; mode
 
 const client = new OpenAI({
   apiKey: process.env.AI_TOKEN_API_KEY,
-  baseURL: "${tokenApiBase}"
+  baseURL: "${apiBase}"
 });
 
 const result = await client.chat.completions.create({
@@ -1795,7 +2134,7 @@ const result = await client.chat.completions.create({
 
 client = OpenAI(
     api_key="AI_TOKEN_API_KEY",
-    base_url="${tokenApiBase}"
+    base_url="${apiBase}"
 )
 
 resp = client.chat.completions.create(
@@ -1810,11 +2149,11 @@ resp = client.chat.completions.create(
         <div>
           <Tag color="blue">开发文档</Tag>
           <h1>Token API 接入文档</h1>
-          <p>兼容 OpenAI Chat Completions 格式。创建令牌后，把 SDK 的 Base URL 指向当前服务即可开始调用。</p>
+          <p>兼容 OpenAI Chat Completions 格式。创建 API Key 后，把 SDK 的 Base URL 指向当前服务即可开始调用。</p>
         </div>
         <div className="docs-hero-meta" aria-label="接入摘要">
           <span>OpenAI Compatible</span>
-          <strong>{tokenApiBase}</strong>
+          <strong>{apiBase}</strong>
         </div>
       </div>
       <div className="docs-layout">
@@ -1841,8 +2180,8 @@ resp = client.chat.completions.create(
                 </div>
                 <div className="docs-kv">
                   <span>Base URL</span>
-                  <strong>{tokenApiBase}</strong>
-                  <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(tokenApiBase)}>复制</Button>
+                  <strong>{apiBase}</strong>
+                  <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(apiBase)}>复制</Button>
                 </div>
                 <div className="docs-kv">
                   <span>认证头</span>
@@ -1870,7 +2209,7 @@ resp = client.chat.completions.create(
             <section className="panel docs-block">
               <PanelTitle icon={<KeyRound size={17} />} title="认证方式" />
               <div className="notice-list">
-                <p>在控制台创建 API 令牌，令牌明文只显示一次。</p>
+                <p>在控制台创建 API Key，完整密钥只显示一次。</p>
                 <p>服务端调用时使用 HTTP Header：Authorization: Bearer $AI_TOKEN_API_KEY。</p>
                 <p>一个 API Key 默认可调用当前租户全部已授权模型，不同模型按各自价格消耗钱包余额。</p>
               </div>
@@ -1895,7 +2234,7 @@ resp = client.chat.completions.create(
             <section className="panel docs-block">
               <PanelTitle icon={<Shield size={17} />} title="错误处理" />
               <div className="notice-list">
-                <p>401：令牌缺失、令牌错误或令牌已停用。</p>
+                <p>401：API Key 缺失、错误或已停用。</p>
                 <p>402：钱包余额不足，需要先充值或联系租户管理员调整额度。</p>
                 <p>429：触发 RPM/TPM 限制，应指数退避重试。</p>
                 <p>5xx：上游供应商或路由异常，可稍后重试或切换模型。</p>
@@ -1908,7 +2247,7 @@ resp = client.chat.completions.create(
               <div className="notice-list">
                 <p>价格和可用模型来自租户后台发布的模型授权与价格配置。</p>
                 <p>充值套餐来自租户后台的支付商品和平台可见性配置。</p>
-                <p>Web 端支持支付宝、微信、银行卡托管收银台和对公转账；当前开发环境只提供模拟支付。</p>
+                <p>Web 端可按后台启用的支付渠道展示支付宝、微信、银行卡托管收银台和对公转账；到账以服务端确认和钱包流水为准。</p>
               </div>
             </section>
           ) : null}
@@ -1920,23 +2259,39 @@ resp = client.chat.completions.create(
 
 function SettingsPage({
   changePassword,
+  siteConfig,
   submitting,
   updateProfile,
   user
 }: {
   changePassword: (values: { current_password: string; new_password: string }) => void;
+  siteConfig: SiteConfigPayload | null;
   submitting: boolean;
   updateProfile: (values: { email: string; phone?: string }) => void;
   user: SessionPayload["user"] | null;
 }) {
+  const modules = siteModules(siteConfig);
+  const support = siteConfig?.site_config.support;
+  const legal = siteConfig?.site_config.legal;
   return (
     <section className="panel page-panel settings-panel">
       <PanelTitle icon={<Settings size={17} />} title="个人设置" />
+      <div className="settings-overview">
+        <div>
+          <span className="page-kicker">Account</span>
+          <h2>账号资料、安全设置与协议</h2>
+          <p>用于登录、找回密码和接收重要通知。建议定期更新密码，不要与其他网站复用同一密码。</p>
+        </div>
+        <div className="settings-status-list">
+          <Tag color={user?.email ? "green" : "default"}>邮箱{user?.email ? "已绑定" : "未绑定"}</Tag>
+          <Tag color={user?.phone ? "green" : "orange"}>手机{user?.phone ? "已绑定" : "未绑定"}</Tag>
+        </div>
+      </div>
       <div className="settings-forms">
         <section>
           <h3>
             <Mail size={17} />
-            认证邮箱和手机号
+            账号资料
           </h3>
           <Form
             key={`${user?.email ?? ""}-${user?.phone ?? ""}`}
@@ -1966,8 +2321,15 @@ function SettingsPage({
         <section>
           <h3>
             <LockKeyhole size={17} />
-            修改密码
+            安全设置
           </h3>
+          <Alert
+            className="settings-security-note"
+            message="建议定期更新密码"
+            description="不要与其他网站复用同一密码，避免把登录密码发送给客服或他人。"
+            type="info"
+            showIcon
+          />
           <Form layout="vertical" onFinish={changePassword}>
             <Form.Item
               label="当前密码"
@@ -1989,6 +2351,37 @@ function SettingsPage({
           </Form>
         </section>
       </div>
+      <section className="panel wallet-panel">
+        <PanelTitle icon={<Shield size={17} />} title="协议与支持" />
+        <div className="settings-link-grid">
+          {legal?.terms_url ? <a href={legal.terms_url} target="_blank" rel="noreferrer">用户协议</a> : <span>用户协议由后台配置中心维护</span>}
+          {legal?.privacy_url ? <a href={legal.privacy_url} target="_blank" rel="noreferrer">隐私政策</a> : <span>隐私政策由后台配置中心维护</span>}
+          {legal?.ai_disclaimer_url ? <a href={legal.ai_disclaimer_url} target="_blank" rel="noreferrer">AI 内容声明</a> : <span>{siteConfig?.site_config.copy?.ai_disclaimer ?? "AI 生成内容仅供参考，请遵守当地法律法规。"}</span>}
+          {support?.email ? <span>客服邮箱：{support.email}</span> : null}
+          {support?.help_center_url ? <a href={support.help_center_url} target="_blank" rel="noreferrer">帮助中心</a> : null}
+        </div>
+      </section>
+      <section className="panel danger-zone">
+        <PanelTitle icon={<Shield size={17} />} title="危险操作" />
+        <div>
+          <p>账号注销后，API Key 将停用，未完成订单会继续处理，历史账单和必要记录将按合规要求保留。</p>
+          <Button
+            danger
+            disabled={!modules.account_deletion}
+            onClick={async () => {
+              if (!window.confirm("确认提交账号注销申请？")) return;
+              await apiFetch("/api/account/delete-request", {
+                method: "POST",
+                body: JSON.stringify({ reason: "web_user_request" })
+              });
+              window.alert("注销申请已提交");
+            }}
+          >
+            申请账号注销
+          </Button>
+          {modules.content_report ? <Button>内容举报</Button> : null}
+        </div>
+      </section>
     </section>
   );
 }
@@ -2006,9 +2399,22 @@ function ReferralPanel({
   submitting: boolean;
   summary: ReferralSummary | null;
 }) {
+  const inviteLink = summary?.invite_code
+    ? `${window.location.origin}${window.location.pathname}?invite_code=${encodeURIComponent(summary.invite_code)}`
+    : "";
   return (
     <section className="panel page-panel">
-      <PanelTitle icon={<CircleDollarSign size={17} />} title="代理佣金" />
+      <PanelTitle icon={<CircleDollarSign size={17} />} title="邀请返佣" />
+      <div className="referral-hero">
+        <div>
+          <span className="page-kicker">Referral</span>
+          <h2>邀请客户注册并完成充值后，可按后台配置比例获得返佣。</h2>
+          <p>佣金结算、冻结期和提现处理以后台审核结果为准。</p>
+        </div>
+        <Button disabled={!inviteLink} type="primary" icon={<Copy size={16} />} onClick={() => inviteLink && copyText(inviteLink)}>
+          复制邀请链接
+        </Button>
+      </div>
       <div className="wallet-stats">
         <MetricBlock value={summary?.invite_code ?? "-"} label="邀请码" />
         <MetricBlock value={String(summary?.invited_customers ?? 0)} label="已邀请客户" />
@@ -2019,9 +2425,12 @@ function ReferralPanel({
         <section>
           <h3>
             <Copy size={17} />
-            邀请码
+            邀请方式
           </h3>
           <p className="muted">客户注册时填写邀请码后，会形成邀请关系。佣金到账以后台结算和审核为准。</p>
+          <div className="invite-copy-box">
+            <code>{inviteLink || "暂无邀请链接"}</code>
+          </div>
           <Button disabled={!summary?.invite_code} onClick={() => summary?.invite_code && copyText(summary.invite_code)}>
             复制邀请码
           </Button>
@@ -2032,8 +2441,20 @@ function ReferralPanel({
             提现申请
           </h3>
           <Form layout="vertical" onFinish={requestWithdrawal}>
-            <Form.Item label="提现金额，单位分" name="amount" rules={[{ required: true, message: "请输入提现金额" }]}>
-              <Input type="number" min={1} placeholder="例如 2400" />
+            <Form.Item
+              label="提现金额，单位元"
+              name="amount"
+              rules={[
+                { required: true, message: "请输入提现金额" },
+                {
+                  validator: (_, value) =>
+                    !value || Number(value) >= 10
+                      ? Promise.resolve()
+                      : Promise.reject(new Error("最低提现金额 10 元"))
+                }
+              ]}
+            >
+              <Input type="number" min={10} placeholder="例如 100" />
             </Form.Item>
             <Form.Item label="提现方式" name="payout_method">
               <Input placeholder="支付宝 / 银行卡 / 对公转账" />
@@ -2050,13 +2471,23 @@ function ReferralPanel({
       <section className="panel wallet-panel">
         <PanelTitle icon={<History size={17} />} title="佣金明细" />
         {commissions.length ? (
-          <div className="log-list">
+          <div className="commission-table">
+            <div className="commission-head">
+              <span>时间</span>
+              <span>来源客户</span>
+              <span>订单金额</span>
+              <span>佣金金额</span>
+              <span>状态</span>
+              <span>结算时间</span>
+            </div>
             {commissions.map((item) => (
-              <div className="log-row" key={item.id}>
+              <div className="commission-row" key={item.id}>
                 <span>{item.created_at.replace("T", " ").slice(0, 19)}</span>
+                <span>{anonymizedSource(item.source_email)}</span>
+                <span>{money(item.commission_base_amount)}</span>
                 <strong>{money(item.commission_amount)}</strong>
-                <span>{item.source_email ?? item.source_user_id ?? "来源客户"}</span>
                 <Tag>{item.status}</Tag>
+                <span>{item.frozen_until ? dateText(item.frozen_until) : "-"}</span>
               </div>
             ))}
           </div>
@@ -2075,20 +2506,65 @@ function CreateKeyModal({
   submitting
 }: {
   onCancel: () => void;
-  onCreate: (values: { name: string }) => void;
+  onCreate: (values: {
+    name: string;
+    group?: string;
+    ip_whitelist?: string;
+    rpm_limit?: string;
+    tpm_limit?: string;
+    daily_budget?: string;
+    monthly_budget?: string;
+    expires_at?: string;
+    note?: string;
+  }) => void;
   open: boolean;
   submitting: boolean;
 }) {
   return (
-    <Modal title="添加令牌" open={open} onCancel={onCancel} footer={null}>
+    <Modal title="新建 API Key" open={open} onCancel={onCancel} footer={null}>
       <Form layout="vertical" onFinish={onCreate}>
-        <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入令牌名称" }]}>
+        <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入 API Key 名称" }]}>
           <Input placeholder="例如：生产环境" />
+        </Form.Item>
+        <Form.Item name="group" label="分组">
+          <Input placeholder="例如：default / production / mobile" />
+        </Form.Item>
+        <Form.Item name="model_scope" label="可用模型">
+          <Select
+            defaultValue="all"
+            options={[
+              { label: "全部可调用模型", value: "all" },
+              { label: "按后台模型授权控制", value: "tenant_authorized" }
+            ]}
+          />
+        </Form.Item>
+        <div className="form-two-columns">
+          <Form.Item name="rpm_limit" label="RPM 上限">
+            <Input type="number" min={1} placeholder="不填表示不限制" />
+          </Form.Item>
+          <Form.Item name="tpm_limit" label="TPM 上限">
+            <Input type="number" min={1} placeholder="不填表示不限制" />
+          </Form.Item>
+          <Form.Item name="daily_budget" label="每日额度，元">
+            <Input type="number" min={0} placeholder="例如 100" />
+          </Form.Item>
+          <Form.Item name="monthly_budget" label="每月额度，元">
+            <Input type="number" min={0} placeholder="例如 3000" />
+          </Form.Item>
+        </div>
+        <Form.Item name="ip_whitelist" label="IP 白名单">
+          <Input.TextArea rows={2} placeholder="多个 IP 可用换行或英文逗号分隔；不填表示不限制" />
+        </Form.Item>
+        <Form.Item name="expires_at" label="过期时间">
+          <Input placeholder="例如 2026-12-31T23:59:59+08:00；不填表示长期有效" />
+        </Form.Item>
+        <Form.Item name="note" label="备注">
+          <Input.TextArea rows={2} placeholder="用途、负责人或安全说明" />
         </Form.Item>
         <Alert
           className="key-scope-note"
-          message="默认可调用全部已授权模型"
-          description="对话页和 API 调用时直接传 model 切换模型，不同模型会按后台配置的价格消耗余额。"
+          message="请妥善保存 API Key"
+          description="完整密钥只会展示一次，关闭后无法再次查看。对话页和 API 调用时直接传 model 切换模型，不同模型会按后台配置的价格消耗余额。"
           type="info"
           showIcon
         />
@@ -2173,6 +2649,34 @@ function MetricBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
+function DetailItem({
+  copyText,
+  label,
+  value
+}: {
+  copyText?: (text: string) => void;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="detail-item">
+      <span>{label}</span>
+      <strong>{value || "-"}</strong>
+      {copyText && value ? <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(value)}>复制</Button> : null}
+    </div>
+  );
+}
+
+function limitText(item: ApiKeyRecord) {
+  const values = [
+    item.limits?.rpm ? `RPM ${item.limits.rpm}` : "",
+    item.limits?.tpm ? `TPM ${item.limits.tpm}` : "",
+    item.limits?.daily_budget ? `日 ${money(item.limits.daily_budget)}` : "",
+    item.limits?.monthly_budget ? `月 ${money(item.limits.monthly_budget)}` : ""
+  ].filter(Boolean);
+  return values.length ? values.join(" / ") : "未限制";
+}
+
 function paymentName(method: PaymentMethod) {
   return paymentMethodNames[method.payment_method] ?? method.display_name;
 }
@@ -2187,8 +2691,11 @@ function paymentIcon(method: string) {
 function paymentActionText(order: PaymentOrder) {
   if (order.payment_method === "enterprise_transfer") {
     const account = order.payment_action?.account;
-    const bankName = typeof account?.bank_name === "string" ? account.bank_name : "待配置收款银行";
-    const accountNo = typeof account?.account_no === "string" ? account.account_no : "待配置账号";
+    if (!account || typeof account.bank_name !== "string" || typeof account.account_no !== "string") {
+      return "对公转账收款信息未开放，请联系客户支持确认付款方式。";
+    }
+    const bankName = account.bank_name;
+    const accountNo = account.account_no;
     return `对公转账需要备注订单号，当前收款信息：${bankName} / ${accountNo}`;
   }
   if (order.payment_method === "card_checkout") {

@@ -1797,6 +1797,7 @@ export class PublicService {
       model_code: row.public_model_code,
       display_name: row.display_name,
       family: row.model_family,
+      model_company: this.resolveModelCompany(row.public_model_code, row.display_name, row.model_family),
       modality: row.modality ?? [],
       max_context_tokens: row.max_context_tokens === null ? null : Number(row.max_context_tokens),
       default_max_output_tokens:
@@ -1824,6 +1825,18 @@ export class PublicService {
         : null,
       metadata: row.model_metadata ?? {}
     };
+  }
+
+  private resolveModelCompany(modelCode?: string | null, displayName?: string | null, family?: string | null) {
+    const raw = `${family ?? ""} ${modelCode ?? ""} ${displayName ?? ""}`.toLowerCase();
+    if (raw.includes("deepseek")) return "DeepSeek";
+    if (raw.includes("openai") || raw.includes("gpt-")) return "OpenAI";
+    if (raw.includes("anthropic") || raw.includes("claude")) return "Anthropic";
+    if (raw.includes("gemini") || raw.includes("google")) return "Google";
+    if (raw.includes("qwen") || raw.includes("alibaba") || raw.includes("阿里")) return "阿里巴巴";
+    if (raw.includes("midjourney")) return "Midjourney";
+    if (raw.includes("grok") || raw.includes("xai")) return "xAI";
+    return family ?? "其他";
   }
 
   private toWalletResponse(wallet: any) {

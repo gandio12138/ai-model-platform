@@ -723,6 +723,7 @@ class DioOneTokenApi implements OneTokenApi {
       referralEnabled: false,
       developerApiEnabled: true,
       supportContact: 'support@onetoken.one',
+      support: const {'email': 'support@onetoken.one'},
       announcement: '当前配置来自 /api/public/bootstrap，与 Web 客户端使用同一租户上下文。',
       contentSafetyNotice: '请勿输入敏感个人信息，AI 生成内容仅供参考。',
       privacyNoticeVariant: 'default',
@@ -735,6 +736,20 @@ class DioOneTokenApi implements OneTokenApi {
       appDownload: data['app_download'] is Map
           ? Map<String, dynamic>.from(data['app_download'] as Map)
           : const <String, dynamic>{},
+      branding: const {
+        'site_name': 'OneToken',
+        'hero_title': '一个 API Key，调用多家顶尖模型',
+      },
+      legal: const <String, dynamic>{},
+      copy: const {
+        'ai_disclaimer': 'AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。',
+        'estimated_cost_title': '发送前预估费用',
+      },
+      featureFlags: const {
+        'content_report_enabled': true,
+        'account_deletion_enabled': true,
+        'developer_api_enabled': true,
+      },
     );
   }
 }

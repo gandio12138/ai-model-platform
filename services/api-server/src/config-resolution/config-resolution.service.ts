@@ -94,6 +94,7 @@ export class ConfigResolutionService {
     const effectiveAppDownload = overrides.app_download ?? appDownloadConfig;
     const effectiveWebPaymentEntry = overrides.web_payment_entry ?? webPaymentEntry;
     const effectiveFeatureFlags = overrides.feature_flags ?? featureFlags;
+    const flags = this.normalizedFeatureFlags(effectiveFeatureFlags);
     const resolvedAppDownload = this.resolveAppDownloadConfig(asRecord(effectiveAppDownload), releases);
     const resolvedSiteConfig = this.resolveSiteConfigValue(asRecord(effectiveSiteConfig));
     return {
@@ -109,7 +110,7 @@ export class ConfigResolutionService {
       feature_flags: {
         checkout_web_v1: true,
         app_download: resolvedAppDownload.enabled,
-        ...(asRecord(effectiveFeatureFlags).flags ?? asRecord(effectiveFeatureFlags))
+        ...flags
       },
       resolved_at: new Date().toISOString()
     };
@@ -144,6 +145,7 @@ export class ConfigResolutionService {
         ? String(policy?.web_payment_url ?? paymentEntry.url ?? process.env.WEB_PAYMENT_URL ?? "")
         : "";
     const site = this.resolveSiteConfigValue(asRecord(siteConfig));
+    const flags = this.normalizedFeatureFlags(featureFlags);
     const appDownload = this.resolveAppDownloadConfig(asRecord(appDownloadConfig), releases);
     const mobilePlatform = context.platform === "ios" || context.platform === "android" ? context.platform : null;
 
@@ -171,11 +173,14 @@ export class ConfigResolutionService {
       android_unified_checkout_enabled:
         context.platform === "android" &&
         paymentMethods.some((method) => method.channel_type === "android_unified_checkout"),
-      developer_api_enabled: !reviewMode && Boolean(asRecord(featureFlags).developer_api_enabled ?? true),
-      referral_enabled: !reviewMode && Boolean(asRecord(featureFlags).referral_enabled ?? true),
-      model_list_enabled: Boolean(asRecord(featureFlags).model_list_enabled ?? true),
-      chat_enabled: !reviewMode && Boolean(asRecord(featureFlags).chat_enabled ?? true),
+      developer_api_enabled: !reviewMode && Boolean(flags.developer_api_enabled ?? site.modules.developer_api ?? true),
+      referral_enabled: !reviewMode && Boolean(flags.referral_enabled ?? site.modules.referral ?? false),
+      model_list_enabled: Boolean(flags.model_list_enabled ?? true),
+      chat_enabled: !reviewMode && Boolean(flags.chat_enabled ?? true),
       support_contact: site.support,
+      branding: site.branding,
+      legal: site.legal,
+      copy: site.copy,
       announcement:
         policy?.metadata?.announcement ??
         site.announcements.find((item: any) => item.visible !== false)?.content ??
@@ -195,7 +200,13 @@ export class ConfigResolutionService {
         fake_provider_allowed: process.env.NODE_ENV !== "production",
         web_payment_entry: Boolean(showWebPaymentLink && webPaymentUrl),
         review_safe_copy: reviewMode,
-        ...(asRecord(featureFlags).flags ?? asRecord(featureFlags))
+        content_report_enabled: Boolean(flags.content_report_enabled ?? site.modules.content_report ?? true),
+        account_deletion_enabled: Boolean(flags.account_deletion_enabled ?? site.modules.account_deletion ?? true),
+        referral_enabled: !reviewMode && Boolean(flags.referral_enabled ?? site.modules.referral ?? false),
+        developer_api_enabled: !reviewMode && Boolean(flags.developer_api_enabled ?? site.modules.developer_api ?? true),
+        model_list_enabled: Boolean(flags.model_list_enabled ?? true),
+        chat_enabled: !reviewMode && Boolean(flags.chat_enabled ?? true),
+        ...flags
       }
     };
   }
@@ -453,16 +464,22 @@ export class ConfigResolutionService {
 
   private resolveSiteConfigValue(config: Record<string, any>) {
     const branding = asRecord(config.branding);
+    const modules = this.resolveModules(asRecord(config.modules));
+    const copy = this.resolveCopyConfig(asRecord(config.copy));
     return {
       branding: {
         site_name: String(branding.site_name ?? "OneToken"),
+        short_name: String(branding.short_name ?? "OneToken"),
         logo_url: stringOrNull(branding.logo_url),
         slogan: String(branding.slogan ?? "企业级大模型服务平台"),
-        hero_title: String(branding.hero_title ?? "一站式企业级大模型服务平台"),
+        hero_badge: String(branding.hero_badge ?? "AI API Gateway"),
+        hero_title: String(branding.hero_title ?? "一个 API Key，调用多家顶尖模型"),
         hero_subtitle: String(
           branding.hero_subtitle ??
-            "通过一个高速、稳定、统一的接口，轻松调用所有主流大模型。不限时间、按量计费、明细透明，在线充值后即可使用所有模型。"
+            "统一接入 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型。按量计费、余额共享、账单透明，Web 与 App 共用同一个账户体系。"
         ),
+        primary_cta: String(branding.primary_cta ?? "立即接入"),
+        secondary_cta: String(branding.secondary_cta ?? "查看文档"),
         footer_text: String(branding.footer_text ?? "© 2026 OneToken. 版权所有"),
         icp_text: stringOrNull(branding.icp_text)
       },
@@ -472,7 +489,7 @@ export class ConfigResolutionService {
           : [
               { key: "home", label: "首页", visible: true },
               { key: "console", label: "控制台", visible: true },
-              { key: "models", label: "模型广场", visible: true },
+              { key: "models", label: "模型目录", visible: true },
               { key: "docs", label: "文档", visible: true }
             ],
       announcements:
@@ -493,17 +510,59 @@ export class ConfigResolutionService {
               { question: "中转站的计费模式是怎样的？", answer: "按模型实际消耗和后台价格配置扣费。", sort_order: 1, visible: true },
               { question: "如何将现有 OpenAI 代码迁移？", answer: "替换 Base URL 和 API Key 即可复用原有 Chat Completions 调用。", sort_order: 2, visible: true }
             ],
+      modules,
       support: {
-        email: stringOrNull(config.support?.email) ?? process.env.SUPPORT_EMAIL ?? "support@onetoken.local",
+        email: stringOrNull(config.support?.email) ?? process.env.SUPPORT_EMAIL ?? "support@onetoken.one",
         work_time: stringOrNull(config.support?.work_time) ?? "工作日 09:00-18:00",
+        help_center_url: stringOrNull(config.support?.help_center_url),
         telegram: stringOrNull(config.support?.telegram),
         discord: stringOrNull(config.support?.discord)
       },
       legal: {
         terms_url: stringOrNull(config.legal?.terms_url),
         privacy_url: stringOrNull(config.legal?.privacy_url),
-        ai_disclaimer_url: stringOrNull(config.legal?.ai_disclaimer_url)
-      }
+        ai_disclaimer_url: stringOrNull(config.legal?.ai_disclaimer_url),
+        content_policy_url: stringOrNull(config.legal?.content_policy_url)
+      },
+      copy
+    };
+  }
+
+  private normalizedFeatureFlags(value: unknown) {
+    const record = asRecord(value);
+    return {
+      ...record,
+      ...asRecord(record.flags)
+    };
+  }
+
+  private resolveModules(config: Record<string, any>) {
+    return {
+      landing_model_coverage: Boolean(config.landing_model_coverage ?? true),
+      landing_integrations: Boolean(config.landing_integrations ?? true),
+      landing_app_download: Boolean(config.landing_app_download ?? true),
+      dashboard_announcements: Boolean(config.dashboard_announcements ?? true),
+      dashboard_faq: Boolean(config.dashboard_faq ?? true),
+      referral: Boolean(config.referral ?? false),
+      developer_api: Boolean(config.developer_api ?? true),
+      app_download: Boolean(config.app_download ?? true),
+      content_report: Boolean(config.content_report ?? true),
+      account_deletion: Boolean(config.account_deletion ?? true)
+    };
+  }
+
+  private resolveCopyConfig(config: Record<string, any>) {
+    return {
+      api_base_url_label: String(config.api_base_url_label ?? "API Base URL"),
+      public_api_base_url: stringOrNull(config.public_api_base_url ?? process.env.PUBLIC_TOKEN_API_BASE) ?? "https://api.onetoken.one/v1",
+      wallet_balance_label: String(config.wallet_balance_label ?? "可用余额"),
+      cash_balance_label: String(config.cash_balance_label ?? "现金余额"),
+      gift_balance_label: String(config.gift_balance_label ?? "赠送额度"),
+      frozen_balance_label: String(config.frozen_balance_label ?? "冻结金额"),
+      estimated_cost_title: String(config.estimated_cost_title ?? "发送前预估费用"),
+      payment_notice: String(config.payment_notice ?? "支付成功和权益到账以服务端确认、查单和钱包入账为准。"),
+      ai_disclaimer: String(config.ai_disclaimer ?? "AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。"),
+      model_catalog_intro: String(config.model_catalog_intro ?? "查看当前账户可调用模型、价格、上下文长度和能力标签。")
     };
   }
 

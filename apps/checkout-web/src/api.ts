@@ -66,6 +66,7 @@ export interface ModelInfo {
   model_code: string;
   display_name: string;
   family?: string | null;
+  model_company?: string | null;
   modality: string[];
   max_context_tokens?: number | null;
   default_max_output_tokens?: number | null;
@@ -172,18 +173,46 @@ export interface SiteConfigPayload {
   site_config: {
     branding: {
       site_name: string;
+      short_name?: string | null;
       logo_url?: string | null;
       slogan?: string | null;
+      hero_badge?: string | null;
       hero_title: string;
       hero_subtitle: string;
+      primary_cta?: string | null;
+      secondary_cta?: string | null;
       footer_text?: string | null;
       icp_text?: string | null;
     };
     navigation: Array<{ key: string; label: string; href?: string; visible: boolean }>;
     announcements: Array<{ title: string; content: string; level: "info" | "warning" | "success"; visible: boolean; start_at?: string; end_at?: string }>;
     faq: Array<{ question: string; answer: string; sort_order: number; visible: boolean }>;
-    support: { email?: string | null; work_time?: string | null; telegram?: string | null; discord?: string | null };
-    legal: { terms_url?: string | null; privacy_url?: string | null; ai_disclaimer_url?: string | null };
+    modules?: {
+      landing_model_coverage: boolean;
+      landing_integrations: boolean;
+      landing_app_download: boolean;
+      dashboard_announcements: boolean;
+      dashboard_faq: boolean;
+      referral: boolean;
+      developer_api: boolean;
+      app_download: boolean;
+      content_report?: boolean;
+      account_deletion?: boolean;
+    };
+    support: { email?: string | null; work_time?: string | null; help_center_url?: string | null; telegram?: string | null; discord?: string | null };
+    legal: { terms_url?: string | null; privacy_url?: string | null; ai_disclaimer_url?: string | null; content_policy_url?: string | null };
+    copy?: {
+      api_base_url_label: string;
+      public_api_base_url?: string | null;
+      wallet_balance_label: string;
+      cash_balance_label?: string;
+      gift_balance_label: string;
+      frozen_balance_label: string;
+      estimated_cost_title: string;
+      payment_notice: string;
+      ai_disclaimer: string;
+      model_catalog_intro: string;
+    };
   };
   app_download: {
     enabled: boolean;

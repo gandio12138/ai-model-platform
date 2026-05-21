@@ -205,18 +205,25 @@ class _SplashPageState extends ConsumerState<SplashPage> {
   }
 }
 
-class MainShell extends StatelessWidget {
+class MainShell extends ConsumerWidget {
   const MainShell({required this.child, super.key});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final location = GoRouterState.of(context).uri.path;
+    final config = ref.watch(
+      appConfigProvider.select(
+        (value) =>
+            value.maybeWhen(data: (config) => config, orElse: () => null),
+      ),
+    );
+    final showModels = config?.modelListEnabled ?? true;
     final items = [
       _NavItem('/chat', Icons.auto_awesome_rounded, '对话'),
       _NavItem('/home', Icons.space_dashboard_rounded, '概览'),
-      _NavItem('/models', Icons.dataset_rounded, '模型'),
+      if (showModels) _NavItem('/models', Icons.dataset_rounded, '模型'),
       _NavItem('/wallet', Icons.account_balance_wallet_rounded, '钱包'),
       _NavItem('/profile', Icons.person_rounded, '我的'),
     ];

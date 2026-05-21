@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/router.dart';
 import '../../core/errors/app_exception.dart';
@@ -78,6 +80,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
+  Future<void> _openModelPicker() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) =>
+          ModelPickerSheet(models: _models, selectedModelCode: _modelCode),
+    );
+    if (selected == null || selected == _modelCode) return;
+    setState(() => _modelCode = selected);
+  }
+
   Future<void> _send() async {
     final content = _input.text.trim();
     if (content.isEmpty || _sending || _session == null) return;
@@ -109,6 +122,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isScrollControlled: true,
       builder: (context) => CostEstimateSheet(estimate: estimate),
     );
+    if (confirmed == false && !estimate.balanceEnough && mounted) {
+      context.push('/wallet');
+      return;
+    }
     if (confirmed != true) return;
     if (!estimate.balanceEnough) {
       if (mounted) {
@@ -208,12 +225,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('AI 对话'),
-            Text(_modelCode, style: Theme.of(context).textTheme.bodySmall),
-          ],
+        title: InkWell(
+          onTap: _openModelPicker,
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('AI 对话'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _modelCode,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.expand_more_rounded, size: 16),
+                ],
+              ),
+            ],
+          ),
         ),
         actions: [
           IconButton(
@@ -221,11 +252,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             icon: const Icon(Icons.add_comment_rounded),
           ),
           PopupMenuButton<String>(
-            initialValue: _modelCode,
-            onSelected: (value) => setState(() => _modelCode = value),
-            itemBuilder: (context) => [
-              for (final model in _models)
-                PopupMenuItem(value: model.code, child: Text(model.name)),
+            icon: const Icon(Icons.more_horiz_rounded),
+            onSelected: (value) {
+              switch (value) {
+                case 'models':
+                  _openModelPicker();
+                  break;
+                case 'clear':
+                  setState(() => _messages = []);
+                  break;
+                case 'history':
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('会话历史已在当前列表加载')));
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'models', child: Text('切换模型')),
+              PopupMenuItem(value: 'history', child: Text('会话历史')),
+              PopupMenuItem(value: 'clear', child: Text('清空当前会话')),
             ],
           ),
         ],
@@ -238,9 +284,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 behavior: HitTestBehavior.translucent,
                 onTap: () => FocusScope.of(context).unfocus(),
                 child: _messages.isEmpty
-                    ? const AppEmptyState(
-                        title: '开始新的对话',
-                        description: '发送前会先展示预计 tokens、预计消耗和当前余额。',
+                    ? _EmptyChat(
+                        onPick: (prompt) {
+                          _input.text = prompt;
+                          _input.selection = TextSelection.collapsed(
+                            offset: prompt.length,
+                          );
+                          _inputFocus.requestFocus();
+                        },
                       )
                     : ListView.builder(
                         controller: _scroll,
@@ -255,35 +306,297 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      focusNode: _inputFocus,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _send(),
-                      decoration: const InputDecoration(
-                        hintText: '输入问题，发送前会先预估费用',
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x100F172A),
+                      blurRadius: 22,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          focusNode: _inputFocus,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _send(),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            hintText: '输入问题，发送前会预估费用',
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: AppSpacing.sm),
+                      FloatingActionButton.small(
+                        elevation: 0,
+                        onPressed: _sending ? _stop : _send,
+                        child: Icon(
+                          _sending
+                              ? Icons.stop_rounded
+                              : Icons.arrow_upward_rounded,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  FloatingActionButton.small(
-                    onPressed: _sending ? _stop : _send,
-                    child: Icon(
-                      _sending
-                          ? Icons.stop_rounded
-                          : Icons.arrow_upward_rounded,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyChat extends StatelessWidget {
+  const _EmptyChat({required this.onPick});
+
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    const prompts = [
+      '帮我总结一下 OneToken 的 API 接入方式',
+      '用 gpt-4o 写一个 Node.js 调用示例',
+      '对比 Claude、Gemini 和 Qwen 适合的使用场景',
+    ];
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: AppCard(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AppBadge(label: 'AI Chat'),
+              const SizedBox(height: AppSpacing.md),
+              Text('开始一个新问题', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                '发送前会先预估本次费用，确认后再调用模型。你可以直接输入问题，也可以从下面的提示开始。',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              for (final prompt in prompts)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Material(
+                    color: AppColors.surfaceSoft,
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => onPick(prompt),
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                prompt,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_rounded, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ModelPickerSheet extends StatefulWidget {
+  const ModelPickerSheet({
+    required this.models,
+    required this.selectedModelCode,
+    super.key,
+  });
+
+  final List<ModelInfo> models;
+  final String selectedModelCode;
+
+  @override
+  State<ModelPickerSheet> createState() => _ModelPickerSheetState();
+}
+
+class _ModelPickerSheetState extends State<ModelPickerSheet> {
+  final _search = TextEditingController();
+  String _company = 'all';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final companies =
+        widget.models.map((model) => model.providerName).toSet().toList()
+          ..sort();
+    final filtered = widget.models.where((model) {
+      final companyOk = _company == 'all' || model.providerName == _company;
+      if (!companyOk) return false;
+      if (query.isEmpty) return true;
+      return model.code.toLowerCase().contains(query) ||
+          model.name.toLowerCase().contains(query) ||
+          model.providerName.toLowerCase().contains(query);
+    }).toList();
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: AppSpacing.lg,
+          right: AppSpacing.lg,
+          top: AppSpacing.lg,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + AppSpacing.lg,
+        ),
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * .72,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  height: 4,
+                  width: 42,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text('切换模型', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'API Key 默认可调用全部可用模型，不同模型按各自价格扣费。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _search,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search_rounded),
+                  hintText: '搜索模型、模型公司或能力',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: companies.length + 1,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(width: AppSpacing.xs),
+                  itemBuilder: (context, index) {
+                    final value = index == 0 ? 'all' : companies[index - 1];
+                    final label = index == 0 ? '全部公司' : value;
+                    final selected = _company == value;
+                    return ChoiceChip(
+                      label: Text(label),
+                      selected: selected,
+                      onSelected: (_) => setState(() => _company = value),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const AppEmptyState(
+                        title: '暂无匹配模型',
+                        description: '换个关键词或清空搜索条件后重试。',
+                      )
+                    : ListView.separated(
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: AppSpacing.sm),
+                        itemBuilder: (context, index) {
+                          final model = filtered[index];
+                          final selected =
+                              model.code == widget.selectedModelCode;
+                          return AppCard(
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                model.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  Text(model.code),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      AppBadge(label: model.providerName),
+                                      AppBadge(
+                                        label:
+                                            '输入 ${centsToCurrency(model.inputPer1k)}/1K',
+                                      ),
+                                      AppBadge(
+                                        label:
+                                            '输出 ${centsToCurrency(model.outputPer1k)}/1K',
+                                      ),
+                                      if (model.maxContextTokens > 0)
+                                        AppBadge(
+                                          label:
+                                              '${compactNumber(model.maxContextTokens)} 上下文',
+                                        ),
+                                      if (model.supportsStream)
+                                        const AppBadge(label: '流式'),
+                                      if (model.supportsTools)
+                                        const AppBadge(label: '工具'),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              trailing: selected
+                                  ? const Icon(
+                                      Icons.check_circle_rounded,
+                                      color: AppColors.primary,
+                                    )
+                                  : const Icon(Icons.chevron_right_rounded),
+                              onTap: () => Navigator.pop(context, model.code),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -332,7 +645,7 @@ class ChatBubble extends StatelessWidget {
             if (message.usage != null) ...[
               const SizedBox(height: AppSpacing.sm),
               AppBadge(
-                label: '本次实际消耗 ${centsToCurrency(message.usage!.actualCost)}',
+                label: '本次扣费 ${centsToCurrency(message.usage!.actualCost)}',
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
@@ -342,7 +655,63 @@ class ChatBubble extends StatelessWidget {
                 ),
               ),
             ],
+            const SizedBox(height: AppSpacing.xs),
+            Wrap(
+              spacing: AppSpacing.sm,
+              children: [
+                TextButton(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: message.content));
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('已复制')));
+                  },
+                  child: Text(isUser ? '复制' : '复制回复'),
+                ),
+                if (!isUser && message.usage != null)
+                  TextButton(
+                    onPressed: () => _showUsageDetail(context, message),
+                    child: const Text('详情'),
+                  ),
+              ],
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showUsageDetail(BuildContext context, ChatMessage message) {
+    final usage = message.usage;
+    if (usage == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('本次扣费详情', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.md),
+              _Row(label: '实际扣费', value: centsToCurrency(usage.actualCost)),
+              _Row(label: '输入 Tokens', value: compactNumber(usage.inputTokens)),
+              _Row(
+                label: '输出 Tokens',
+                value: compactNumber(usage.outputTokens),
+              ),
+              _Row(label: '计费时间', value: formatDate(usage.chargedAt)),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                '实际扣费以服务端记录的模型返回 tokens 和后台价格为准。',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -363,7 +732,18 @@ class CostEstimateSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('发送前预计消耗', style: Theme.of(context).textTheme.titleLarge),
+            Center(
+              child: Container(
+                height: 4,
+                width: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text('发送前预估费用', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: AppSpacing.md),
             _Row(label: '模型', value: estimate.modelCode),
             _Row(
@@ -371,11 +751,15 @@ class CostEstimateSheet extends StatelessWidget {
               value: '${compactNumber(estimate.inputTokens)} tokens',
             ),
             _Row(
-              label: '预计输出上限',
-              value: '${compactNumber(estimate.outputTokenLimit)} tokens',
+              label: '预计输出',
+              value: '${compactNumber(estimate.estimatedOutputTokens)} tokens',
             ),
             _Row(
-              label: '预计消耗',
+              label: '模型输出上限',
+              value: '${compactNumber(estimate.maxOutputTokens)} tokens',
+            ),
+            _Row(
+              label: '预估费用',
               value: '约 ${centsToCurrency(estimate.estimatedCost)}',
             ),
             _Row(
@@ -383,15 +767,28 @@ class CostEstimateSheet extends StatelessWidget {
               value: centsToCurrency(estimate.currentBalance),
             ),
             const SizedBox(height: AppSpacing.md),
-            Text(
-              '说明：实际消耗以模型返回和最终计费为准。',
-              style: Theme.of(context).textTheme.bodySmall,
+            AppCard(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const AppBadge(label: '说明', color: AppColors.cyan),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      '预估费用仅用于发送前确认，实际消耗以模型返回和服务端最终计费为准。',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: AppSpacing.lg),
             if (!estimate.balanceEnough)
-              const AppEmptyState(
-                title: '余额不足',
-                description: '当前余额不足以覆盖预计消耗，请先充值。',
+              AppButton(
+                label: '余额不足，去充值',
+                fullWidth: true,
+                onPressed: () => Navigator.pop(context, false),
               )
             else
               AppButton(

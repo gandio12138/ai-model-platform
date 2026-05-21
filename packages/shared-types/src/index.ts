@@ -116,6 +116,9 @@ export interface AppConfig {
   min_supported_app_version: string | null;
   maintenance_mode: boolean;
   app_download?: AppDownloadConfig;
+  branding?: SiteConfig["branding"];
+  legal?: SiteConfig["legal"];
+  copy?: PublicCopyConfig;
   feature_flags: Record<string, boolean | string | number | null>;
 }
 
@@ -141,10 +144,14 @@ export interface AppRelease {
 export interface SiteConfig {
   branding: {
     site_name: string;
+    short_name?: string | null;
     logo_url?: string | null;
     slogan?: string | null;
+    hero_badge?: string | null;
     hero_title: string;
     hero_subtitle: string;
+    primary_cta?: string | null;
+    secondary_cta?: string | null;
     footer_text?: string | null;
     icp_text?: string | null;
   };
@@ -168,9 +175,22 @@ export interface SiteConfig {
     sort_order: number;
     visible: boolean;
   }>;
+  modules?: {
+    landing_model_coverage: boolean;
+    landing_integrations: boolean;
+    landing_app_download: boolean;
+    dashboard_announcements: boolean;
+    dashboard_faq: boolean;
+    referral: boolean;
+    developer_api: boolean;
+    app_download: boolean;
+    content_report?: boolean;
+    account_deletion?: boolean;
+  };
   support: {
     email?: string | null;
     work_time?: string | null;
+    help_center_url?: string | null;
     telegram?: string | null;
     discord?: string | null;
   };
@@ -178,7 +198,22 @@ export interface SiteConfig {
     terms_url?: string | null;
     privacy_url?: string | null;
     ai_disclaimer_url?: string | null;
+    content_policy_url?: string | null;
   };
+  copy?: PublicCopyConfig;
+}
+
+export interface PublicCopyConfig {
+  api_base_url_label: string;
+  public_api_base_url?: string | null;
+  wallet_balance_label: string;
+  cash_balance_label?: string;
+  gift_balance_label: string;
+  frozen_balance_label: string;
+  estimated_cost_title: string;
+  payment_notice: string;
+  ai_disclaimer: string;
+  model_catalog_intro: string;
 }
 
 export interface AppDownloadConfig {
@@ -229,6 +264,7 @@ export interface ModelInfo {
   model_code: string;
   display_name: string;
   family?: string | null;
+  model_company?: string | null;
   modality?: string[];
   max_context_tokens: number | null;
   default_max_output_tokens: number | null;
@@ -258,6 +294,7 @@ export interface ChatEstimate {
   id?: string;
   model: string;
   input_tokens: number;
+  estimated_output_tokens?: number;
   output_token_limit: number;
   max_output_tokens: number;
   estimated_cost: number;
