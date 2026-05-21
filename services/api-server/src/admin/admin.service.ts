@@ -455,6 +455,7 @@ const resourceMap: Record<string, ResourceConfig> = {
       "enabled",
       "config"
     ],
+    hidden: ["config"],
     tenantScopeColumn: "tenant_id",
     createTenantScoped: true
   },
@@ -1591,6 +1592,9 @@ export class AdminService {
     if (resource === "paymentProductVisibility") {
       await this.validatePaymentProductVisibility(payload);
     }
+    if (resource === "paymentChannels") {
+      await this.validatePaymentChannel(payload);
+    }
     if (resource === "tenants") {
       this.prepareTenantPayload(payload, true);
     }
@@ -1644,6 +1648,9 @@ export class AdminService {
     }
     if (resource === "paymentProductVisibility") {
       await this.validatePaymentProductVisibility({ ...before, ...payload });
+    }
+    if (resource === "paymentChannels") {
+      await this.validatePaymentChannel({ ...before, ...payload });
     }
     if (resource === "tenants") {
       if (payload.tenant_type === "platform_default" && before.tenant_type !== "platform_default") {
@@ -3204,6 +3211,7 @@ export class AdminService {
         { value: "alipay_app", label: "支付宝 App 支付", meta: { platforms: ["android"] } },
         { value: "wechat_app", label: "微信 App 支付", meta: { platforms: ["android"] } },
         { value: "card_checkout", label: "银行卡/信用卡托管收银台", meta: { platforms: ["android", "web"] } },
+        { value: "unionpay_or_bank_card", label: "银联/银行卡", meta: { platforms: ["android"] } },
         { value: "alipay_web", label: "支付宝 Web", meta: { platforms: ["web"] } },
         { value: "wechat_native", label: "微信 Native", meta: { platforms: ["web"] } },
         { value: "enterprise_transfer", label: "企业对公转账", meta: { platforms: ["web"] } }
@@ -3612,6 +3620,52 @@ export class AdminService {
     }
     if (project.rows[0].platform !== platform) {
       throw new BadRequestException("Project platform must match visibility platform");
+    }
+  }
+
+  private async validatePaymentChannel(payload: Record<string, unknown>) {
+    const tenantId = payload.tenant_id ? String(payload.tenant_id) : "";
+    const projectId = payload.project_id ? String(payload.project_id) : "";
+    const platform = payload.platform ? String(payload.platform) : "";
+    const paymentMethod = payload.payment_method ? String(payload.payment_method) : "";
+    const channelType = payload.channel_type ? String(payload.channel_type) : "";
+    if (!tenantId || !platform || !paymentMethod) {
+      return;
+    }
+    const allowedByPlatform: Record<string, string[]> = {
+      ios: ["apple_iap"],
+      android: ["alipay_app", "wechat_app", "card_checkout", "unionpay_or_bank_card"],
+      web: ["alipay_qr", "alipay_web", "wechat_native", "card_checkout", "enterprise_transfer"],
+      api: []
+    };
+    if (!allowedByPlatform[platform]) {
+      throw new BadRequestException("Invalid payment channel platform");
+    }
+    if (!allowedByPlatform[platform].includes(paymentMethod)) {
+      throw new BadRequestException(`Payment method ${paymentMethod} is not allowed on ${platform}`);
+    }
+    if (platform === "android" && channelType && channelType !== "android_unified_checkout") {
+      throw new BadRequestException("Android payment channel_type must be android_unified_checkout");
+    }
+    if (platform === "ios" && channelType && channelType !== "apple_iap") {
+      throw new BadRequestException("iOS payment channel_type must be apple_iap");
+    }
+    if (!projectId) {
+      return;
+    }
+    const project = await this.db.query<{ platform: string }>(
+      `select platform
+         from tenant_projects
+        where id = $1
+          and tenant_id = $2
+          and status = 'active'`,
+      [projectId, tenantId]
+    );
+    if (!project.rows[0]) {
+      throw new BadRequestException("Project is outside the selected tenant");
+    }
+    if (project.rows[0].platform !== platform) {
+      throw new BadRequestException("Project platform must match payment channel platform");
     }
   }
 

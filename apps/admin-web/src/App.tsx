@@ -105,6 +105,7 @@ const paymentMethodOptions = [
   { value: "apple_iap", label: "Apple IAP" },
   { value: "alipay_app", label: "支付宝 App 支付" },
   { value: "wechat_app", label: "微信 App 支付" },
+  { value: "unionpay_or_bank_card", label: "银联/银行卡" },
   { value: "alipay_qr", label: "支付宝二维码支付" },
   { value: "wechat_native", label: "微信 Native 支付" },
   { value: "card_checkout", label: "银行卡/信用卡托管收银台" },
@@ -1019,6 +1020,22 @@ function Shell({
                     ["payment_method", "支付方式", "select", undefined, undefined, paymentMethodOptions],
                     ["settlement_mode", "结算方式", "select", undefined, undefined, settlementModeOptions],
                     ["enabled", "启用", "boolean"]
+                  ]}
+                  detailFields={[
+                    ["tenant_id", "租户"],
+                    ["project_id", "项目"],
+                    ["channel_code", "渠道编码"],
+                    ["channel_type", "渠道类型"],
+                    ["display_name", "展示名"],
+                    ["platform", "平台"],
+                    ["payment_method", "支付方式"],
+                    ["settlement_mode", "结算方式"],
+                    ["fee_rate_bps", "通道费率 BPS"],
+                    ["sort_order", "排序"],
+                    ["enabled", "启用", "boolean"],
+                    { key: "config", label: "渠道配置", kind: "json", sensitive: true },
+                    ["created_at", "创建时间"],
+                    ["updated_at", "更新时间"]
                   ]}
                   editableFields={[
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
