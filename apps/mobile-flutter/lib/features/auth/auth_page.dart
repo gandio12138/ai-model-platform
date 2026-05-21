@@ -17,8 +17,8 @@ class AuthPage extends ConsumerStatefulWidget {
 }
 
 class _AuthPageState extends ConsumerState<AuthPage> {
-  final _account = TextEditingController(text: 'web-customer@example.com');
-  final _password = TextEditingController(text: 'Web123456!');
+  final _account = TextEditingController();
+  final _password = TextEditingController();
   bool _registerMode = false;
   bool _loading = false;
   bool _testingConnection = false;

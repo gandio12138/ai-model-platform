@@ -43,6 +43,9 @@ export class AiGatewayController {
       source: "developer_api",
       stream: Boolean(body.stream),
       maxTokens: body.max_tokens,
+      temperature: body.temperature,
+      topP: body.top_p,
+      tools: body.tools,
       idempotencyKey: body.idempotency_key ? String(body.idempotency_key) : null
     });
 

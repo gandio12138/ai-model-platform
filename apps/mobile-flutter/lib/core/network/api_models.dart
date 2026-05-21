@@ -245,11 +245,15 @@ class ModelInfo {
     required this.maxContextTokens,
     required this.supportsStream,
     required this.supportsTools,
+    this.category = '文本对话模型',
+    this.toolsStatus = '待验证',
   });
 
   final String code;
   final String name;
   final String providerName;
+  final String category;
+  final String toolsStatus;
   final int inputPer1k;
   final int outputPer1k;
   final int maxContextTokens;
@@ -273,6 +277,11 @@ class ModelInfo {
       maxContextTokens: _int(json['max_context_tokens']),
       supportsStream: _bool(capabilities['stream']),
       supportsTools: _bool(capabilities['tools']),
+      category: _string(json['model_category_label'], '文本对话模型'),
+      toolsStatus: _string(
+        json['tools_status_label'],
+        _bool(capabilities['tools']) ? '支持' : '待验证',
+      ),
     );
   }
 }

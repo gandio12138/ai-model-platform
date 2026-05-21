@@ -187,6 +187,27 @@ function modelCompany(model: Pick<ModelInfo, "display_name" | "family" | "model_
   return model.model_company ?? model.family ?? "其他";
 }
 
+const modelCategoryOrder = [
+  "文本对话模型",
+  "Embedding 模型",
+  "图像模型",
+  "视频模型",
+  "Rerank 模型",
+  "Legacy / Inference Profile 模型"
+];
+
+function modelCategoryLabel(model: ModelInfo) {
+  return model.model_category_label || "文本对话模型";
+}
+
+function modelToolsStatusLabel(model: ModelInfo) {
+  if (model.tools_status_label) return model.tools_status_label;
+  if (model.tools_status === "supported") return "支持";
+  if (model.tools_status === "unsupported") return "不支持";
+  if (model.capabilities.tools) return "支持";
+  return "待验证";
+}
+
 function anonymizedSource(email?: string | null) {
   if (!email) return "来源客户";
   const [name, domain] = email.split("@");
@@ -1626,8 +1647,10 @@ function AppDownloadMini({ appDownload }: { appDownload: SiteConfigPayload["app_
 
 function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string) => void; models: ModelInfo[]; siteConfig: SiteConfigPayload | null }) {
   const [company, setCompany] = useState("全部公司");
+  const [category, setCategory] = useState("全部模型");
   const [billing, setBilling] = useState("全部类型");
   const [capability, setCapability] = useState("全部能力");
+  const [toolsStatus, setToolsStatus] = useState("全部状态");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
   const companies = useMemo(() => {
@@ -1638,20 +1661,40 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
     });
     return [["全部公司", models.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
   }, [models]);
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    models.forEach((model) => {
+      const name = modelCategoryLabel(model);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    });
+    const ordered = modelCategoryOrder
+      .filter((name) => counts.has(name))
+      .map((name) => [name, counts.get(name) ?? 0] as const);
+    const rest = Array.from(counts.entries())
+      .filter(([name]) => !modelCategoryOrder.includes(name))
+      .sort(([a], [b]) => a.localeCompare(b));
+    return [["全部模型", models.length] as const, ...ordered, ...rest];
+  }, [models]);
   const capabilities = useMemo(() => {
     const stream = models.filter((model) => model.capabilities.stream).length;
-    const tools = models.filter((model) => model.capabilities.tools).length;
     const json = models.filter((model) => model.capabilities.json_mode).length;
     return [
       ["全部能力", models.length] as const,
       ["流式输出", stream] as const,
-      ["工具调用", tools] as const,
       ["JSON 模式", json] as const
+    ];
+  }, [models]);
+  const toolsStatuses = useMemo(() => {
+    const labels = ["支持", "不支持", "待验证"];
+    return [
+      ["全部状态", models.length] as const,
+      ...labels.map((label) => [label, models.filter((model) => modelToolsStatusLabel(model) === label).length] as const)
     ];
   }, [models]);
   const filtered = models.filter((model) => {
     const companyName = modelCompany(model);
     const companyOk = company === "全部公司" || companyName === company;
+    const categoryOk = category === "全部模型" || modelCategoryLabel(model) === category;
     const billingMode = String(model.price?.mode ?? "usage");
     const billingOk =
       billing === "全部类型" ||
@@ -1660,14 +1703,15 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
     const capabilityOk =
       capability === "全部能力" ||
       (capability === "流式输出" && model.capabilities.stream) ||
-      (capability === "工具调用" && model.capabilities.tools) ||
       (capability === "JSON 模式" && model.capabilities.json_mode);
+    const toolsStatusOk = toolsStatus === "全部状态" || modelToolsStatusLabel(model) === toolsStatus;
     const keywordOk =
       !keyword ||
       model.model_code.toLowerCase().includes(keyword.toLowerCase()) ||
       model.display_name.toLowerCase().includes(keyword.toLowerCase()) ||
-      companyName.toLowerCase().includes(keyword.toLowerCase());
-    return companyOk && billingOk && capabilityOk && keywordOk;
+      companyName.toLowerCase().includes(keyword.toLowerCase()) ||
+      modelCategoryLabel(model).toLowerCase().includes(keyword.toLowerCase());
+    return companyOk && categoryOk && billingOk && capabilityOk && toolsStatusOk && keywordOk;
   });
   const toggleFavorite = (modelCode: string) => {
     setFavorites((items) => (items.includes(modelCode) ? items.filter((item) => item !== modelCode) : [...items, modelCode]));
@@ -1683,9 +1727,10 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       <aside className="filter-panel">
         <div className="filter-title">
           <strong>筛选</strong>
-          <Button size="small" onClick={() => { setCompany("全部公司"); setBilling("全部类型"); setCapability("全部能力"); setKeyword(""); }}>重置</Button>
+          <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setBilling("全部类型"); setCapability("全部能力"); setToolsStatus("全部状态"); setKeyword(""); }}>重置</Button>
         </div>
         <FilterGroup title="模型公司" items={companies} active={company} setActive={setCompany} />
+        <FilterGroup title="模型类型" items={categories} active={category} setActive={setCategory} />
         <FilterGroup
           title="计费类型"
           items={[
@@ -1697,17 +1742,18 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
           setActive={setBilling}
         />
         <FilterGroup title="能力标签" items={capabilities} active={capability} setActive={setCapability} />
+        <FilterGroup title="Tools 状态" items={toolsStatuses} active={toolsStatus} setActive={setToolsStatus} />
       </aside>
       <section className="market-main">
         <div className="market-hero">
           <div>
-            <span className="market-kicker">Model Catalog</span>
+            <span className="market-kicker">Provider Models</span>
             <h2>模型目录</h2>
-            <p>{siteConfig?.site_config.copy?.model_catalog_intro ?? "查看当前账户可调用模型、价格、上下文长度和能力标签。"}</p>
+            <p>{siteConfig?.site_config.copy?.model_catalog_intro ?? "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。"}</p>
             <div className="market-hero-stats">
-              <span>{filtered.length} 个模型</span>
-              <span>{companies.length - 1} 个模型公司</span>
-              <span>OpenAI Compatible</span>
+              <span>筛选结果 {filtered.length} 个</span>
+              <span>全部 {models.length} 个模型</span>
+              <span>{categories.length - 1} 个模型类型</span>
             </div>
           </div>
           <span className="hero-orbit">AI</span>
@@ -1750,10 +1796,13 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                   </dl>
                   <div className="tag-row">
                     <Tag color="purple">按量计费</Tag>
+                    <Tag color="blue">{modelCategoryLabel(model)}</Tag>
                     {model.capabilities.stream ? <Tag>流式</Tag> : null}
-                    {model.capabilities.tools ? <Tag>工具</Tag> : null}
                     {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
-                    <Tag color="green">当前账户可调用</Tag>
+                    <Tag color={modelToolsStatusLabel(model) === "支持" ? "green" : modelToolsStatusLabel(model) === "待验证" ? "gold" : "default"}>
+                      Tools {modelToolsStatusLabel(model)}
+                    </Tag>
+                    <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "待配置价格"}</Tag>
                   </div>
                   <div className="model-card-actions">
                     <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)}>

@@ -357,6 +357,12 @@ export class AdminController {
     return this.admin.createCredential(id, body, req.user, actor(req));
   }
 
+  @RequirePermissions("provider.read")
+  @Post("providers/:id/test-connection")
+  testProviderConnection(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.testProviderConnection(id, body, req.user, actor(req));
+  }
+
   @RequirePermissions("provider.sync_models")
   @Post("providers/:id/sync-models")
   syncProviderModels(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -385,6 +391,12 @@ export class AdminController {
   @Patch("models/:id")
   updateModel(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.update("models", id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("model.write")
+  @Post("models/:id/verify-tools")
+  verifyModelTools(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.verifyModelTools(id, body, req.user, actor(req));
   }
 
   @RequirePermissions("price.read")

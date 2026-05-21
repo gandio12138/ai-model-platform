@@ -135,23 +135,13 @@ requests to `API_PROXY_TARGET` (`http://127.0.0.1:4000` by default). Keep
 `VITE_API_BASE` empty for LAN testing; setting it to `localhost` or `127.0.0.1`
 will make other devices call their own local machine instead of this Mac.
 
-Seeded accounts:
-
-```text
-super admin:
-  email: admin@example.com
-  password: Admin123456!
-
-support admin:
-  email: support@example.com
-  password: Support123456!
-```
+Seeded accounts are intended for local development only. Do not display or
+reuse default credentials in a deployed environment; create deployment-specific
+admin, tenant, and customer accounts after migration.
 
 Seeded customer scope:
 
 ```text
-support@example.com -> platform_default_tenant
-
 platform_default_tenant customers:
   demo-user@example.com
   vip-customer@example.com

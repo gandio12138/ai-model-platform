@@ -9,9 +9,12 @@ import {
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
+import { CryptoService } from "../common/crypto.service.js";
 import { DatabaseService } from "../database/database.service.js";
 import { PublicRequestUser } from "../public/public-auth.guard.js";
 import { PublicService } from "../public/public.service.js";
+import { ProviderAdapterRegistry } from "./providers/provider-adapter.registry.js";
+import { ProviderAdapter, ProviderCompletionResult, ProviderCompletionInput, ProviderConfig } from "./providers/types.js";
 
 type ChatRole = "system" | "user" | "assistant";
 
@@ -52,11 +55,34 @@ interface CompletionResult {
   };
 }
 
+interface ModelRouteConfig {
+  id: string;
+  provider_id: string;
+  provider_model_code: string;
+  credential_id: string | null;
+  provider_type: string;
+  provider_name: string | null;
+  provider_region: string | null;
+  provider_endpoint: string | null;
+  provider_timeout_ms: number | null;
+  provider_retry_count: number | null;
+  provider_metadata: Record<string, unknown> | null;
+  credential_type: string | null;
+  auth_method: string | null;
+  encrypted_secret: string | null;
+  secret_last4: string | null;
+  aws_region: string | null;
+  endpoint_url: string | null;
+  credential_metadata: Record<string, unknown> | null;
+}
+
 @Injectable()
 export class AiGatewayService {
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
-    @Inject(PublicService) private readonly publicService: PublicService
+    @Inject(PublicService) private readonly publicService: PublicService,
+    @Inject(ProviderAdapterRegistry) private readonly providerAdapters: ProviderAdapterRegistry,
+    @Inject(CryptoService) private readonly crypto: CryptoService
   ) {}
 
   async authenticateApiKey(authorization?: string): Promise<GatewayContext> {
@@ -289,6 +315,9 @@ export class AiGatewayService {
       source: "app_chat",
       stream: Boolean(body.stream),
       maxTokens: body.max_tokens,
+      temperature: body.temperature,
+      topP: body.top_p,
+      tools: body.tools,
       idempotencyKey: body.idempotency_key ? String(body.idempotency_key) : null
     });
     const assistantMessage = await this.insertChatMessage({
@@ -321,23 +350,13 @@ export class AiGatewayService {
     source: "app_chat" | "developer_api";
     stream: boolean;
     maxTokens: unknown;
+    temperature?: unknown;
+    topP?: unknown;
+    tools?: unknown;
     idempotencyKey: string | null;
   }): Promise<CompletionResult> {
     if (!input.model) {
       throw new BadRequestException("model is required");
-    }
-    const pricing = await this.getPricing(input.context.tenantId, input.model);
-    const outputLimit = this.resolveOutputLimit(input.maxTokens, pricing);
-    const inputTokens = this.estimateTokens(input.messages.map((message) => message.content).join("\n"));
-    const content = this.fakeCompletion(input.model, input.messages);
-    const outputTokens = Math.min(this.estimateTokens(content), outputLimit);
-    const actualCost = this.calculateCost(pricing, inputTokens, outputTokens);
-    const chargedAt = new Date().toISOString();
-    const requestId = `req_${randomUUID().replace(/-/g, "")}`;
-    const started = Date.now();
-
-    if (process.env.NODE_ENV === "production" && process.env.ENABLE_FAKE_PROVIDER !== "true") {
-      throw new HttpException("No production provider adapter is configured for this model", 503);
     }
 
     if (input.idempotencyKey) {
@@ -345,7 +364,64 @@ export class AiGatewayService {
       if (cached) return cached;
     }
 
+    const pricing = await this.getPricing(input.context.tenantId, input.model);
+    const outputLimit = this.resolveOutputLimit(input.maxTokens, pricing);
+    const inputTokens = this.estimateTokens(input.messages.map((message) => message.content).join("\n"));
+    const estimatedOutputTokens = Math.min(Math.max(inputTokens * 2, 256), outputLimit);
+    const estimatedCost = this.calculateCost(pricing, inputTokens, estimatedOutputTokens);
+    const balance = await this.getAvailableBalance(input.context);
+    if (balance < estimatedCost) {
+      throw new HttpException("Insufficient wallet balance", 402);
+    }
+
     const route = await this.selectRoute(pricing.model_id);
+    if (!route) {
+      throw new HttpException("Provider route is not configured for this model", 503);
+    }
+    const providerConfig = this.buildProviderConfig(route);
+    const adapter = this.providerAdapters.resolve(providerConfig.providerType);
+    if (Array.isArray(input.tools) && input.tools.length > 0) {
+      throw new BadRequestException("Tool calling is not supported by the configured provider adapter yet");
+    }
+
+    const requestId = `req_${randomUUID().replace(/-/g, "")}`;
+    const started = Date.now();
+    let providerResult: ProviderCompletionResult;
+    const providerInput: ProviderCompletionInput = {
+      publicModelCode: input.model,
+      providerModelCode: route.provider_model_code,
+      messages: input.messages,
+      maxTokens: outputLimit,
+      temperature: this.optionalNumber(input.temperature),
+      topP: this.optionalNumber(input.topP),
+      stream: input.stream
+    };
+    try {
+      providerResult = input.stream
+        ? await this.completeFromProviderStream(adapter, providerConfig, providerInput)
+        : await adapter.complete(providerConfig, providerInput);
+    } catch (error) {
+      await this.recordProviderFailure({
+        requestId,
+        context: input.context,
+        source: input.source,
+        model: input.model,
+        stream: input.stream,
+        route,
+        estimatedPromptTokens: inputTokens,
+        estimatedCompletionTokens: estimatedOutputTokens,
+        estimatedCost,
+        currency: pricing.currency,
+        started,
+        idempotencyKey: input.idempotencyKey,
+        error
+      });
+      throw new HttpException(`Provider unavailable: ${this.redactErrorMessage(error)}`, 503);
+    }
+
+    const content = providerResult.content;
+    const outputTokens = providerResult.usage.outputTokens;
+    const actualCost = this.calculateCost(pricing, providerResult.usage.inputTokens, outputTokens);
     const result = await this.db.transaction(async (client) => {
       const wallet = await this.lockWallet(client, input.context);
       const available =
@@ -365,10 +441,10 @@ export class AiGatewayService {
          values
           ($1, $2, $3, $4, $5, $6,
            $7, $8, $9, $10, 'success', $11,
-           $12, $13, $12,
-           $13, $14, 'fake_provider', $15,
-           $15, $16, $17, 'stop', '[redacted]',
-           '[redacted]', $18::jsonb, now(), $19, $20,
+           $12, $13, $14,
+           $15, $16, $17, $18,
+           $19, $20, $21, $22, '[redacted]',
+           '[redacted]', $23::jsonb, now(), $24, $25,
            'settled')
          returning id, created_at`,
         [
@@ -384,21 +460,49 @@ export class AiGatewayService {
           route?.id ?? null,
           input.stream,
           inputTokens,
+          estimatedOutputTokens,
+          providerResult.usage.inputTokens,
           outputTokens,
-          inputTokens + outputTokens,
+          providerResult.usage.totalTokens,
+          providerResult.usage.source,
+          estimatedCost,
           actualCost,
           pricing.currency,
           Date.now() - started,
+          providerResult.finishReason ?? "stop",
           JSON.stringify({
-            provider: "fake",
-            response_content: content,
-            estimated: false,
-            model: input.model
+            provider_type: providerConfig.providerType,
+            provider_model_code: route.provider_model_code,
+            response_content_hash: createHash("sha256").update(content).digest("hex"),
+            estimated: Boolean(providerResult.usage.estimated),
+            model: input.model,
+            provider_request_id: providerResult.providerRequestId ?? null
           }),
           input.idempotencyKey,
           input.stream ? "completed" : "none"
         ]
       );
+      if (input.idempotencyKey) {
+        await client.query(
+          `insert into ai_completion_cache
+            (request_log_id, tenant_id, user_id, idempotency_key, content_ciphertext, content_hash, metadata)
+           values ($1, $2, $3, $4, $5, $6, $7::jsonb)
+           on conflict (tenant_id, user_id, idempotency_key) do nothing`,
+          [
+            requestLog.rows[0].id,
+            input.context.tenantId,
+            input.context.userId,
+            input.idempotencyKey,
+            this.crypto.encryptSecret(content),
+            createHash("sha256").update(content).digest("hex"),
+            JSON.stringify({
+              source: input.source,
+              model: input.model,
+              provider_type: providerConfig.providerType
+            })
+          ]
+        );
+      }
       await client.query(
         `insert into provider_request_attempts
           (request_log_id, tenant_id, provider_id, route_id, provider_model_code,
@@ -407,11 +511,15 @@ export class AiGatewayService {
         [
           requestLog.rows[0].id,
           input.context.tenantId,
-          route?.provider_id ?? null,
-          route?.id ?? null,
-          route?.provider_model_code ?? input.model,
+          route.provider_id,
+          route.id,
+          route.provider_model_code,
           Date.now() - started,
-          JSON.stringify({ adapter: "fake_provider" })
+          JSON.stringify({
+            adapter: providerConfig.providerType,
+            usage_source: providerResult.usage.source,
+            provider_request_id: providerResult.providerRequestId ?? null
+          })
         ]
       );
       const ledgerId = await this.debitWallet(client, wallet, input.context, actualCost, pricing.currency, requestLog.rows[0].id);
@@ -431,7 +539,12 @@ export class AiGatewayService {
           actualCost,
           pricing.currency,
           ledgerId,
-          JSON.stringify({ source: input.source, model: input.model })
+          JSON.stringify({
+            source: input.source,
+            model: input.model,
+            provider_type: providerConfig.providerType,
+            provider_model_code: route.provider_model_code
+          })
         ]
       );
       return {
@@ -444,14 +557,138 @@ export class AiGatewayService {
       requestId: result.requestLogId,
       content,
       usage: {
-        input_tokens: inputTokens,
+        input_tokens: providerResult.usage.inputTokens,
         output_tokens: outputTokens,
-        total_tokens: inputTokens + outputTokens,
+        total_tokens: providerResult.usage.totalTokens,
         actual_cost: actualCost,
         model: input.model,
         charged_at: result.chargedAt
       }
     };
+  }
+
+  private async completeFromProviderStream(
+    adapter: ProviderAdapter,
+    providerConfig: ProviderConfig,
+    input: ProviderCompletionInput
+  ): Promise<ProviderCompletionResult> {
+    const chunks: string[] = [];
+    let finalUsage: ProviderCompletionResult["usage"] | undefined;
+    let finishReason: string | null = null;
+    let providerRequestId: string | null = null;
+    for await (const chunk of adapter.stream(providerConfig, input)) {
+      if (chunk.delta) {
+        chunks.push(chunk.delta);
+      }
+      if (chunk.usage) {
+        finalUsage = chunk.usage;
+      }
+      if (chunk.finishReason) {
+        finishReason = chunk.finishReason;
+      }
+      if (chunk.providerRequestId) {
+        providerRequestId = chunk.providerRequestId;
+      }
+    }
+    const content = chunks.join("");
+    const fallbackInputTokens = this.estimateTokens(input.messages.map((message) => message.content).join("\n"));
+    const fallbackOutputTokens = Math.min(this.estimateTokens(content), input.maxTokens);
+    return {
+      content,
+      finishReason: finishReason ?? "stop",
+      providerRequestId,
+      usage:
+        finalUsage ??
+        {
+          inputTokens: fallbackInputTokens,
+          outputTokens: fallbackOutputTokens,
+          totalTokens: fallbackInputTokens + fallbackOutputTokens,
+          source: "estimated",
+          estimated: true
+        },
+      metadata: { adapter: providerConfig.providerType, stream: true }
+    };
+  }
+
+  private async recordProviderFailure(input: {
+    requestId: string;
+    context: GatewayContext;
+    source: "app_chat" | "developer_api";
+    model: string;
+    stream: boolean;
+    route: ModelRouteConfig;
+    estimatedPromptTokens: number;
+    estimatedCompletionTokens: number;
+    estimatedCost: number;
+    currency: string;
+    started: number;
+    idempotencyKey: string | null;
+    error: unknown;
+  }) {
+    const latency = Date.now() - input.started;
+    const errorCode = this.errorCode(input.error);
+    const errorMessage = this.redactErrorMessage(input.error);
+    const log = await this.db.query<{ id: string }>(
+      `insert into request_logs
+        (request_id, tenant_id, project_id, tenant_customer_id, user_id, api_key_id,
+         source, public_model_code, provider_id, route_id, status, stream,
+         estimated_prompt_tokens, estimated_completion_tokens, estimated_cost_amount,
+         actual_cost_amount, currency, latency_ms, error_code, error_message,
+         redacted_prompt, redacted_completion, metadata, completed_at, idempotency_key,
+         stream_status, billing_status)
+       values
+        ($1, $2, $3, $4, $5, $6,
+         $7, $8, $9, $10, 'failed', $11,
+         $12, $13, $14,
+         0, $15, $16, $17, $18,
+         '[redacted]', '[redacted]', $19::jsonb, now(), $20,
+         $21, 'not_billable')
+       returning id`,
+      [
+        input.requestId,
+        input.context.tenantId,
+        input.context.projectId,
+        input.context.tenantCustomerId,
+        input.context.userId,
+        input.context.apiKeyId,
+        input.source,
+        input.model,
+        input.route.provider_id,
+        input.route.id,
+        input.stream,
+        input.estimatedPromptTokens,
+        input.estimatedCompletionTokens,
+        input.estimatedCost,
+        input.currency,
+        latency,
+        errorCode,
+        errorMessage,
+        JSON.stringify({
+          provider_type: input.route.provider_type,
+          provider_model_code: input.route.provider_model_code,
+          billing_status: "not_billable"
+        }),
+        input.idempotencyKey,
+        input.stream ? "failed" : "none"
+      ]
+    );
+    await this.db.query(
+      `insert into provider_request_attempts
+        (request_log_id, tenant_id, provider_id, route_id, provider_model_code,
+         attempt_no, status, latency_ms, error_code, error_message, metadata, completed_at)
+       values ($1, $2, $3, $4, $5, 1, 'failed', $6, $7, $8, $9::jsonb, now())`,
+      [
+        log.rows[0].id,
+        input.context.tenantId,
+        input.route.provider_id,
+        input.route.id,
+        input.route.provider_model_code,
+        latency,
+        errorCode,
+        errorMessage,
+        JSON.stringify({ adapter: input.route.provider_type })
+      ]
+    );
   }
 
   private async contextFromUser(user: PublicRequestUser, query: Record<string, unknown>): Promise<GatewayContext> {
@@ -529,6 +766,9 @@ export class AiGatewayService {
     if (!row) {
       throw new NotFoundException("Model is not available for this tenant");
     }
+    if (!row.price_version) {
+      throw new BadRequestException("Model pricing is not configured for this tenant");
+    }
     return {
       ...row,
       default_max_output_tokens:
@@ -561,6 +801,26 @@ export class AiGatewayService {
     );
   }
 
+  private optionalNumber(value: unknown) {
+    if (value === undefined || value === null || value === "") return undefined;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+  }
+
+  private errorCode(error: unknown) {
+    return error instanceof Error ? error.name : "ProviderError";
+  }
+
+  private redactErrorMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message
+      .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
+      .replace(/(AWS4-HMAC-SHA256 Credential=)[^,\s]+/gi, "$1[redacted]")
+      .replace(/(api[-_]?key[\"'\s:=]+)[^\"'\s,}]+/gi, "$1[redacted]")
+      .replace(/(secret[_-]?access[_-]?key[\"'\s:=]+)[^\"'\s,}]+/gi, "$1[redacted]")
+      .slice(0, 500);
+  }
+
   private async getAvailableBalance(context: GatewayContext) {
     const { rows } = await this.db.query<{ available: string }>(
       `select (cash_balance + bonus_balance + credit_limit)::text as available
@@ -575,15 +835,38 @@ export class AiGatewayService {
     return Number(rows[0]?.available ?? 0);
   }
 
-  private async selectRoute(modelId: string) {
-    const { rows } = await this.db.query<{
-      id: string;
-      provider_id: string;
-      provider_model_code: string;
-    }>(
-      `select mr.id, mr.provider_id, mr.provider_model_code
+  private async selectRoute(modelId: string): Promise<ModelRouteConfig | null> {
+    const { rows } = await this.db.query<ModelRouteConfig>(
+      `select mr.id,
+              mr.provider_id,
+              mr.provider_model_code,
+              pc.id as credential_id,
+              p.provider_type,
+              p.name as provider_name,
+              p.region as provider_region,
+              p.base_url as provider_endpoint,
+              p.timeout_ms as provider_timeout_ms,
+              p.retry_count as provider_retry_count,
+              p.metadata as provider_metadata,
+              pc.credential_type,
+              pc.auth_method,
+              pc.encrypted_secret,
+              pc.secret_last4,
+              pc.aws_region,
+              pc.endpoint_url,
+              pc.metadata as credential_metadata
          from model_routes mr
          join providers p on p.id = mr.provider_id
+         left join lateral (
+           select *
+             from provider_credentials pc
+            where pc.provider_id = p.id
+              and pc.status = 'active'
+              and (mr.credential_id is null or pc.id = mr.credential_id)
+            order by case when mr.credential_id is not null and pc.id = mr.credential_id then 0 else 1 end,
+                     pc.created_at desc
+            limit 1
+         ) pc on true
         where mr.model_id = $1
           and mr.enabled = true
           and p.status = 'active'
@@ -594,10 +877,36 @@ export class AiGatewayService {
     return rows[0] ?? null;
   }
 
+  private buildProviderConfig(route: ModelRouteConfig): ProviderConfig {
+    const decryptedSecret = route.encrypted_secret ? this.crypto.decryptSecret(route.encrypted_secret) : null;
+    return {
+      id: route.provider_id,
+      name: route.provider_name,
+      providerType: route.provider_type,
+      region: route.provider_region,
+      endpoint: route.provider_endpoint,
+      timeoutMs: route.provider_timeout_ms === null ? null : Number(route.provider_timeout_ms),
+      retryCount: route.provider_retry_count === null ? null : Number(route.provider_retry_count),
+      metadata: route.provider_metadata ?? {},
+      credential: route.credential_id
+        ? {
+            id: route.credential_id,
+            credentialType: route.credential_type,
+            authMethod: route.auth_method,
+            decryptedSecret,
+            secretLast4: route.secret_last4,
+            awsRegion: route.aws_region,
+            endpointUrl: route.endpoint_url,
+            metadata: route.credential_metadata ?? {}
+          }
+        : null
+    };
+  }
+
   private async findCachedCompletion(context: GatewayContext, idempotencyKey: string) {
     const { rows } = await this.db.query<{
       id: string;
-      metadata: any;
+      content_ciphertext: string;
       actual_prompt_tokens: number;
       actual_completion_tokens: number;
       total_tokens: number;
@@ -605,26 +914,27 @@ export class AiGatewayService {
       public_model_code: string;
       created_at: string;
     }>(
-      `select id,
-              metadata,
+      `select rl.id,
+              cache.content_ciphertext,
               actual_prompt_tokens,
               actual_completion_tokens,
               total_tokens,
               actual_cost_amount,
               public_model_code,
               created_at
-         from request_logs
-        where tenant_id = $1
-          and user_id = $2
-          and idempotency_key = $3
+         from ai_completion_cache cache
+         join request_logs rl on rl.id = cache.request_log_id
+        where cache.tenant_id = $1
+          and cache.user_id = $2
+          and cache.idempotency_key = $3
         limit 1`,
       [context.tenantId, context.userId, idempotencyKey]
     );
     const row = rows[0];
-    if (!row?.metadata?.response_content) return null;
+    if (!row?.content_ciphertext) return null;
     return {
       requestId: row.id,
-      content: String(row.metadata.response_content),
+      content: this.crypto.decryptSecret(row.content_ciphertext),
       usage: {
         input_tokens: Number(row.actual_prompt_tokens ?? 0),
         output_tokens: Number(row.actual_completion_tokens ?? 0),
@@ -748,15 +1058,6 @@ export class AiGatewayService {
       ]
     );
     return rows[0].id as string;
-  }
-
-  private fakeCompletion(model: string, messages: ChatMessageInput[]) {
-    const last = messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
-    return [
-      `这是 OneToken 开发/测试环境的模型回复，模型 ${model} 已收到你的请求。`,
-      `问题摘要：${last.slice(0, 120) || "空消息"}`,
-      "生产环境必须配置真实 Provider Adapter 和密钥后才能处理真实模型调用。"
-    ].join("\n");
   }
 
   private async findChatSession(user: PublicRequestUser, id: string) {

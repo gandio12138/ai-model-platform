@@ -15,6 +15,8 @@
     "usage:aggregate": "tsx src/scripts/aggregate-usage.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock": "^3.1050.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1050.0",
     "@nestjs/common": "^11.1.9",
     "@nestjs/core": "^11.1.9",
     "@nestjs/platform-express": "^11.1.9",

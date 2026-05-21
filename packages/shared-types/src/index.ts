@@ -265,6 +265,10 @@ export interface ModelInfo {
   display_name: string;
   family?: string | null;
   model_company?: string | null;
+  model_category?: string | null;
+  model_category_label?: string | null;
+  tools_status?: "supported" | "unsupported" | "unverified" | string | null;
+  tools_status_label?: string | null;
   modality?: string[];
   max_context_tokens: number | null;
   default_max_output_tokens: number | null;

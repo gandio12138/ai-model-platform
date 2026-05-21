@@ -458,6 +458,8 @@ class MockOneTokenApi implements OneTokenApi {
       maxContextTokens: 128000,
       supportsStream: true,
       supportsTools: true,
+      category: '文本对话模型',
+      toolsStatus: '支持',
     ),
     ModelInfo(
       code: 'claude-3-7-sonnet',
@@ -468,6 +470,8 @@ class MockOneTokenApi implements OneTokenApi {
       maxContextTokens: 200000,
       supportsStream: true,
       supportsTools: true,
+      category: '文本对话模型',
+      toolsStatus: '待验证',
     ),
     ModelInfo(
       code: 'qwen-max',
@@ -478,6 +482,8 @@ class MockOneTokenApi implements OneTokenApi {
       maxContextTokens: 128000,
       supportsStream: true,
       supportsTools: false,
+      category: '文本对话模型',
+      toolsStatus: '不支持',
     ),
   ];
 }

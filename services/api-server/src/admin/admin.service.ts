@@ -8,12 +8,37 @@ import {
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { PoolClient } from "pg";
+import {
+  BedrockClient,
+  ListFoundationModelsCommand,
+  ListInferenceProfilesCommand
+} from "@aws-sdk/client-bedrock";
 import { DatabaseService } from "../database/database.service.js";
 import { AuditActor, AuditService } from "../common/audit.service.js";
 import { CryptoService } from "../common/crypto.service.js";
 import { parsePagination, requireReason } from "../common/http.js";
 import { ConfigResolutionService } from "../config-resolution/config-resolution.service.js";
 import { PaymentService } from "../payment/payment.service.js";
+import { ProviderAdapterRegistry } from "../ai/providers/provider-adapter.registry.js";
+import { ProviderConfig } from "../ai/providers/types.js";
+
+interface ProviderModelSyncItem {
+  publicModelCode: string;
+  providerModelCode: string;
+  displayName: string;
+  providerName: string;
+  modelFamily: string;
+  inputModalities: string[];
+  outputModalities: string[];
+  inferenceTypesSupported: string[];
+  supportsStream: boolean;
+  supportsTools: boolean;
+  sourceModelId: string;
+  invocationType: "foundation_model" | "inference_profile";
+  inferenceProfileId?: string | null;
+  inferenceProfileArn?: string | null;
+  raw: Record<string, unknown>;
+}
 
 interface ResourceConfig {
   table: string;
@@ -660,7 +685,8 @@ export class AdminService {
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(CryptoService) private readonly crypto: CryptoService,
     @Inject(ConfigResolutionService) private readonly configResolution: ConfigResolutionService,
-    @Inject(PaymentService) private readonly payment: PaymentService
+    @Inject(PaymentService) private readonly payment: PaymentService,
+    @Inject(ProviderAdapterRegistry) private readonly providerAdapters: ProviderAdapterRegistry
   ) {}
 
   assertPlatformAdmin(user: any) {
@@ -1964,18 +1990,17 @@ export class AdminService {
 
   async createCredential(providerId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
     this.assertPermission(user, "provider.credential.write");
-    if (!body.secret) {
-      throw new BadRequestException("secret is required");
-    }
-    const secret = String(body.secret);
-    const encryptedSecret = this.crypto.encryptSecret(secret);
+    const credentialType = String(body.credential_type ?? "openai_compatible_api_key");
+    const authMethod = String(body.auth_method ?? credentialType);
+    const secretBundle = this.buildProviderCredentialSecret(body, credentialType, authMethod);
+    const encryptedSecret = this.crypto.encryptSecret(secretBundle.secret);
     const payload = {
       provider_id: providerId,
       name: body.name,
-      credential_type: body.credential_type ?? "openai_compatible_api_key",
-      auth_method: body.auth_method ?? body.credential_type ?? "api_key",
+      credential_type: credentialType,
+      auth_method: authMethod,
       encrypted_secret: encryptedSecret,
-      secret_last4: secret.slice(-4),
+      secret_last4: secretBundle.last4,
       status: body.status ?? "active",
       rpm_limit: body.rpm_limit,
       tpm_limit: body.tpm_limit,
@@ -2003,51 +2028,140 @@ export class AdminService {
     return rows[0];
   }
 
+  private buildProviderCredentialSecret(
+    body: Record<string, unknown>,
+    credentialType: string,
+    authMethod: string
+  ) {
+    const normalized = `${credentialType} ${authMethod}`.toLowerCase();
+    if (normalized.includes("iam_role")) {
+      return { secret: "iam_role", last4: "role" };
+    }
+    if (normalized.includes("iam_access_key")) {
+      const accessKeyId = String(body.aws_access_key_id ?? body.access_key_id ?? "").trim();
+      const secretAccessKey = String(body.aws_secret_access_key ?? body.secret_access_key ?? "").trim();
+      if (accessKeyId && secretAccessKey) {
+        return {
+          secret: JSON.stringify({ access_key_id: accessKeyId, secret_access_key: secretAccessKey }),
+          last4: accessKeyId.slice(-4)
+        };
+      }
+      if (body.secret) {
+        const raw = String(body.secret);
+        return { secret: raw, last4: raw.slice(-4) };
+      }
+      throw new BadRequestException("AWS access key id and secret access key are required");
+    }
+    if (!body.secret) {
+      throw new BadRequestException("secret is required");
+    }
+    const secret = String(body.secret);
+    return { secret, last4: secret.slice(-4) };
+  }
+
+  async testProviderConnection(providerId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "provider.read");
+    const provider = await this.findById(resourceMap.providers, providerId);
+    const credential = body.credential_id
+      ? await this.resolveProviderCredential(providerId, String(body.credential_id))
+      : null;
+    const config = this.buildAdminProviderConfig(provider, credential);
+    const result = await this.providerAdapters.resolve(config.providerType).validateCredentials({
+      provider: config,
+      modelId: body.model_id ? String(body.model_id) : undefined
+    });
+    await this.db.query(
+      `update providers
+          set health_status = $1,
+              health_score = $2,
+              metadata = coalesce(metadata, '{}'::jsonb) || $3::jsonb,
+              updated_at = now()
+        where id = $4`,
+      [
+        result.ok ? "healthy" : "unhealthy",
+        result.ok ? 1 : 0,
+        JSON.stringify({
+          last_health_check_at: result.checkedAt,
+          last_health_check_message: result.message,
+          last_health_check_error: result.errorMessage ?? null,
+          last_health_check_model_id: body.model_id ? String(body.model_id) : null
+        }),
+        provider.id
+      ]
+    );
+    await this.audit.record({
+      actor,
+      action: "provider.connection.test",
+      targetType: "providers",
+      targetId: provider.id,
+      afterValue: {
+        ok: result.ok,
+        provider_type: result.providerType,
+        region: result.region,
+        model_callable: result.modelCallable
+      },
+      reason: String(body.reason ?? "test provider connection")
+    });
+    return result;
+  }
+
+  private buildAdminProviderConfig(provider: any, credential: any): ProviderConfig {
+    return {
+      id: provider.id,
+      name: provider.name,
+      providerType: String(provider.provider_type),
+      region: provider.region,
+      endpoint: provider.base_url,
+      timeoutMs: provider.timeout_ms === null ? null : Number(provider.timeout_ms),
+      retryCount: provider.retry_count === null ? null : Number(provider.retry_count),
+      metadata: provider.metadata ?? {},
+      credential: credential
+        ? {
+            id: credential.id,
+            credentialType: credential.credential_type,
+            authMethod: credential.auth_method,
+            decryptedSecret: this.crypto.decryptSecret(credential.encrypted_secret),
+            secretLast4: credential.secret_last4,
+            awsRegion: credential.aws_region,
+            endpointUrl: credential.endpoint_url,
+            metadata: credential.metadata ?? {}
+          }
+        : null
+    };
+  }
+
   async syncProviderModels(providerId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
     this.assertPermission(user, "provider.sync_models");
     const provider = await this.findById(resourceMap.providers, providerId);
-    const credential = await this.resolveProviderCredential(providerId, body.credential_id ? String(body.credential_id) : undefined);
+    const credential = body.credential_id
+      ? await this.resolveProviderCredential(providerId, String(body.credential_id))
+      : null;
     const providerType = String(provider.provider_type);
-    if (providerType !== "aws_bedrock" && credential.credential_type !== "bedrock_api_key") {
-      throw new BadRequestException("Only AWS Bedrock API key model sync is implemented");
-    }
-
-    const apiKey = this.crypto.decryptSecret(credential.encrypted_secret);
-    const region = String(body.aws_region ?? credential.aws_region ?? provider.region ?? "us-east-1");
-    const endpoint = String(
-      credential.endpoint_url ??
-      provider.base_url ??
-      `https://bedrock.${region}.amazonaws.com`
-    ).replace(/\/$/, "");
-    const res = await fetch(`${endpoint}/foundation-models`, {
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        accept: "application/json"
-      }
-    });
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new BadRequestException(`Bedrock model sync failed: ${res.status} ${detail.slice(0, 240)}`);
-    }
-
-    const payload = await res.json() as { modelSummaries?: any[] };
-    const summaries = payload.modelSummaries ?? [];
+    const providerConfig = this.buildAdminProviderConfig(provider, credential);
+    const syncItems = await this.fetchProviderModelSyncItems(providerConfig, body);
     const synced: any[] = [];
-    for (const summary of summaries) {
-      const modelId = String(summary.modelId ?? "");
-      if (!modelId) {
-        continue;
-      }
-      const model = await this.upsertSyncedModel(summary);
-      const route = await this.upsertSyncedRoute(provider.id, credential.id, model.id, modelId);
+    for (const item of syncItems) {
+      const model = await this.upsertSyncedModel(item);
+      const route = await this.upsertSyncedRoute(
+        provider.id,
+        credential?.id ?? null,
+        model.id,
+        item.providerModelCode,
+        item
+      );
       synced.push({
         model_id: model.id,
         public_model_code: model.public_model_code,
-        provider_model_code: modelId,
+        display_name: model.display_name,
+        provider_name: item.providerName,
+        provider_model_code: item.providerModelCode,
+        invocation_type: item.invocationType,
         route_id: route.id
       });
     }
+
+    const region = String(body.aws_region ?? providerConfig.credential?.awsRegion ?? providerConfig.region ?? "us-east-1");
+    const authMode = this.resolveProviderAuthMode(providerConfig);
 
     await this.db.query(
       `update providers
@@ -2058,7 +2172,9 @@ export class AdminService {
         JSON.stringify({
           last_model_sync_at: new Date().toISOString(),
           last_model_sync_count: synced.length,
-          model_source: "aws_bedrock"
+          last_model_sync_region: region,
+          last_model_sync_auth_mode: authMode,
+          model_source: providerType === "aws_bedrock" ? "aws_bedrock_sdk" : providerType
         }),
         provider.id
       ]
@@ -2069,14 +2185,290 @@ export class AdminService {
       action: "provider.models.sync",
       targetType: "providers",
       targetId: provider.id,
-      afterValue: { provider_id: provider.id, synced_count: synced.length },
+      afterValue: {
+        provider_id: provider.id,
+        provider_type: providerType,
+        region,
+        auth_mode: authMode,
+        synced_count: synced.length
+      },
       reason: String(body.reason ?? "sync provider models")
     });
 
     return {
       provider_id: provider.id,
+      provider_type: providerType,
+      region,
       synced_count: synced.length,
       models: synced
+    };
+  }
+
+  async verifyModelTools(modelId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "model.write");
+    const model = await this.findById(resourceMap.models, modelId);
+    const route = await this.findModelToolValidationRoute(modelId, body);
+    const provider = await this.findById(resourceMap.providers, route.provider_id);
+    const credential = route.credential_id
+      ? await this.resolveProviderCredential(route.provider_id, route.credential_id)
+      : null;
+    const config = this.buildAdminProviderConfig(provider, credential);
+    const adapter = this.providerAdapters.resolve(config.providerType);
+    if (!adapter.validateToolUse) {
+      throw new BadRequestException(`Tools validation is not implemented for provider type: ${config.providerType}`);
+    }
+    const result = await adapter.validateToolUse({
+      provider: config,
+      publicModelCode: model.public_model_code,
+      providerModelCode: route.provider_model_code
+    });
+    const toolsStatus = result.status;
+    const metadataPatch = {
+      tools_status: toolsStatus,
+      tools_verified: toolsStatus === "supported" ? true : toolsStatus === "unsupported" ? false : null,
+      tools_verified_at: result.checkedAt,
+      tools_verification_message: result.message,
+      tools_verification_error: result.errorMessage ?? null,
+      tools_verification_provider_id: route.provider_id,
+      tools_verification_route_id: route.id,
+      tools_verification_provider_model_code: route.provider_model_code
+    };
+    await this.db.query(
+      `update models
+          set supports_tools = $1,
+              metadata = coalesce(metadata, '{}'::jsonb) || $2::jsonb,
+              updated_at = now()
+        where id = $3`,
+      [toolsStatus === "supported", JSON.stringify(metadataPatch), modelId]
+    );
+    await this.db.query(
+      `insert into provider_request_attempts
+        (provider_id, route_id, provider_model_code, attempt_no, status, latency_ms, error_code, error_message, metadata, completed_at)
+       values ($1, $2, $3, 1, $4, $5, $6, $7, $8::jsonb, now())`,
+      [
+        route.provider_id,
+        route.id,
+        route.provider_model_code,
+        result.status === "supported" ? "success" : result.status,
+        result.latencyMs ?? null,
+        result.errorCode ?? null,
+        result.errorMessage ?? null,
+        JSON.stringify({
+          source: "tools_validation",
+          public_model_code: model.public_model_code,
+          provider_type: config.providerType,
+          tools_status: toolsStatus,
+          provider_request_id: result.providerRequestId ?? null
+        })
+      ]
+    );
+    await this.audit.record({
+      actor,
+      action: "model.tools.verify",
+      targetType: "models",
+      targetId: modelId,
+      afterValue: {
+        public_model_code: model.public_model_code,
+        provider_model_code: route.provider_model_code,
+        tools_status: toolsStatus,
+        ok: result.ok,
+        message: result.message
+      },
+      reason: String(body.reason ?? "verify model tools support")
+    });
+    return {
+      model_id: modelId,
+      public_model_code: model.public_model_code,
+      provider_model_code: route.provider_model_code,
+      tools_status: toolsStatus,
+      tools_status_label: toolsStatus === "supported" ? "支持" : toolsStatus === "unsupported" ? "不支持" : "待验证",
+      ...result
+    };
+  }
+
+  private async findModelToolValidationRoute(modelId: string, body: Record<string, unknown>) {
+    const params: unknown[] = [modelId];
+    let routeFilter = "";
+    if (body.route_id) {
+      params.push(String(body.route_id));
+      routeFilter = ` and mr.id = $${params.length}`;
+    }
+    const { rows } = await this.db.query(
+      `select mr.*
+         from model_routes mr
+         join providers p on p.id = mr.provider_id
+        where mr.model_id = $1
+          and mr.enabled = true
+          and p.status = 'active'
+          ${routeFilter}
+        order by mr.priority asc, mr.weight desc, mr.updated_at desc
+        limit 1`,
+      params
+    );
+    if (!rows[0]) {
+      throw new NotFoundException("No active model route is available for Tools validation");
+    }
+    return rows[0];
+  }
+
+  private async fetchProviderModelSyncItems(
+    provider: ProviderConfig,
+    body: Record<string, unknown>
+  ): Promise<ProviderModelSyncItem[]> {
+    if (provider.providerType === "aws_bedrock") {
+      return this.fetchAwsBedrockModelSyncItems(provider, body);
+    }
+    throw new BadRequestException(`Model sync adapter is not implemented for provider type: ${provider.providerType}`);
+  }
+
+  private async fetchAwsBedrockModelSyncItems(
+    provider: ProviderConfig,
+    body: Record<string, unknown>
+  ): Promise<ProviderModelSyncItem[]> {
+    const region = String(body.aws_region ?? provider.credential?.awsRegion ?? provider.region ?? "us-east-1");
+    const client = this.createBedrockControlClient(provider, region);
+    const foundationInput: Record<string, string> = {};
+    if (body.by_provider) foundationInput.byProvider = String(body.by_provider);
+    if (body.by_output_modality) foundationInput.byOutputModality = String(body.by_output_modality);
+    if (body.by_inference_type) foundationInput.byInferenceType = String(body.by_inference_type);
+    const foundationResponse = await client.send(
+      new ListFoundationModelsCommand(foundationInput as any)
+    );
+    const profileResponse = await client.send(new ListInferenceProfilesCommand({}));
+    const profilesByModel = this.mapBedrockInferenceProfiles(profileResponse.inferenceProfileSummaries ?? []);
+    return (foundationResponse.modelSummaries ?? [])
+      .map((summary) => this.toBedrockSyncItem(summary, profilesByModel))
+      .filter((item): item is ProviderModelSyncItem => Boolean(item));
+  }
+
+  private createBedrockControlClient(provider: ProviderConfig, region: string) {
+    const authMode = this.resolveProviderAuthMode(provider);
+    if (authMode === "assume_role") {
+      throw new BadRequestException("AWS Bedrock assume_role authentication is reserved; use IAM Role or IAM Access Key now");
+    }
+    if (authMode === "bedrock_api_key") {
+      throw new BadRequestException("AWS Bedrock model sync requires IAM Role or IAM Access Key because it uses Bedrock control-plane APIs");
+    }
+    const credentials =
+      authMode === "iam_access_key"
+        ? this.resolveAwsAccessKeyCredentials(provider)
+        : undefined;
+    return new BedrockClient({
+      region,
+      endpoint: this.resolveBedrockControlEndpoint(provider, region),
+      maxAttempts: Math.max(Number(provider.retryCount ?? 2) + 1, 1),
+      credentials
+    });
+  }
+
+  private resolveAwsAccessKeyCredentials(provider: ProviderConfig) {
+    const secret = String(provider.credential?.decryptedSecret ?? "").trim();
+    if (!secret) {
+      throw new BadRequestException("AWS IAM Access Key credential is not configured");
+    }
+    const parsed = parseAwsAccessKeySecret(secret);
+    if (!parsed.accessKeyId || !parsed.secretAccessKey) {
+      throw new BadRequestException("AWS IAM Access Key credential must include access key id and secret access key");
+    }
+    return {
+      accessKeyId: parsed.accessKeyId,
+      secretAccessKey: parsed.secretAccessKey
+    };
+  }
+
+  private resolveProviderAuthMode(provider: ProviderConfig) {
+    const providerAuthMode = String(
+      provider.metadata?.auth_mode ?? provider.metadata?.authMode ?? ""
+    ).toLowerCase();
+    const credentialType = String(provider.credential?.credentialType ?? "").toLowerCase();
+    const authMethod = String((provider.credential?.authMethod ?? credentialType) || providerAuthMode || "iam_role").toLowerCase();
+    if (authMethod === "iam_role" || credentialType === "iam_role") return "iam_role";
+    if (authMethod === "iam_access_key" || credentialType === "iam_access_key") return "iam_access_key";
+    if (authMethod === "assume_role" || credentialType === "assume_role") return "assume_role";
+    return "bedrock_api_key";
+  }
+
+  private resolveBedrockControlEndpoint(provider: ProviderConfig, region: string) {
+    const configured = String(provider.credential?.endpointUrl ?? provider.endpoint ?? "").trim();
+    if (!configured) return undefined;
+    return configured
+      .replace(/\/$/, "")
+      .replace("://bedrock-runtime.", "://bedrock.")
+      .replace(`bedrock-runtime.${region}.amazonaws.com`, `bedrock.${region}.amazonaws.com`);
+  }
+
+  private mapBedrockInferenceProfiles(profileSummaries: any[]) {
+    const profilesByModel = new Map<string, any[]>();
+    for (const profile of profileSummaries) {
+      for (const model of profile.models ?? []) {
+        const modelId = this.extractBedrockModelId(model?.modelArn);
+        if (!modelId) continue;
+        const current = profilesByModel.get(modelId) ?? [];
+        current.push(profile);
+        profilesByModel.set(modelId, current);
+      }
+    }
+    for (const [modelId, profiles] of profilesByModel.entries()) {
+      profiles.sort((left, right) => this.scoreInferenceProfile(left) - this.scoreInferenceProfile(right));
+      profilesByModel.set(modelId, profiles);
+    }
+    return profilesByModel;
+  }
+
+  private scoreInferenceProfile(profile: any) {
+    const id = String(profile?.inferenceProfileId ?? "");
+    if (id.startsWith("us.")) return 0;
+    if (id.startsWith("global.")) return 1;
+    return 2;
+  }
+
+  private extractBedrockModelId(modelArn: unknown) {
+    const value = String(modelArn ?? "");
+    const marker = "/foundation-model/";
+    const index = value.indexOf(marker);
+    if (index === -1) return "";
+    return value.slice(index + marker.length);
+  }
+
+  private toBedrockSyncItem(summary: any, profilesByModel: Map<string, any[]>): ProviderModelSyncItem | null {
+    const modelId = String(summary.modelId ?? "");
+    if (!modelId) return null;
+    const inferenceTypes = this.asStringList(summary.inferenceTypesSupported);
+    const profile = profilesByModel.get(modelId)?.[0] ?? null;
+    const usesProfile = !inferenceTypes.includes("ON_DEMAND") && Boolean(profile?.inferenceProfileId);
+    const providerModelCode = usesProfile ? String(profile.inferenceProfileId) : modelId;
+    const inputModalities = this.asStringList(summary.inputModalities);
+    const outputModalities = this.asStringList(summary.outputModalities);
+    return {
+      publicModelCode: modelId,
+      providerModelCode,
+      displayName: String(summary.modelName ?? modelId),
+      providerName: String(summary.providerName ?? "AWS Bedrock"),
+      modelFamily: String(summary.providerName ?? "AWS Bedrock"),
+      inputModalities,
+      outputModalities,
+      inferenceTypesSupported: inferenceTypes,
+      supportsStream: Boolean(summary.responseStreamingSupported),
+      supportsTools: false,
+      sourceModelId: modelId,
+      invocationType: usesProfile ? "inference_profile" : "foundation_model",
+      inferenceProfileId: profile?.inferenceProfileId ?? null,
+      inferenceProfileArn: profile?.inferenceProfileArn ?? null,
+      raw: {
+        source: "aws_bedrock",
+        source_model_id: modelId,
+        model_arn: summary.modelArn,
+        provider_name: summary.providerName,
+        input_modalities: inputModalities,
+        output_modalities: outputModalities,
+        customizations_supported: summary.customizationsSupported ?? [],
+        inference_types_supported: inferenceTypes,
+        response_streaming_supported: Boolean(summary.responseStreamingSupported),
+        model_lifecycle: summary.modelLifecycle ?? null,
+        invocation_type: usesProfile ? "inference_profile" : "foundation_model",
+        inference_profile_id: profile?.inferenceProfileId ?? null,
+        inference_profile_arn: profile?.inferenceProfileArn ?? null
+      }
     };
   }
 
@@ -2888,20 +3280,16 @@ export class AdminService {
     return rows[0];
   }
 
-  private async upsertSyncedModel(summary: any) {
-    const modelId = String(summary.modelId);
+  private async upsertSyncedModel(summary: ProviderModelSyncItem) {
+    const modelId = summary.publicModelCode;
     const metadata = {
-      source: "aws_bedrock",
-      model_arn: summary.modelArn,
-      provider_name: summary.providerName,
-      input_modalities: summary.inputModalities,
-      output_modalities: summary.outputModalities,
-      customizations_supported: summary.customizationsSupported,
-      inference_types_supported: summary.inferenceTypesSupported,
-      model_lifecycle: summary.modelLifecycle
+      ...summary.raw,
+      provider_model_code: summary.providerModelCode,
+      source_model_id: summary.sourceModelId,
+      invocation_type: summary.invocationType
     };
     const modality = Array.isArray(summary.outputModalities) && summary.outputModalities.length
-      ? summary.outputModalities.map((item: unknown) => String(item).toLowerCase())
+      ? summary.outputModalities.map((item) => String(item).toLowerCase())
       : ["text"];
     const { rows } = await this.db.query(
       `insert into models
@@ -2917,31 +3305,49 @@ export class AdminService {
        returning *`,
       [
         modelId,
-        summary.modelName ?? modelId,
-        summary.providerName ?? "aws_bedrock",
+        summary.displayName,
+        summary.modelFamily,
         modality,
-        Boolean(summary.responseStreamingSupported),
+        summary.supportsStream,
         JSON.stringify(metadata)
       ]
     );
     return rows[0];
   }
 
-  private async upsertSyncedRoute(providerId: string, credentialId: string, modelId: string, providerModelCode: string) {
+  private async upsertSyncedRoute(
+    providerId: string,
+    credentialId: string | null,
+    modelId: string,
+    providerModelCode: string,
+    summary: ProviderModelSyncItem
+  ) {
     const routeCode = `bedrock-${providerModelCode.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase()}`;
+    const metadata = {
+      source: "aws_bedrock_sync",
+      source_model_id: summary.sourceModelId,
+      provider_name: summary.providerName,
+      invocation_type: summary.invocationType,
+      inference_profile_id: summary.inferenceProfileId ?? null,
+      inference_profile_arn: summary.inferenceProfileArn ?? null,
+      inference_types_supported: summary.inferenceTypesSupported,
+      input_modalities: summary.inputModalities,
+      output_modalities: summary.outputModalities
+    };
     const { rows } = await this.db.query(
       `insert into model_routes
         (route_code, model_id, provider_id, credential_id, provider_model_code, weight, priority, strategy, enabled, allow_fallback, metadata)
-       values ($1, $2, $3, $4, $5, 100, 100, 'weighted_round_robin', true, true, '{"source":"aws_bedrock_sync"}'::jsonb)
+       values ($1, $2, $3, $4, $5, 100, 100, 'weighted_round_robin', true, true, $6::jsonb)
        on conflict (route_code) do update
           set model_id = excluded.model_id,
               provider_id = excluded.provider_id,
               credential_id = excluded.credential_id,
               provider_model_code = excluded.provider_model_code,
               enabled = true,
+              metadata = coalesce(model_routes.metadata, '{}'::jsonb) || excluded.metadata,
               updated_at = now()
        returning *`,
-      [routeCode, modelId, providerId, credentialId, providerModelCode]
+      [routeCode, modelId, providerId, credentialId, providerModelCode, JSON.stringify(metadata)]
     );
     return rows[0];
   }
@@ -3138,6 +3544,16 @@ export class AdminService {
       .split(/[\n,]/)
       .map((item) => item.trim())
       .filter(Boolean);
+  }
+
+  private asStringList(value: unknown) {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item)).filter(Boolean);
+    }
+    if (value === undefined || value === null || value === "") {
+      return [];
+    }
+    return [String(value)];
   }
 
   private hideFields(rows: any[], hidden: string[] = []) {
@@ -3829,4 +4245,20 @@ export class AdminService {
     if (balanceType === "credit") return wallet.credit_limit;
     return wallet.cash_balance;
   }
+}
+
+function parseAwsAccessKeySecret(secret: string) {
+  const trimmed = secret.trim();
+  if (trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    return {
+      accessKeyId: String(parsed.access_key_id ?? parsed.aws_access_key_id ?? parsed.accessKeyId ?? ""),
+      secretAccessKey: String(parsed.secret_access_key ?? parsed.aws_secret_access_key ?? parsed.secretAccessKey ?? "")
+    };
+  }
+  const [accessKeyId, ...rest] = trimmed.split(":");
+  return {
+    accessKeyId,
+    secretAccessKey: rest.join(":")
+  };
 }

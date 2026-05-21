@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import type { AdminSessionUser } from "@ai-platform/shared-types";
-import { Button, ConfigProvider, Layout, Menu, Segmented, Tag, Typography, theme as antdTheme } from "antd";
+import { Button, ConfigProvider, Layout, Menu, Segmented, Tag, Typography, message, theme as antdTheme } from "antd";
 import {
   ApiOutlined,
   AuditOutlined,
@@ -30,7 +30,7 @@ import ConfigPage from "./pages/ConfigPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 import TenantInvoicesPage from "./pages/TenantInvoicesPage";
 import TenantAccountsPage from "./pages/TenantAccountsPage";
-import { clearSession, getSessionUser, getToken } from "./api";
+import { apiFetch, clearSession, getSessionUser, getToken } from "./api";
 
 const { Header, Sider, Content } = Layout;
 type ThemeMode = "system" | "light" | "dark";
@@ -363,6 +363,21 @@ function Shell({
       {element}
     </PermissionGate>
   );
+  const verifyModelTools = async (row: any, reload: () => void) => {
+    const close = message.loading("正在发起 Bedrock Tools 轻量验证...", 0);
+    try {
+      const result = await apiFetch<{ tools_status_label?: string; message?: string }>(`/api/admin/models/${row.id}/verify-tools`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "admin verify tools support" })
+      });
+      message.success(`Tools ${result.tools_status_label ?? "待验证"}：${result.message ?? "验证完成"}`);
+      reload();
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      close();
+    }
+  };
 
   return (
     <Layout className="admin-shell">
@@ -1149,6 +1164,13 @@ function Shell({
                   ]}
                   canCreate={can("model.write")}
                   canEdit={can("model.write")}
+                  rowActions={(row, reload) =>
+                    can("model.write") ? (
+                      <Button size="small" onClick={() => verifyModelTools(row, reload)}>
+                        验证 Tools
+                      </Button>
+                    ) : null
+                  }
                 />
               )}
             />

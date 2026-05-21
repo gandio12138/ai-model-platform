@@ -562,7 +562,7 @@ export class ConfigResolutionService {
       estimated_cost_title: String(config.estimated_cost_title ?? "发送前预估费用"),
       payment_notice: String(config.payment_notice ?? "支付成功和权益到账以服务端确认、查单和钱包入账为准。"),
       ai_disclaimer: String(config.ai_disclaimer ?? "AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。"),
-      model_catalog_intro: String(config.model_catalog_intro ?? "查看当前账户可调用模型、价格、上下文长度和能力标签。")
+      model_catalog_intro: String(config.model_catalog_intro ?? "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。")
     };
   }
 

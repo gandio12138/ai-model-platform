@@ -447,6 +447,7 @@ class ModelPickerSheet extends StatefulWidget {
 class _ModelPickerSheetState extends State<ModelPickerSheet> {
   final _search = TextEditingController();
   String _company = 'all';
+  String _category = 'all';
 
   @override
   void dispose() {
@@ -460,13 +461,17 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
     final companies =
         widget.models.map((model) => model.providerName).toSet().toList()
           ..sort();
+    final categories = _modelCategories(widget.models);
     final filtered = widget.models.where((model) {
       final companyOk = _company == 'all' || model.providerName == _company;
       if (!companyOk) return false;
+      final categoryOk = _category == 'all' || model.category == _category;
+      if (!categoryOk) return false;
       if (query.isEmpty) return true;
       return model.code.toLowerCase().contains(query) ||
           model.name.toLowerCase().contains(query) ||
-          model.providerName.toLowerCase().contains(query);
+          model.providerName.toLowerCase().contains(query) ||
+          model.category.toLowerCase().contains(query);
     }).toList();
     return SafeArea(
       child: Padding(
@@ -527,6 +532,26 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                   },
                 ),
               ),
+              const SizedBox(height: AppSpacing.sm),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: categories.length + 1,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(width: AppSpacing.xs),
+                  itemBuilder: (context, index) {
+                    final value = index == 0 ? 'all' : categories[index - 1];
+                    final label = index == 0 ? '全部类型' : value;
+                    final selected = _category == value;
+                    return ChoiceChip(
+                      label: Text(label),
+                      selected: selected,
+                      onSelected: (_) => setState(() => _category = value),
+                    );
+                  },
+                ),
+              ),
               const SizedBox(height: AppSpacing.md),
               Expanded(
                 child: filtered.isEmpty
@@ -562,6 +587,7 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                                     runSpacing: 6,
                                     children: [
                                       AppBadge(label: model.providerName),
+                                      AppBadge(label: model.category),
                                       AppBadge(
                                         label:
                                             '输入 ${centsToCurrency(model.inputPer1k)}/1K',
@@ -577,8 +603,10 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                                         ),
                                       if (model.supportsStream)
                                         const AppBadge(label: '流式'),
-                                      if (model.supportsTools)
-                                        const AppBadge(label: '工具'),
+                                      AppBadge(
+                                        label: 'Tools ${model.toolsStatus}',
+                                        color: _toolsColor(model.toolsStatus),
+                                      ),
                                     ],
                                   ),
                                 ],
@@ -716,6 +744,29 @@ class ChatBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+List<String> _modelCategories(List<ModelInfo> models) {
+  const order = [
+    '文本对话模型',
+    'Embedding 模型',
+    '图像模型',
+    '视频模型',
+    'Rerank 模型',
+    'Legacy / Inference Profile 模型',
+  ];
+  final values = models.map((model) => model.category).toSet();
+  final ordered = order.where(values.contains).toList();
+  final rest = values.where((item) => !order.contains(item)).toList()..sort();
+  return [...ordered, ...rest];
+}
+
+Color _toolsColor(String status) {
+  return switch (status) {
+    '支持' => AppColors.success,
+    '不支持' => AppColors.textMuted,
+    _ => AppColors.warning,
+  };
 }
 
 class CostEstimateSheet extends StatelessWidget {

@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
+import { AiGatewayModule } from "../ai/ai-gateway.module.js";
 import { ConfigResolutionModule } from "../config-resolution/config-resolution.module.js";
 import { PaymentModule } from "../payment/payment.module.js";
 import { AdminController } from "./admin.controller.js";
 import { AdminService } from "./admin.service.js";
 
 @Module({
-  imports: [PaymentModule, ConfigResolutionModule],
+  imports: [PaymentModule, ConfigResolutionModule, AiGatewayModule],
   controllers: [AdminController],
   providers: [AdminService]
 })

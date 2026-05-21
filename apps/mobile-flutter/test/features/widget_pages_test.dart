@@ -70,6 +70,8 @@ void main() {
       maxContextTokens: 128000,
       supportsStream: true,
       supportsTools: true,
+      category: '文本对话模型',
+      toolsStatus: '支持',
     );
     await tester.pumpWidget(
       wrap(const Scaffold(body: ModelCard(model: model))),

@@ -30,7 +30,7 @@ export default function LoginPage() {
         </div>
         <Card className="login-card">
           <Typography.Title level={3}>管理后台登录</Typography.Title>
-          <Form layout="vertical" onFinish={onFinish} initialValues={{ email: "admin@example.com" }}>
+          <Form layout="vertical" onFinish={onFinish}>
             <Form.Item label="邮箱" name="email" rules={[{ required: true }]}>
               <Input autoComplete="email" />
             </Form.Item>
@@ -41,7 +41,6 @@ export default function LoginPage() {
               登录
             </Button>
           </Form>
-          <div className="login-default">默认账号：admin@example.com / Admin123456!</div>
         </Card>
       </div>
     </div>

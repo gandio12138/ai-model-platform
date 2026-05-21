@@ -18,7 +18,9 @@ class ModelsPage extends ConsumerStatefulWidget {
 class _ModelsPageState extends ConsumerState<ModelsPage> {
   final _search = TextEditingController();
   String _company = 'all';
+  String _category = 'all';
   String _capability = 'all';
+  String _toolsStatus = 'all';
 
   @override
   void dispose() {
@@ -30,7 +32,7 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
   Widget build(BuildContext context) {
     return AppPage(
       title: '模型目录',
-      subtitle: '按模型公司查看当前账户可调用的模型、价格和能力',
+      subtitle: '按模型类型和模型公司浏览后台同步的供应商模型',
       child: FutureBuilder<List<ModelInfo>>(
         future: ref.read(apiProvider).fetchModels(),
         builder: (context, snapshot) {
@@ -52,20 +54,29 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
           }
           final keyword = _search.text.trim().toLowerCase();
           final companies = _modelCompanies(models);
+          final categories = _modelCategories(models);
           final filtered = models.where((model) {
             final keywordOk =
                 keyword.isEmpty ||
                 model.name.toLowerCase().contains(keyword) ||
                 model.code.toLowerCase().contains(keyword) ||
-                model.providerName.toLowerCase().contains(keyword);
+                model.providerName.toLowerCase().contains(keyword) ||
+                model.category.toLowerCase().contains(keyword);
             final companyOk =
                 _company == 'all' || model.providerName == _company;
+            final categoryOk =
+                _category == 'all' || model.category == _category;
             final capabilityOk = switch (_capability) {
               'stream' => model.supportsStream,
-              'tools' => model.supportsTools,
               _ => true,
             };
-            return keywordOk && companyOk && capabilityOk;
+            final toolsOk =
+                _toolsStatus == 'all' || model.toolsStatus == _toolsStatus;
+            return keywordOk &&
+                companyOk &&
+                categoryOk &&
+                capabilityOk &&
+                toolsOk;
           }).toList();
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(
@@ -83,11 +94,18 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
                   capability: _capability,
                   companies: companies,
                   company: _company,
+                  categories: categories,
+                  category: _category,
                   total: filtered.length,
+                  toolsStatus: _toolsStatus,
                   onCapabilityChanged: (value) =>
                       setState(() => _capability = value),
+                  onCategoryChanged: (value) =>
+                      setState(() => _category = value),
                   onCompanyChanged: (value) => setState(() => _company = value),
                   onSearchChanged: (_) => setState(() {}),
+                  onToolsStatusChanged: (value) =>
+                      setState(() => _toolsStatus = value),
                 );
               }
               if (filtered.isEmpty) {
@@ -109,28 +127,53 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
       ..sort();
     return companies;
   }
+
+  List<String> _modelCategories(List<ModelInfo> models) {
+    const order = [
+      '文本对话模型',
+      'Embedding 模型',
+      '图像模型',
+      '视频模型',
+      'Rerank 模型',
+      'Legacy / Inference Profile 模型',
+    ];
+    final values = models.map((model) => model.category).toSet();
+    final ordered = order.where(values.contains).toList();
+    final rest = values.where((item) => !order.contains(item)).toList()..sort();
+    return [...ordered, ...rest];
+  }
 }
 
 class _ModelFilterBar extends StatelessWidget {
   const _ModelFilterBar({
     required this.controller,
     required this.capability,
+    required this.categories,
+    required this.category,
     required this.companies,
     required this.company,
     required this.total,
+    required this.toolsStatus,
     required this.onCapabilityChanged,
+    required this.onCategoryChanged,
     required this.onCompanyChanged,
     required this.onSearchChanged,
+    required this.onToolsStatusChanged,
   });
 
   final TextEditingController controller;
   final String capability;
+  final List<String> categories;
+  final String category;
   final List<String> companies;
   final String company;
   final int total;
+  final String toolsStatus;
   final ValueChanged<String> onCapabilityChanged;
+  final ValueChanged<String> onCategoryChanged;
   final ValueChanged<String> onCompanyChanged;
   final ValueChanged<String> onSearchChanged;
+  final ValueChanged<String> onToolsStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -180,6 +223,26 @@ class _ModelFilterBar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
+          Text('模型类型', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _FilterChip(
+                label: '全部模型',
+                active: category == 'all',
+                onTap: () => onCategoryChanged('all'),
+              ),
+              for (final item in categories)
+                _FilterChip(
+                  label: item,
+                  active: category == item,
+                  onTap: () => onCategoryChanged(item),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
           Text('能力标签', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: AppSpacing.xs),
           Wrap(
@@ -196,11 +259,26 @@ class _ModelFilterBar extends StatelessWidget {
                 active: capability == 'stream',
                 onTap: () => onCapabilityChanged('stream'),
               ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text('Tools 状态', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
               _FilterChip(
-                label: '工具调用',
-                active: capability == 'tools',
-                onTap: () => onCapabilityChanged('tools'),
+                label: '全部状态',
+                active: toolsStatus == 'all',
+                onTap: () => onToolsStatusChanged('all'),
               ),
+              for (final item in const ['支持', '不支持', '待验证'])
+                _FilterChip(
+                  label: item,
+                  active: toolsStatus == item,
+                  onTap: () => onToolsStatusChanged(item),
+                ),
             ],
           ),
         ],
@@ -291,8 +369,12 @@ class ModelCard extends StatelessWidget {
             runSpacing: 8,
             children: [
               AppBadge(label: model.code),
+              AppBadge(label: model.category, color: AppColors.primary),
               AppBadge(label: model.supportsStream ? '流式' : '非流式'),
-              if (model.supportsTools) const AppBadge(label: '工具调用'),
+              AppBadge(
+                label: 'Tools ${model.toolsStatus}',
+                color: _toolsColor(model.toolsStatus),
+              ),
               AppBadge(
                 label: '${compactNumber(model.maxContextTokens)} context',
                 color: AppColors.cyan,
@@ -321,6 +403,14 @@ class ModelCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Color _toolsColor(String status) {
+  return switch (status) {
+    '支持' => AppColors.success,
+    '不支持' => AppColors.textMuted,
+    _ => AppColors.warning,
+  };
 }
 
 class _Price extends StatelessWidget {

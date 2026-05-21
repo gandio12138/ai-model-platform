@@ -1,5 +1,5 @@
 import { Button, Form, Input, InputNumber, Modal, Select, Space, message } from "antd";
-import { KeyRound, RefreshCw } from "lucide-react";
+import { KeyRound, RefreshCw, TestTube2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiList, apiFetch } from "../api";
 import ResourcePage from "./ResourcePage";
@@ -9,14 +9,28 @@ const providerTypeOptions = [
   { value: "openai_compatible", label: "OpenAI-Compatible" },
   { value: "anthropic", label: "Anthropic" },
   { value: "gemini", label: "Gemini" },
-  { value: "azure_openai", label: "Azure OpenAI" }
+  { value: "azure_openai", label: "Azure OpenAI" },
+  { value: "vertex_ai", label: "Vertex AI" }
 ];
 
 const credentialTypeOptions = [
+  { value: "iam_role", label: "EC2 / ECS IAM Role" },
   { value: "bedrock_api_key", label: "AWS Bedrock API Key" },
+  { value: "iam_access_key", label: "AWS IAM Access Key" },
+  { value: "assume_role", label: "AWS Assume Role（预留）" },
+  { value: "azure_openai_api_key", label: "Azure OpenAI API Key" },
+  { value: "vertex_service_account", label: "Vertex AI Service Account（预留）" },
   { value: "openai_compatible_api_key", label: "OpenAI-Compatible API Key" },
   { value: "anthropic_api_key", label: "Anthropic API Key" },
   { value: "gemini_api_key", label: "Gemini API Key" }
+];
+
+const authMethodOptions = [
+  { value: "iam_role", label: "EC2 / ECS IAM Role" },
+  { value: "bedrock_api_key", label: "Bedrock API Key" },
+  { value: "iam_access_key", label: "IAM Access Key" },
+  { value: "assume_role", label: "Assume Role（预留）" },
+  { value: "api_key", label: "通用 API Key / Bearer Token" }
 ];
 
 export default function ProviderPage({
@@ -30,10 +44,17 @@ export default function ProviderPage({
 }) {
   const [open, setOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);
   const [providerOptions, setProviderOptions] = useState<{ label: string; value: string }[]>([]);
   const [credentialOptions, setCredentialOptions] = useState<{ label: string; value: string }[]>([]);
   const [credentialForm] = Form.useForm();
   const [syncForm] = Form.useForm();
+  const [testForm] = Form.useForm();
+  const credentialType = Form.useWatch("credential_type", credentialForm);
+  const authMethod = Form.useWatch("auth_method", credentialForm);
+  const usesIamRole = credentialType === "iam_role" || authMethod === "iam_role";
+  const usesIamAccessKey = credentialType === "iam_access_key" || authMethod === "iam_access_key";
+  const usesAssumeRole = credentialType === "assume_role" || authMethod === "assume_role";
 
   function loadOptions() {
     Promise.all([
@@ -87,6 +108,28 @@ export default function ProviderPage({
     }
   }
 
+  async function testProviderConnection(values: any) {
+    try {
+      const result = await apiFetch<{ ok: boolean; message: string; error_message?: string }>(
+        `/api/admin/providers/${values.provider_id}/test-connection`,
+        {
+          method: "POST",
+          body: JSON.stringify(values)
+        }
+      );
+      if (result.ok) {
+        message.success(result.message || "Provider 连接测试通过");
+      } else {
+        message.error(result.error_message || result.message || "Provider 连接测试失败");
+      }
+      setTestOpen(false);
+      testForm.resetFields();
+      loadOptions();
+    } catch (error) {
+      message.error((error as Error).message);
+    }
+  }
+
   return (
     <>
       {(canWriteCredential || canSyncModels) && (
@@ -102,6 +145,9 @@ export default function ProviderPage({
                 同步模型目录
               </Button>
             )}
+            <Button icon={<TestTube2 size={16} />} onClick={() => setTestOpen(true)}>
+              测试 Provider 连接
+            </Button>
           </Space>
         </div>
       )}
@@ -162,7 +208,7 @@ export default function ProviderPage({
           form={credentialForm}
           layout="vertical"
           onFinish={submitCredential}
-          initialValues={{ credential_type: "bedrock_api_key", auth_method: "api_key", aws_region: "us-east-1" }}
+          initialValues={{ credential_type: "iam_role", auth_method: "iam_role", aws_region: "us-east-1" }}
         >
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} />
@@ -174,11 +220,33 @@ export default function ProviderPage({
             <Select options={credentialTypeOptions} />
           </Form.Item>
           <Form.Item label="认证方式" name="auth_method" rules={[{ required: true }]}>
-            <Select options={[{ value: "api_key", label: "API Key / Bearer Token" }]} />
+            <Select options={authMethodOptions} />
           </Form.Item>
-          <Form.Item label="API Key / Bearer Token" name="secret" rules={[{ required: true }]}>
-            <Input.Password />
-          </Form.Item>
+          {usesIamRole ? (
+            <Form.Item
+              label="凭证来源"
+              extra="使用服务端运行环境的默认 AWS Credential Chain，例如 EC2 Instance Profile / ECS Task Role。不会保存任何密钥。"
+            >
+              <Input disabled value="IAM Role（无密钥入库）" />
+            </Form.Item>
+          ) : usesIamAccessKey ? (
+            <>
+              <Form.Item label="AWS Access Key ID" name="aws_access_key_id" rules={[{ required: true }]}>
+                <Input autoComplete="off" />
+              </Form.Item>
+              <Form.Item label="AWS Secret Access Key" name="aws_secret_access_key" rules={[{ required: true }]}>
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+            </>
+          ) : usesAssumeRole ? (
+            <Form.Item label="Assume Role ARN" name="role_arn" extra="后端已预留 assume_role 类型，正式 STS 接入在第二阶段启用。">
+              <Input disabled placeholder="arn:aws:iam::123456789012:role/OneTokenBedrockRole" />
+            </Form.Item>
+          ) : (
+            <Form.Item label="API Key / Bearer Token / Service Account JSON" name="secret" rules={[{ required: true }]}>
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+          )}
           <Form.Item label="AWS 区域" name="aws_region">
             <Input placeholder="us-east-1" />
           </Form.Item>
@@ -199,11 +267,11 @@ export default function ProviderPage({
         </Form>
       </Modal>
       <Modal title="同步模型目录" open={syncOpen} onCancel={() => setSyncOpen(false)} footer={null} destroyOnClose>
-        <Form form={syncForm} layout="vertical" onFinish={syncModels}>
+        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ aws_region: "us-east-1" }}>
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id">
+          <Form.Item label="使用的密钥" name="credential_id" extra="使用 EC2/ECS IAM Role 时可留空；后端会用运行环境的默认 AWS 凭证同步真实 Bedrock 模型目录。">
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
           <Form.Item label="AWS 区域，可选" name="aws_region">
@@ -214,6 +282,29 @@ export default function ProviderPage({
           </Form.Item>
           <Button type="primary" htmlType="submit" icon={<RefreshCw size={16} />}>
             开始同步
+          </Button>
+        </Form>
+      </Modal>
+      <Modal title="测试 Provider 连接" open={testOpen} onCancel={() => setTestOpen(false)} footer={null} destroyOnClose>
+        <Form form={testForm} layout="vertical" onFinish={testProviderConnection}>
+          <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
+            <Select showSearch optionFilterProp="label" options={providerOptions} />
+          </Form.Item>
+          <Form.Item label="使用的密钥" name="credential_id" extra="使用 IAM Role 时可留空。填写测试模型 ID 会产生一次真实 Bedrock 调用。">
+            <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
+          </Form.Item>
+          <Form.Item
+            label="测试模型 ID"
+            name="model_id"
+            extra="建议填写后台路由里的 provider_model_code，例如 us.anthropic.claude-3-5-haiku-20241022-v1:0。留空只校验凭证格式。"
+          >
+            <Input placeholder="us.anthropic.claude-3-5-haiku-20241022-v1:0" />
+          </Form.Item>
+          <Form.Item label="操作原因" name="reason">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" icon={<TestTube2 size={16} />}>
+            开始测试
           </Button>
         </Form>
       </Modal>

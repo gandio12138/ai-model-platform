@@ -37,6 +37,24 @@ interface CustomerUserRow {
 
 const platforms: Platform[] = ["ios", "android", "web", "api"];
 
+type ModelCategoryKey = "text_chat" | "embedding" | "image" | "video" | "rerank" | "legacy_inference_profile";
+type ToolsStatusKey = "supported" | "unsupported" | "unverified";
+
+const modelCategoryLabels: Record<ModelCategoryKey, string> = {
+  text_chat: "文本对话模型",
+  embedding: "Embedding 模型",
+  image: "图像模型",
+  video: "视频模型",
+  rerank: "Rerank 模型",
+  legacy_inference_profile: "Legacy / Inference Profile 模型"
+};
+
+const toolsStatusLabels: Record<ToolsStatusKey, string> = {
+  supported: "支持",
+  unsupported: "不支持",
+  unverified: "待验证"
+};
+
 @Injectable()
 export class PublicService {
   constructor(
@@ -365,6 +383,7 @@ export class PublicService {
               m.supports_tools,
               m.supports_json_mode,
               m.metadata as model_metadata,
+              tma.id as authorization_id,
               tma.rpm_limit,
               tma.tpm_limit,
               tma.daily_budget,
@@ -375,8 +394,11 @@ export class PublicService {
               tmp.pricing_mode,
               tmp.input_price_per_1k,
               tmp.output_price_per_1k
-         from tenant_model_authorizations tma
-         join models m on m.id = tma.model_id
+         from models m
+         left join tenant_model_authorizations tma
+           on tma.model_id = m.id
+          and tma.tenant_id = $1
+          and tma.status = 'active'
          left join lateral (
            select price_version,
                   currency,
@@ -392,9 +414,7 @@ export class PublicService {
             order by effective_from desc, created_at desc
             limit 1
          ) tmp on true
-        where tma.tenant_id = $1
-          and tma.status = 'active'
-          and m.status = 'active'
+        where m.status = 'active'
         order by m.model_family nulls last, m.display_name asc`,
       [context.tenant.id]
     );
@@ -1792,21 +1812,27 @@ export class PublicService {
   }
 
   private toModelResponse(row: any) {
+    const modelCategory = this.resolveModelCategory(row);
+    const toolsStatus = this.resolveToolsStatus(row, modelCategory);
     return {
       id: row.id,
       model_code: row.public_model_code,
       display_name: row.display_name,
       family: row.model_family,
       model_company: this.resolveModelCompany(row.public_model_code, row.display_name, row.model_family),
+      model_category: modelCategory,
+      model_category_label: modelCategoryLabels[modelCategory],
       modality: row.modality ?? [],
       max_context_tokens: row.max_context_tokens === null ? null : Number(row.max_context_tokens),
       default_max_output_tokens:
         row.default_max_output_tokens === null ? null : Number(row.default_max_output_tokens),
       capabilities: {
         stream: Boolean(row.supports_stream),
-        tools: Boolean(row.supports_tools),
+        tools: toolsStatus === "supported",
         json_mode: Boolean(row.supports_json_mode)
       },
+      tools_status: toolsStatus,
+      tools_status_label: toolsStatusLabels[toolsStatus],
       limits: {
         rpm: row.rpm_limit === null ? null : Number(row.rpm_limit),
         tpm: row.tpm_limit === null ? null : Number(row.tpm_limit),
@@ -1823,8 +1849,84 @@ export class PublicService {
             output_per_1k: row.output_price_per_1k === null ? null : Number(row.output_price_per_1k)
           }
         : null,
+      availability: {
+        authorized: Boolean(row.authorization_id),
+        priced: Boolean(row.price_version),
+        chat_enabled: Boolean(row.price_version)
+      },
       metadata: row.model_metadata ?? {}
     };
+  }
+
+  private resolveModelCategory(row: any): ModelCategoryKey {
+    const metadata = row.model_metadata ?? {};
+    const code = String(row.public_model_code ?? "").toLowerCase();
+    const name = String(row.display_name ?? "").toLowerCase();
+    const family = String(row.model_family ?? "").toLowerCase();
+    const searchable = `${code} ${name} ${family}`;
+    const inputModalities = this.normalizeStringArray(metadata.input_modalities ?? metadata.inputModalities ?? row.modality);
+    const outputModalities = this.normalizeStringArray(metadata.output_modalities ?? metadata.outputModalities ?? row.modality);
+    const inferenceTypes = this.normalizeStringArray(
+      metadata.inference_types_supported ?? metadata.inferenceTypesSupported
+    );
+    const lifecycleStatus = String(metadata.model_lifecycle?.status ?? metadata.modelLifecycle?.status ?? "").toLowerCase();
+    const invocationType = String(metadata.invocation_type ?? metadata.invocationType ?? "").toLowerCase();
+
+    if (
+      lifecycleStatus === "legacy" ||
+      invocationType === "inference_profile" ||
+      (inferenceTypes.includes("INFERENCE_PROFILE") && !inferenceTypes.includes("ON_DEMAND"))
+    ) {
+      return "legacy_inference_profile";
+    }
+
+    if (this.hasModality(outputModalities, "EMBEDDING") || /\b(embed|embedding)\b/.test(searchable)) {
+      return "embedding";
+    }
+    if (/\b(rerank|reranker|rank)\b/.test(searchable)) {
+      return "rerank";
+    }
+    if (this.hasModality(inputModalities, "VIDEO") || this.hasModality(outputModalities, "VIDEO") || /\b(video|reel)\b/.test(searchable)) {
+      return "video";
+    }
+    if (
+      this.hasModality(inputModalities, "IMAGE") ||
+      this.hasModality(outputModalities, "IMAGE") ||
+      /\b(image|canvas|stable|diffusion|upscale|titan-image|nova-canvas)\b/.test(searchable)
+    ) {
+      return "image";
+    }
+
+    return "text_chat";
+  }
+
+  private resolveToolsStatus(row: any, category: ModelCategoryKey): ToolsStatusKey {
+    const metadata = row.model_metadata ?? {};
+    const storedStatus = String(metadata.tools_status ?? "").toLowerCase();
+    if (storedStatus === "supported" || storedStatus === "unsupported" || storedStatus === "unverified") {
+      return storedStatus;
+    }
+    if (Boolean(row.supports_tools) || metadata.tools_verified === true || metadata.tool_use_verified === true) {
+      return "supported";
+    }
+    if (category === "embedding" || category === "image" || category === "video" || category === "rerank") {
+      return "unsupported";
+    }
+    return "unverified";
+  }
+
+  private normalizeStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      if (typeof value === "string" && value.length > 0) {
+        return [value.toUpperCase()];
+      }
+      return [];
+    }
+    return value.map((item) => String(item).toUpperCase()).filter(Boolean);
+  }
+
+  private hasModality(modalities: string[], expected: string) {
+    return modalities.some((item) => item === expected || item.includes(expected));
   }
 
   private resolveModelCompany(modelCode?: string | null, displayName?: string | null, family?: string | null) {

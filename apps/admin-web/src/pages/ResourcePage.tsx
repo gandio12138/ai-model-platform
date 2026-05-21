@@ -711,7 +711,7 @@ export default function ResourcePage(props: ResourcePageProps) {
       ...base,
       {
         title: "操作",
-        width: props.canDelete ? 210 : 142,
+        width: props.canDelete || props.rowActions ? 230 : 142,
         fixed: "right",
         render: renderActions
       }

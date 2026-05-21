@@ -7,6 +7,13 @@ import { Pool } from "pg";
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 dotenv.config();
 
+const seedAdminEmail = process.env.SEED_ADMIN_EMAIL ?? "seed-admin@local.invalid";
+const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD ?? crypto.randomBytes(18).toString("base64url");
+const seedTenantEmail = process.env.SEED_TENANT_EMAIL ?? "seed-tenant@local.invalid";
+const seedTenantPassword = process.env.SEED_TENANT_PASSWORD ?? crypto.randomBytes(18).toString("base64url");
+const seedCustomerEmail = process.env.SEED_CUSTOMER_EMAIL ?? "seed-customer@local.invalid";
+const seedCustomerPassword = process.env.SEED_CUSTOMER_PASSWORD ?? crypto.randomBytes(18).toString("base64url");
+
 const permissions = [
   "provider.read",
   "provider.write",
@@ -109,13 +116,13 @@ async function main() {
     "request_log.read"
   ]);
 
-  const passwordHash = await bcrypt.hash("Admin123456!", 12);
+  const passwordHash = await bcrypt.hash(seedAdminPassword, 12);
   const admin = await pool.query(
     `insert into users (email, password_hash, status, user_type, invite_code)
-     values ('admin@example.com', $1, 'active', 'admin', 'ADMIN')
+     values ($1, $2, 'active', 'admin', 'ADMIN')
      on conflict (email) do update set password_hash = excluded.password_hash, status = 'active', user_type = 'admin'
      returning id`,
-    [passwordHash]
+    [seedAdminEmail, passwordHash]
   );
   for (const roleId of [superAdminRoleId, platformMasterRoleId]) {
     await pool.query(
@@ -124,13 +131,13 @@ async function main() {
     );
   }
 
-  const supportPasswordHash = await bcrypt.hash("Support123456!", 12);
+  const supportPasswordHash = await bcrypt.hash(seedTenantPassword, 12);
   const support = await pool.query(
     `insert into users (email, password_hash, status, user_type, invite_code)
-     values ('support@example.com', $1, 'active', 'tenant', 'SUPPORT')
+     values ($1, $2, 'active', 'tenant', 'SUPPORT')
      on conflict (email) do update set password_hash = excluded.password_hash, status = 'active', user_type = 'tenant'
      returning id`,
-    [supportPasswordHash]
+    [seedTenantEmail, supportPasswordHash]
   );
   await pool.query(
     `insert into user_roles (user_id, role_id) values ($1, $2) on conflict do nothing`,
@@ -237,17 +244,17 @@ async function main() {
      on conflict (email) do update set status = 'active', user_type = 'developer'
      returning id`
   );
-  const webCustomerPasswordHash = await bcrypt.hash("Web123456!", 12);
+  const webCustomerPasswordHash = await bcrypt.hash(seedCustomerPassword, 12);
   const webCustomer = await pool.query(
     `insert into users (email, phone, password_hash, status, user_type, invite_code)
-     values ('web-customer@example.com', '13800000001', $1, 'active', 'consumer', 'WEB001')
+     values ($1, '13800000001', $2, 'active', 'consumer', 'WEB001')
      on conflict (email) do update
         set phone = coalesce(users.phone, excluded.phone),
             password_hash = excluded.password_hash,
             status = 'active',
             user_type = 'consumer'
      returning id`,
-    [webCustomerPasswordHash]
+    [seedCustomerEmail, webCustomerPasswordHash]
   );
 
   async function tenantCustomer(tenantId: string, userId: string, projectId: string, customerCode: string) {
@@ -339,6 +346,8 @@ async function main() {
      on conflict (code) do update set name = excluded.name, provider_type = excluded.provider_type
      returning id`
   );
+
+  if (process.env.SEED_FAKE_MODELS === "true") {
   const model = await pool.query(
     `insert into models (public_model_code, display_name, model_family, max_context_tokens, default_max_output_tokens, supports_stream, supports_tools, supports_json_mode, metadata)
      values ('anthropic.claude-3-5-sonnet-20241022-v2:0', 'Claude 3.5 Sonnet on Bedrock', 'Anthropic', 200000, 4096, true, true, false, '{"source":"seed"}'::jsonb)
@@ -442,6 +451,7 @@ async function main() {
       [`seed-${publicModelCode.replace(/[^a-zA-Z0-9]+/g, "-")}`, insertedModel.rows[0].id, provider.rows[0].id, publicModelCode]
     );
   }
+  }
 
   await pool.query(
     `insert into tenant_plans
@@ -494,45 +504,47 @@ async function main() {
      on conflict (rule_code, rule_version) do nothing`
   );
 
-  await pool.query(
-    `insert into tenant_model_authorizations
-      (tenant_id, model_id, status, max_context_tokens, rpm_limit, tpm_limit, monthly_budget, enabled_features)
-     select t.id, m.id, 'active', m.max_context_tokens, 600, 120000, 50000000, array['chat','stream','tools']
-       from tenants t
-      cross join models m
-     on conflict (tenant_id, model_id) do nothing`
-  );
+  if (process.env.SEED_FAKE_MODELS === "true") {
+    await pool.query(
+      `insert into tenant_model_authorizations
+        (tenant_id, model_id, status, max_context_tokens, rpm_limit, tpm_limit, monthly_budget, enabled_features)
+       select t.id, m.id, 'active', m.max_context_tokens, 600, 120000, 50000000, array['chat','stream','tools']
+         from tenants t
+        cross join models m
+       on conflict (tenant_id, model_id) do nothing`
+    );
 
-  await pool.query(
-    `insert into tenant_model_prices
-      (tenant_id, model_id, price_version, currency, pricing_mode, input_price_per_1k, output_price_per_1k, min_margin_multiplier, cost_plus_markup_rate, status)
-     select t.id, m.id, '2026-05-mvp', 'CNY', 'contract_price', 10, 40, 1.2000, 0.3000, 'active'
-       from tenants t
-      cross join models m
-     on conflict (tenant_id, model_id, price_version) do nothing`
-  );
+    await pool.query(
+      `insert into tenant_model_prices
+        (tenant_id, model_id, price_version, currency, pricing_mode, input_price_per_1k, output_price_per_1k, min_margin_multiplier, cost_plus_markup_rate, status)
+       select t.id, m.id, '2026-05-mvp', 'CNY', 'contract_price', 10, 40, 1.2000, 0.3000, 'active'
+         from tenants t
+        cross join models m
+       on conflict (tenant_id, model_id, price_version) do nothing`
+    );
 
-  await pool.query(
-    `insert into tenant_model_prices
-      (tenant_id, model_id, price_version, currency, pricing_mode, input_price_per_1k, output_price_per_1k, min_margin_multiplier, cost_plus_markup_rate, status)
-     select t.id,
-            mp.model_id,
-            '2026-05-catalog',
-            'CNY',
-            'contract_price',
-            mp.input_price_per_1k,
-            mp.output_price_per_1k,
-            1.2000,
-            0.3000,
-            'active'
-       from tenants t
-       join model_prices mp on mp.price_version = '2026-05-catalog' and mp.status = 'active'
-      on conflict (tenant_id, model_id, price_version) do update
-         set input_price_per_1k = excluded.input_price_per_1k,
-             output_price_per_1k = excluded.output_price_per_1k,
-             status = 'active',
-             updated_at = now()`
-  );
+    await pool.query(
+      `insert into tenant_model_prices
+        (tenant_id, model_id, price_version, currency, pricing_mode, input_price_per_1k, output_price_per_1k, min_margin_multiplier, cost_plus_markup_rate, status)
+       select t.id,
+              mp.model_id,
+              '2026-05-catalog',
+              'CNY',
+              'contract_price',
+              mp.input_price_per_1k,
+              mp.output_price_per_1k,
+              1.2000,
+              0.3000,
+              'active'
+         from tenants t
+         join model_prices mp on mp.price_version = '2026-05-catalog' and mp.status = 'active'
+        on conflict (tenant_id, model_id, price_version) do update
+           set input_price_per_1k = excluded.input_price_per_1k,
+               output_price_per_1k = excluded.output_price_per_1k,
+               status = 'active',
+               updated_at = now()`
+    );
+  }
 
   const rechargeProducts = [
     {
@@ -1115,7 +1127,7 @@ async function main() {
           estimated_cost_title: "发送前预估费用",
           payment_notice: "支付成功和权益到账以服务端确认、查单和钱包入账为准。",
           ai_disclaimer: "AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。",
-          model_catalog_intro: "查看当前账户可调用模型、价格、上下文长度和能力标签。"
+          model_catalog_intro: "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。"
         }
       }
     ],
@@ -1158,7 +1170,7 @@ async function main() {
     );
   }
 
-  console.log("seed complete: admin@example.com / Admin123456!, support@example.com / Support123456!");
+  console.log("seed complete. Set SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD, SEED_TENANT_EMAIL/SEED_TENANT_PASSWORD and SEED_CUSTOMER_EMAIL/SEED_CUSTOMER_PASSWORD to control local credentials.");
   await pool.end();
 }
 
