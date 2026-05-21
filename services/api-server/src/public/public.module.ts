@@ -1,10 +1,12 @@
 import { Module } from "@nestjs/common";
+import { ConfigResolutionModule } from "../config-resolution/config-resolution.module.js";
 import { CustomerSessionService } from "./customer-session.service.js";
 import { PublicAuthGuard } from "./public-auth.guard.js";
 import { PublicController } from "./public.controller.js";
 import { PublicService } from "./public.service.js";
 
 @Module({
+  imports: [ConfigResolutionModule],
   controllers: [PublicController],
   providers: [PublicService, PublicAuthGuard, CustomerSessionService],
   exports: [PublicService, PublicAuthGuard, CustomerSessionService]

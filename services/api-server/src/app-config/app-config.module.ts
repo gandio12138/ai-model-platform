@@ -1,10 +1,10 @@
 import { Module } from "@nestjs/common";
-import { PublicModule } from "../public/public.module.js";
+import { ConfigResolutionModule } from "../config-resolution/config-resolution.module.js";
 import { AppConfigController } from "./app-config.controller.js";
 import { AppConfigService } from "./app-config.service.js";
 
 @Module({
-  imports: [PublicModule],
+  imports: [ConfigResolutionModule],
   controllers: [AppConfigController],
   providers: [AppConfigService]
 })

@@ -165,6 +165,63 @@ export interface AppRelease {
   published_at?: string | null;
 }
 
+export interface SiteConfigPayload {
+  tenant: BootstrapPayload["tenant"];
+  project: BootstrapPayload["project"];
+  platform: string;
+  site_config: {
+    branding: {
+      site_name: string;
+      logo_url?: string | null;
+      slogan?: string | null;
+      hero_title: string;
+      hero_subtitle: string;
+      footer_text?: string | null;
+      icp_text?: string | null;
+    };
+    navigation: Array<{ key: string; label: string; href?: string; visible: boolean }>;
+    announcements: Array<{ title: string; content: string; level: "info" | "warning" | "success"; visible: boolean; start_at?: string; end_at?: string }>;
+    faq: Array<{ question: string; answer: string; sort_order: number; visible: boolean }>;
+    support: { email?: string | null; work_time?: string | null; telegram?: string | null; discord?: string | null };
+    legal: { terms_url?: string | null; privacy_url?: string | null; ai_disclaimer_url?: string | null };
+  };
+  app_download: {
+    enabled: boolean;
+    show_on_web_home: boolean;
+    show_on_console: boolean;
+    show_on_payment_success: boolean;
+    title: string;
+    subtitle?: string | null;
+    ios: {
+      enabled: boolean;
+      app_store_url?: string | null;
+      testflight_url?: string | null;
+      download_url?: string | null;
+      version?: string | null;
+      min_supported_version?: string | null;
+      release_notes?: string | null;
+    };
+    android: {
+      enabled: boolean;
+      apk_url?: string | null;
+      official_url?: string | null;
+      markets?: Array<{ channel: string; name: string; url: string; enabled: boolean }>;
+      version?: string | null;
+      min_supported_version?: string | null;
+      release_notes?: string | null;
+    };
+    qr_code_url?: string | null;
+    release_notes?: string | null;
+    releases?: AppRelease[];
+  };
+  web_payment_entry: {
+    enabled: boolean;
+    url?: string | null;
+    show_on_web: boolean;
+  };
+  feature_flags: Record<string, unknown>;
+}
+
 export interface CommissionRecord {
   id: string;
   source_user_id?: string | null;

@@ -105,6 +105,7 @@ const paymentMethodOptions = [
   { value: "apple_iap", label: "Apple IAP" },
   { value: "alipay_app", label: "支付宝 App 支付" },
   { value: "wechat_app", label: "微信 App 支付" },
+  { value: "unionpay_or_bank_card", label: "银联/银行卡" },
   { value: "alipay_qr", label: "支付宝二维码支付" },
   { value: "wechat_native", label: "微信 Native 支付" },
   { value: "card_checkout", label: "银行卡/信用卡托管收银台" },
@@ -215,6 +216,8 @@ function canAccess(user: AdminSessionUser | null, item: Pick<MenuItem, "permissi
 
 const adminOnly: AccountType[] = ["admin"];
 const adminAndTenant: AccountType[] = ["admin", "tenant"];
+const enableSaasBilling = import.meta.env.VITE_ENABLE_SAAS_BILLING === "true";
+const enableRiskCenter = import.meta.env.VITE_ENABLE_RISK_CENTER === "true";
 
 const menuSections = [
   {
@@ -237,7 +240,7 @@ const menuSections = [
       { key: "/api-keys", icon: <KeyOutlined />, label: "API Key", permission: "api_key.read", accountTypes: adminAndTenant }
     ]
   },
-  {
+  ...(enableSaasBilling ? ([{
     key: "saas-billing",
     icon: <BankOutlined />,
     label: "SaaS 计费",
@@ -251,7 +254,7 @@ const menuSections = [
       { key: "/commissions", icon: <PayCircleOutlined />, label: "代理佣金", permission: "commission.read", accountTypes: adminOnly },
       { key: "/commission-withdrawals", icon: <WalletOutlined />, label: "佣金提现", permission: "commission.read", accountTypes: adminOnly }
     ]
-  },
+  }] satisfies MenuSection[]) : []),
   {
     key: "model-supply",
     icon: <ApiOutlined />,
@@ -272,11 +275,11 @@ const menuSections = [
     children: [
       { key: "/payment-orders", icon: <PayCircleOutlined />, label: "支付订单", permission: "payment.read", accountTypes: adminAndTenant },
       { key: "/payment-transactions", icon: <FileSearchOutlined />, label: "支付交易", permission: "payment.read", accountTypes: adminAndTenant },
-      { key: "/payment-order-events", icon: <FileTextOutlined />, label: "状态流转", permission: "payment.read", accountTypes: adminAndTenant },
+      { key: "/payment-order-events", icon: <FileTextOutlined />, label: "订单事件", permission: "payment.read", accountTypes: adminAndTenant },
       { key: "/payment-refunds", icon: <WalletOutlined />, label: "退款记录", permission: "payment.read", accountTypes: adminAndTenant },
-      { key: "/payment-products", icon: <BankOutlined />, label: "客户套餐", permission: "payment.read", accountTypes: adminOnly },
-      { key: "/payment-product-visibility", icon: <DeploymentUnitOutlined />, label: "套餐展示", permission: "payment.read", accountTypes: adminOnly },
-      { key: "/payment-channels", icon: <ControlOutlined />, label: "渠道配置", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/payment-products", icon: <BankOutlined />, label: "充值套餐/付费商品", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/payment-product-visibility", icon: <DeploymentUnitOutlined />, label: "套餐上架/展示规则", permission: "payment.read", accountTypes: adminOnly },
+      { key: "/payment-channels", icon: <ControlOutlined />, label: "支付渠道", permission: "payment.read", accountTypes: adminOnly },
       { key: "/payment-callbacks", icon: <FileSearchOutlined />, label: "支付回调", permission: "payment.read", accountTypes: adminOnly },
       { key: "/reconciliation-records", icon: <FileSearchOutlined />, label: "对账记录", permission: "payment.reconcile", accountTypes: adminOnly },
       { key: "/wallet-ledger", icon: <WalletOutlined />, label: "钱包流水", permission: "wallet.read", accountTypes: adminOnly }
@@ -289,13 +292,15 @@ const menuSections = [
     children: [
       { key: "/users", icon: <TeamOutlined />, label: "账号管理", permission: "user.read", accountTypes: adminOnly },
       { key: "/request-logs", icon: <FileSearchOutlined />, label: "请求日志", permission: "request_log.read", accountTypes: adminAndTenant },
-      { key: "/provider-request-attempts", icon: <FileSearchOutlined />, label: "Provider 尝试", permission: "request_log.read", accountTypes: adminAndTenant },
-      { key: "/configs", icon: <SettingOutlined />, label: "配置发布", permission: "config.read", accountTypes: adminOnly },
+      { key: "/provider-request-attempts", icon: <FileSearchOutlined />, label: "上游调用尝试", permission: "request_log.read", accountTypes: adminAndTenant },
+      { key: "/configs", icon: <SettingOutlined />, label: "配置中心", permission: "config.read", accountTypes: adminOnly },
       { key: "/app-releases", icon: <MobileOutlined />, label: "App 版本", permission: "config.read", accountTypes: adminOnly },
       { key: "/policy-documents", icon: <FileTextOutlined />, label: "协议政策", permission: "config.read", accountTypes: adminOnly },
-      { key: "/content-reports", icon: <AuditOutlined />, label: "内容举报", permission: "audit.read", accountTypes: adminOnly },
-      { key: "/account-deletion-requests", icon: <AuditOutlined />, label: "注销申请", permission: "audit.read", accountTypes: adminOnly },
-      { key: "/risk-events", icon: <AuditOutlined />, label: "风控事件", permission: "audit.read", accountTypes: adminOnly },
+      ...(enableRiskCenter ? ([
+        { key: "/content-reports", icon: <AuditOutlined />, label: "内容举报", permission: "audit.read", accountTypes: adminOnly },
+        { key: "/account-deletion-requests", icon: <AuditOutlined />, label: "注销申请", permission: "audit.read", accountTypes: adminOnly },
+        { key: "/risk-events", icon: <AuditOutlined />, label: "风控事件", permission: "audit.read", accountTypes: adminOnly }
+      ] satisfies MenuItem[]) : []),
       { key: "/audit-logs", icon: <AuditOutlined />, label: "审计日志", permission: "audit.read", accountTypes: adminOnly }
     ]
   }
@@ -666,15 +671,15 @@ function Shell({
                     ["monthly_budget", "月预算（元）", "money"]
                   ]}
                   editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["max_context_tokens", "上下文上限", "number"],
-                    ["rpm_limit", "RPM", "number"],
-                    ["tpm_limit", "TPM", "number"],
-                    ["daily_budget", "日预算（元）", "money"],
-                    ["monthly_budget", "月预算（元）", "money"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
+                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
+                    { key: "max_context_tokens", label: "上下文上限", kind: "number" },
+                    { key: "rpm_limit", label: "RPM", kind: "number" },
+                    { key: "tpm_limit", label: "TPM", kind: "number" },
+                    { key: "daily_budget", label: "日预算（元）", kind: "money" },
+                    { key: "monthly_budget", label: "月预算（元）", kind: "money" },
+                    { key: "metadata", label: "扩展信息 JSON", kind: "json" }
                   ]}
                   canCreate={can("tenant.model.write")}
                   canEdit={can("tenant.model.write")}
@@ -701,19 +706,19 @@ function Shell({
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
-                    ["price_version", "价格版本"],
-                    ["currency", "币种"],
-                    ["pricing_mode", "计价模式", "select", undefined, undefined, pricingModeOptions],
-                    ["input_price_per_1k", "输入/1K（元）", "money"],
-                    ["output_price_per_1k", "输出/1K（元）", "money"],
-                    ["min_margin_multiplier", "最低毛利倍率"],
-                    ["cost_plus_markup_rate", "成本加价率"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["effective_from", "生效开始 ISO"],
-                    ["effective_to", "生效结束 ISO"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
+                    { key: "price_version", label: "价格版本", required: true },
+                    { key: "currency", label: "币种", placeholder: "CNY" },
+                    { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
+                    { key: "input_price_per_1k", label: "输入/1K（元）", kind: "money", required: true },
+                    { key: "output_price_per_1k", label: "输出/1K（元）", kind: "money", required: true },
+                    { key: "min_margin_multiplier", label: "最低毛利倍率" },
+                    { key: "cost_plus_markup_rate", label: "成本加价率" },
+                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
+                    { key: "effective_from", label: "生效开始 ISO", kind: "datetime" },
+                    { key: "effective_to", label: "生效结束 ISO", kind: "datetime" },
+                    { key: "metadata", label: "扩展信息 JSON", kind: "json" }
                   ]}
                   canCreate={can("tenant.model.write")}
                   canEdit={can("tenant.model.write")}
@@ -927,7 +932,7 @@ function Shell({
                 "payment.read",
                 adminOnly,
                 <ResourcePage
-                  title="客户套餐 / 付费商品"
+                  title="充值套餐 / 付费商品"
                   endpoint="/api/admin/payment/products"
                   rowKey="id"
                   columns={[
@@ -942,17 +947,18 @@ function Shell({
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["product_code", "套餐编码"],
-                    ["name", "套餐名称"],
-                    ["product_type", "套餐类型", "select", undefined, undefined, paymentProductTypeOptions],
-                    ["face_value_amount", "到账额度（元）", "money"],
-                    ["bonus_amount", "赠送额度（元）", "money"],
-                    ["sale_amount", "售价（元）", "money"],
-                    ["currency", "币种"],
-                    ["ios_product_id", "App Store 商品 ID"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["metadata", "展示权益 JSON", "json"]
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "project_id", label: "项目", kind: "select", optionsResource: "tenant-projects", dependsOn: ["tenant_id"], remoteSearch: true },
+                    { key: "product_code", label: "套餐编码", required: true, help: "用于 Web/App/API 下单和展示规则关联，保存后不建议随意修改。" },
+                    { key: "name", label: "套餐名称", required: true },
+                    { key: "product_type", label: "套餐类型", kind: "select", options: paymentProductTypeOptions, required: true },
+                    { key: "face_value_amount", label: "到账额度（元）", kind: "money", required: true },
+                    { key: "bonus_amount", label: "赠送额度（元）", kind: "money" },
+                    { key: "sale_amount", label: "售价（元）", kind: "money", required: true },
+                    { key: "currency", label: "币种", placeholder: "CNY" },
+                    { key: "ios_product_id", label: "App Store 商品 ID", visibleWhen: { product_type: "recharge_credit" } },
+                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
+                    { key: "metadata", label: "展示权益 JSON", kind: "json", help: "features、badge、valid_days 等端侧展示属性。" }
                   ]}
                   canCreate={can("payment.reconcile")}
                   canEdit={can("payment.reconcile")}
@@ -965,11 +971,11 @@ function Shell({
                 "payment.read",
                 adminOnly,
                 <ResourcePage
-                  title="套餐展示范围"
+                  title="套餐上架 / 展示规则"
                   endpoint="/api/admin/payment/product-visibility"
                   rowKey="id"
                   columns={[
-                    ["product_name", "客户套餐"],
+                    ["product_name", "充值套餐"],
                     ["tenant_name", "租户"],
                     ["project_name", "展示项目"],
                     ["platform", "展示端", "select", undefined, undefined, platformOptions],
@@ -979,16 +985,16 @@ function Shell({
                     ["sort_order", "排序"]
                   ]}
                   editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["product_id", "客户套餐", "select", "/api/admin/payment/products", "name"],
-                    ["project_id", "展示项目", "select", "/api/admin/tenant-projects", "name"],
-                    ["platform", "展示端", "select", undefined, undefined, platformOptions],
-                    ["display_name", "展示名称"],
-                    ["display_description", "展示说明"],
-                    ["badge", "角标"],
-                    ["sort_order", "排序", "number"],
-                    ["enabled", "启用", "boolean"],
-                    ["metadata", "端侧配置 JSON", "json"]
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "platform", label: "展示端", kind: "select", optionsResource: "platforms", required: true },
+                    { key: "project_id", label: "展示项目", kind: "select", optionsResource: "tenant-projects", dependsOn: ["tenant_id", "platform"], remoteSearch: true },
+                    { key: "product_id", label: "充值套餐", kind: "select", optionsResource: "payment-products", dependsOn: ["tenant_id", "project_id"], remoteSearch: true, required: true },
+                    { key: "display_name", label: "展示名称" },
+                    { key: "display_description", label: "展示说明", kind: "textarea" },
+                    { key: "badge", label: "角标" },
+                    { key: "sort_order", label: "排序", kind: "number" },
+                    { key: "enabled", label: "启用", kind: "boolean" },
+                    { key: "metadata", label: "端侧配置 JSON", kind: "json" }
                   ]}
                   canCreate={can("payment.reconcile")}
                   canEdit={can("payment.reconcile")}
@@ -1015,19 +1021,35 @@ function Shell({
                     ["settlement_mode", "结算方式", "select", undefined, undefined, settlementModeOptions],
                     ["enabled", "启用", "boolean"]
                   ]}
-                  editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
+                  detailFields={[
+                    ["tenant_id", "租户"],
+                    ["project_id", "项目"],
                     ["channel_code", "渠道编码"],
                     ["channel_type", "渠道类型"],
                     ["display_name", "展示名"],
-                    ["platform", "平台", "select", undefined, undefined, platformOptions],
-                    ["payment_method", "支付方式", "select", undefined, undefined, paymentMethodOptions],
-                    ["settlement_mode", "结算方式", "select", undefined, undefined, settlementModeOptions],
-                    ["fee_rate_bps", "通道费率 BPS", "number"],
-                    ["sort_order", "排序", "number"],
+                    ["platform", "平台"],
+                    ["payment_method", "支付方式"],
+                    ["settlement_mode", "结算方式"],
+                    ["fee_rate_bps", "通道费率 BPS"],
+                    ["sort_order", "排序"],
                     ["enabled", "启用", "boolean"],
-                    ["config", "配置 JSON", "json"]
+                    { key: "config", label: "渠道配置", kind: "json", sensitive: true },
+                    ["created_at", "创建时间"],
+                    ["updated_at", "更新时间"]
+                  ]}
+                  editableFields={[
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "platform", label: "平台", kind: "select", optionsResource: "platforms", required: true },
+                    { key: "project_id", label: "项目", kind: "select", optionsResource: "tenant-projects", dependsOn: ["tenant_id", "platform"], remoteSearch: true },
+                    { key: "channel_code", label: "渠道编码", required: true },
+                    { key: "channel_type", label: "渠道类型", required: true },
+                    { key: "display_name", label: "展示名", required: true },
+                    { key: "payment_method", label: "支付方式", kind: "select", optionsResource: "payment-methods", dependsOn: ["platform"], required: true },
+                    { key: "settlement_mode", label: "结算方式", kind: "select", options: settlementModeOptions, required: true },
+                    { key: "fee_rate_bps", label: "通道费率 BPS", kind: "number" },
+                    { key: "sort_order", label: "排序", kind: "number" },
+                    { key: "enabled", label: "启用", kind: "boolean" },
+                    { key: "config", label: "渠道配置 JSON", kind: "json", sensitive: true, help: "商户密钥、私钥等敏感字段保存后不回显；留空表示不修改。" }
                   ]}
                   canCreate={can("payment.reconcile")}
                   canEdit={can("payment.reconcile")}
@@ -1219,6 +1241,27 @@ function Shell({
                     ["latency_ms", "延迟"],
                     ["created_at", "创建时间"]
                   ]}
+                  detailFields={[
+                    ["tenant_id", "租户"],
+                    ["project_id", "项目"],
+                    ["user_id", "客户账号"],
+                    ["api_key_id", "API Key"],
+                    ["request_id", "请求编号"],
+                    ["source", "来源"],
+                    ["public_model_code", "模型"],
+                    ["stream", "流式", "boolean"],
+                    ["status", "状态"],
+                    ["prompt_tokens", "输入 Tokens"],
+                    ["completion_tokens", "输出 Tokens"],
+                    ["total_tokens", "总 Tokens"],
+                    ["actual_cost_amount", "实际消耗", "money"],
+                    ["currency", "币种"],
+                    ["latency_ms", "延迟"],
+                    ["finish_reason", "结束原因"],
+                    ["error_code", "错误码"],
+                    ["error_message", "错误信息"],
+                    ["created_at", "创建时间"]
+                  ]}
                 />
               )}
             />
@@ -1228,7 +1271,7 @@ function Shell({
                 "request_log.read",
                 adminAndTenant,
                 <ResourcePage
-                  title="Provider 请求尝试"
+                  title="上游调用尝试"
                   endpoint="/api/admin/provider-request-attempts"
                   rowKey="id"
                   columns={[
@@ -1242,6 +1285,25 @@ function Shell({
                     ["status", "状态"],
                     ["latency_ms", "延迟"],
                     ["error_code", "错误码"],
+                    ["created_at", "创建时间"]
+                  ]}
+                  detailFields={[
+                    ["tenant_id", "租户"],
+                    ["project_id", "项目"],
+                    ["request_log_id", "请求日志"],
+                    ["provider_id", "Provider"],
+                    ["route_id", "路由"],
+                    ["provider_request_id", "上游请求编号"],
+                    ["provider_model_code", "上游模型"],
+                    ["attempt_no", "尝试次数"],
+                    ["status", "状态"],
+                    ["latency_ms", "延迟"],
+                    ["prompt_tokens", "输入 Tokens"],
+                    ["completion_tokens", "输出 Tokens"],
+                    ["total_tokens", "总 Tokens"],
+                    ["provider_cost_amount", "上游成本", "money"],
+                    ["error_code", "错误码"],
+                    ["error_message", "错误信息"],
                     ["created_at", "创建时间"]
                   ]}
                 />
@@ -1270,21 +1332,21 @@ function Shell({
                     ["published_at", "发布时间"]
                   ]}
                   editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
-                    ["platform", "平台", "select", undefined, undefined, platformOptions.filter((item) => item.value === "ios" || item.value === "android")],
-                    ["distribution_channel", "分发渠道", "select", undefined, undefined, distributionChannelOptions],
-                    ["version", "版本号"],
-                    ["build_number", "Build", "number"],
-                    ["release_status", "状态", "select", undefined, undefined, appReleaseStatusOptions],
-                    ["min_supported_version", "最低支持版本"],
-                    ["force_update", "强制更新", "boolean"],
-                    ["download_url", "下载地址"],
-                    ["changelog", "更新说明"],
-                    ["file_size_bytes", "文件大小 Bytes", "number"],
-                    ["checksum_sha256", "SHA-256"],
-                    ["published_at", "发布时间 ISO"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "platform", label: "平台", kind: "select", options: platformOptions.filter((item) => item.value === "ios" || item.value === "android"), required: true },
+                    { key: "project_id", label: "项目", kind: "select", optionsResource: "tenant-projects", dependsOn: ["tenant_id", "platform"], remoteSearch: true },
+                    { key: "distribution_channel", label: "分发渠道", kind: "select", optionsResource: "distribution-channels", dependsOn: ["platform"], required: true },
+                    { key: "version", label: "版本号", required: true },
+                    { key: "build_number", label: "Build", kind: "number" },
+                    { key: "release_status", label: "状态", kind: "select", options: appReleaseStatusOptions, required: true },
+                    { key: "min_supported_version", label: "最低支持版本" },
+                    { key: "force_update", label: "强制更新", kind: "boolean" },
+                    { key: "download_url", label: "下载地址", kind: "url", required: true },
+                    { key: "changelog", label: "更新说明", kind: "textarea" },
+                    { key: "file_size_bytes", label: "文件大小 Bytes", kind: "number" },
+                    { key: "checksum_sha256", label: "SHA-256" },
+                    { key: "published_at", label: "发布时间 ISO", kind: "datetime" },
+                    { key: "metadata", label: "扩展信息 JSON", kind: "json" }
                   ]}
                   canCreate={can("config.write")}
                   canEdit={can("config.write")}
@@ -1399,6 +1461,21 @@ function Shell({
                     ["distribution_channel", "分发渠道"],
                     ["created_at", "创建时间"]
                   ]}
+                  detailFields={[
+                    ["tenant_id", "租户"],
+                    ["project_id", "项目"],
+                    ["user_id", "用户"],
+                    ["event_type", "事件类型"],
+                    ["risk_type", "风控类型"],
+                    ["risk_level", "风控等级"],
+                    ["subject_type", "主体类型"],
+                    ["subject_id", "主体 ID"],
+                    ["ip_address", "IP"],
+                    ["device_id", "设备 ID"],
+                    ["distribution_channel", "分发渠道"],
+                    ["metadata", "扩展信息", "json"],
+                    ["created_at", "创建时间"]
+                  ]}
                 />
               )}
             />
@@ -1416,6 +1493,16 @@ function Shell({
                     ["target_type", "目标类型"],
                     ["target_id", "目标 ID"],
                     ["ip", "IP"],
+                    ["approval_no", "原因/审批号"],
+                    ["created_at", "时间"]
+                  ]}
+                  detailFields={[
+                    ["actor_user_id", "操作人"],
+                    ["action", "动作"],
+                    ["target_type", "目标类型"],
+                    ["target_id", "目标 ID"],
+                    ["ip", "IP"],
+                    ["user_agent", "User Agent"],
                     ["approval_no", "原因/审批号"],
                     ["created_at", "时间"]
                   ]}

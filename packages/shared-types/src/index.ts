@@ -115,6 +115,7 @@ export interface AppConfig {
   content_safety_notice: string;
   min_supported_app_version: string | null;
   maintenance_mode: boolean;
+  app_download?: AppDownloadConfig;
   feature_flags: Record<string, boolean | string | number | null>;
 }
 
@@ -135,6 +136,92 @@ export interface AppRelease {
   checksum_sha256?: string | null;
   published_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface SiteConfig {
+  branding: {
+    site_name: string;
+    logo_url?: string | null;
+    slogan?: string | null;
+    hero_title: string;
+    hero_subtitle: string;
+    footer_text?: string | null;
+    icp_text?: string | null;
+  };
+  navigation: Array<{
+    key: string;
+    label: string;
+    href?: string;
+    visible: boolean;
+  }>;
+  announcements: Array<{
+    title: string;
+    content: string;
+    level: "info" | "warning" | "success" | string;
+    start_at?: string;
+    end_at?: string;
+    visible: boolean;
+  }>;
+  faq: Array<{
+    question: string;
+    answer: string;
+    sort_order: number;
+    visible: boolean;
+  }>;
+  support: {
+    email?: string | null;
+    work_time?: string | null;
+    telegram?: string | null;
+    discord?: string | null;
+  };
+  legal: {
+    terms_url?: string | null;
+    privacy_url?: string | null;
+    ai_disclaimer_url?: string | null;
+  };
+}
+
+export interface AppDownloadConfig {
+  enabled: boolean;
+  show_on_web_home: boolean;
+  show_on_console: boolean;
+  show_on_payment_success: boolean;
+  title: string;
+  subtitle?: string | null;
+  ios: {
+    enabled: boolean;
+    app_store_url?: string | null;
+    testflight_url?: string | null;
+    download_url?: string | null;
+    version?: string | null;
+    min_supported_version?: string | null;
+    release_notes?: string | null;
+  };
+  android: {
+    enabled: boolean;
+    apk_url?: string | null;
+    official_url?: string | null;
+    markets?: Array<{ channel: string; name: string; url: string; enabled: boolean }>;
+    version?: string | null;
+    min_supported_version?: string | null;
+    release_notes?: string | null;
+  };
+  qr_code_url?: string | null;
+  release_notes?: string | null;
+  releases?: AppRelease[];
+}
+
+export interface SiteConfigPayload {
+  tenant: { id: string; tenant_code: string; name: string; tenant_type?: string; billing_mode?: string; current_plan_code?: string | null };
+  project: { id: string; project_code: string; name: string; platform: string } | null;
+  platform: Platform | string;
+  site_config: SiteConfig;
+  app_download: AppDownloadConfig;
+  web_payment_entry: Record<string, unknown>;
+  payment_methods?: PaymentMethod[];
+  maintenance_mode: boolean;
+  feature_flags: Record<string, unknown>;
+  resolved_at: string;
 }
 
 export interface ModelInfo {

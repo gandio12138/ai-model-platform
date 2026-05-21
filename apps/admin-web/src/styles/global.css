@@ -324,6 +324,115 @@ body {
   margin-top: 12px;
 }
 
+.config-center-header {
+  margin-bottom: 12px;
+}
+
+.modal-alert {
+  margin-bottom: 16px;
+}
+
+.json-preview {
+  max-height: 520px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.version-list {
+  display: grid;
+  gap: 12px;
+}
+
+.version-list article {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+
+.version-list strong {
+  color: var(--app-text);
+}
+
+.version-list span,
+.version-list em,
+.version-list p {
+  margin: 0;
+  color: var(--app-subtle);
+  font-size: 12px;
+}
+
+.config-quick-editor {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+}
+
+.config-quick-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.config-quick-editor-head h4 {
+  margin: 0 0 4px;
+}
+
+.config-quick-form {
+  display: grid;
+  gap: 12px;
+}
+
+.config-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.config-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-grid.three {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.config-platform-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.config-platform-panels article {
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-bg);
+}
+
+.config-platform-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.config-platform-title strong {
+  color: var(--app-text);
+}
+
 :root[data-admin-theme="dark"] .login-page {
   background: linear-gradient(135deg, #0d1420 0%, #111827 52%, #182033 100%);
 }
@@ -340,5 +449,11 @@ body {
   .page-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .config-grid.two,
+  .config-grid.three,
+  .config-platform-panels {
+    grid-template-columns: 1fr;
   }
 }

@@ -1024,11 +1024,110 @@ async function main() {
     );
   }
 
-  await pool.query(
-    `insert into configs (config_key, config_type, draft_value, published_value, status, config_version)
-     values ('web_payment_entry', 'checkout', '{"enabled":true,"url":"https://pay.example.com"}', '{"enabled":true,"url":"https://pay.example.com"}', 'published', 1)
-     on conflict (config_key) do nothing`
-  );
+  const configRows = [
+    [
+      "web_payment_entry",
+      "checkout",
+      {
+        enabled: true,
+        url: process.env.WEB_PAYMENT_URL ?? "https://pay.example.com",
+        show_on_web: true,
+        show_in_android_app: true,
+        show_in_ios_app: false,
+        legal_approved: false
+      }
+    ],
+    [
+      "site_config",
+      "site",
+      {
+        branding: {
+          site_name: "OneToken",
+          slogan: "企业级大模型服务平台",
+          hero_title: "一站式企业级大模型服务平台",
+          hero_subtitle:
+            "通过一个高速、稳定、统一的接口，轻松调用所有主流大模型。不限时间、按量计费、明细透明，在线充值后即可使用所有模型。",
+          footer_text: "© 2026 OneToken. 版权所有"
+        },
+        navigation: [
+          { key: "home", label: "首页", visible: true },
+          { key: "console", label: "控制台", visible: true },
+          { key: "models", label: "模型广场", visible: true },
+          { key: "docs", label: "文档", visible: true }
+        ],
+        announcements: [
+          {
+            title: "模型网关已上线",
+            content: "Token API 接入采用 OpenAI 兼容格式，调用时使用 Bearer API Key。",
+            level: "info",
+            visible: true
+          },
+          {
+            title: "移动端内测",
+            content: "App 下载入口由管理后台 App 下载配置和 App 版本下载记录统一控制。",
+            level: "success",
+            visible: true
+          }
+        ],
+        faq: [
+          {
+            question: "中转站的计费模式是怎样的？",
+            answer: "按模型实际消耗和后台价格配置扣费，Web、App、API 共用同一个客户钱包。",
+            sort_order: 1,
+            visible: true
+          },
+          {
+            question: "如何将现有 OpenAI 代码迁移？",
+            answer: "替换 Base URL 和 API Key 即可复用原有 Chat Completions 调用。",
+            sort_order: 2,
+            visible: true
+          }
+        ],
+        support: {
+          email: process.env.SUPPORT_EMAIL ?? "support@onetoken.local",
+          work_time: "工作日 09:00-18:00"
+        },
+        legal: {}
+      }
+    ],
+    [
+      "app_download",
+      "app_download",
+      {
+        enabled: true,
+        show_on_web_home: true,
+        show_on_console: true,
+        show_on_payment_success: true,
+        title: "移动端随时使用 OneToken",
+        subtitle: "App、Web 与 API 共用同一个客户账号和余额。",
+        ios: { enabled: true },
+        android: { enabled: true }
+      }
+    ],
+    [
+      "feature_flags",
+      "feature_flags",
+      {
+        developer_api_enabled: true,
+        referral_enabled: true,
+        model_list_enabled: true,
+        chat_enabled: true
+      }
+    ]
+  ] as const;
+  for (const [configKey, configType, value] of configRows) {
+    await pool.query(
+      `insert into configs (config_key, config_type, draft_value, published_value, status, config_version)
+       values ($1, $2, $3::jsonb, $3::jsonb, 'published', 1)
+       on conflict (config_key) do update
+          set config_type = excluded.config_type,
+              draft_value = case when configs.status = 'draft' then configs.draft_value else excluded.draft_value end,
+              published_value = coalesce(configs.published_value, excluded.published_value),
+              status = case when configs.published_value is null then 'published' else configs.status end,
+              updated_at = now()`,
+      [configKey, configType, JSON.stringify(value)]
+    );
+  }
 
   console.log("seed complete: admin@example.com / Admin123456!, support@example.com / Support123456!");
   await pool.end();

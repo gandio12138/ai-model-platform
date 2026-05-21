@@ -113,6 +113,7 @@ class AppConfig {
     required this.settlementNotice,
     required this.iosIapEnabled,
     required this.androidUnifiedCheckoutEnabled,
+    required this.appDownload,
     this.webPaymentUrl,
     this.tenantPlanCode,
   });
@@ -137,6 +138,7 @@ class AppConfig {
   final String settlementNotice;
   final bool iosIapEnabled;
   final bool androidUnifiedCheckoutEnabled;
+  final Map<String, dynamic> appDownload;
 
   factory AppConfig.fromJson(Map<String, dynamic> json) {
     return AppConfig(
@@ -172,6 +174,9 @@ class AppConfig {
         json['android_unified_checkout_enabled'],
         true,
       ),
+      appDownload: json['app_download'] is Map
+          ? Map<String, dynamic>.from(json['app_download'] as Map)
+          : const <String, dynamic>{},
     );
   }
 }

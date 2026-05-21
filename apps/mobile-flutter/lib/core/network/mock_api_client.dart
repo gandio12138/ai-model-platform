@@ -54,6 +54,12 @@ class MockOneTokenApi implements OneTokenApi {
       settlementNotice: 'Mock 环境下客户付款进入同一钱包，正式环境会由服务端汇总租户结算记录。',
       iosIapEnabled: isIos,
       androidUnifiedCheckoutEnabled: !isIos,
+      appDownload: const {
+        'enabled': true,
+        'show_on_web_home': true,
+        'show_on_console': true,
+        'show_on_payment_success': true,
+      },
     );
   }
 
