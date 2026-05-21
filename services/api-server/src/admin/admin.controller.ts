@@ -40,6 +40,11 @@ export class AdminController {
     return this.admin.dashboard(req.user);
   }
 
+  @Get("options/:resource")
+  options(@Param("resource") resource: string, @Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.options(resource, query, req.user);
+  }
+
   @RequirePermissions("user.read")
   @Get("users")
   users(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
@@ -603,6 +608,18 @@ export class AdminController {
   @Post("configs/:id/publish")
   publishConfig(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
     return this.admin.publishConfig(id, body, req.user, actor(req));
+  }
+
+  @RequirePermissions("config.read")
+  @Get("configs/:id/preview")
+  previewConfig(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.previewConfig(id, query, req.user);
+  }
+
+  @RequirePermissions("config.read")
+  @Get("configs/:id/versions")
+  configVersions(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.configVersions(id, query, req.user);
   }
 
   @RequirePermissions("config.publish")

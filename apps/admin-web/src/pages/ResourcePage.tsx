@@ -1,19 +1,75 @@
 import { Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
 
 type FieldOption = { label: string; value: string };
+type FieldKind =
+  | "text"
+  | "number"
+  | "money"
+  | "boolean"
+  | "json"
+  | "select"
+  | "multi_select"
+  | "textarea"
+  | "url"
+  | "datetime";
 
-export type FieldSpec = [
+type TupleFieldSpec = [
   key: string,
   label: string,
-  kind?: "text" | "number" | "money" | "boolean" | "json" | "select",
+  kind?: FieldKind,
   optionsEndpoint?: string,
   optionLabelKey?: string,
   staticOptions?: FieldOption[]
 ];
+
+export type FieldSpec =
+  | TupleFieldSpec
+  | {
+      key: string;
+      label: string;
+      kind?: FieldKind;
+      required?: boolean;
+      placeholder?: string;
+      help?: string;
+      options?: FieldOption[];
+      optionsEndpoint?: string;
+      optionsResource?: string;
+      optionLabelKey?: string;
+      dependsOn?: string[];
+      remoteSearch?: boolean;
+      mode?: "single" | "multiple";
+      visibleWhen?: Record<string, unknown>;
+      readonly?: boolean;
+      sensitive?: boolean;
+      copyable?: boolean;
+      jsonSchemaKey?: string;
+    };
+
+type NormalizedFieldSpec = {
+  key: string;
+  label: string;
+  kind: FieldKind;
+  required?: boolean;
+  placeholder?: string;
+  help?: string;
+  options?: FieldOption[];
+  optionsEndpoint?: string;
+  optionsResource?: string;
+  optionLabelKey?: string;
+  dependsOn?: string[];
+  remoteSearch?: boolean;
+  mode?: "single" | "multiple";
+  visibleWhen?: Record<string, unknown>;
+  readonly?: boolean;
+  sensitive?: boolean;
+  copyable?: boolean;
+  jsonSchemaKey?: string;
+};
 
 interface ResourcePageProps {
   title: string;
@@ -21,6 +77,7 @@ interface ResourcePageProps {
   endpoint: string;
   rowKey: string;
   columns: FieldSpec[];
+  detailFields?: FieldSpec[];
   editableFields?: FieldSpec[];
   canCreate?: boolean;
   canEdit?: boolean;
@@ -29,6 +86,7 @@ interface ResourcePageProps {
   deleteConfirmTitle?: string;
   deleteConfirmDescription?: string;
   deleteReason?: string;
+  rowActions?: (row: any, reload: () => void) => ReactNode;
 }
 
 const fieldLabels: Record<string, string> = {
@@ -135,7 +193,7 @@ const fieldLabels: Record<string, string> = {
   version: "版本号",
   effective_at: "生效时间",
   product_code: "套餐编码",
-  product_name: "客户套餐",
+  product_name: "充值套餐/付费商品",
   product_type: "套餐类型",
   face_value_amount: "到账额度",
   bonus_amount: "赠送额度",
@@ -416,6 +474,39 @@ function getFieldLabel(key: string, labels: Record<string, string>) {
   return labels[key] ?? fieldLabels[key] ?? key;
 }
 
+function normalizeField(field: FieldSpec): NormalizedFieldSpec {
+  if (Array.isArray(field)) {
+    const [key, label, kind = "text", optionsEndpoint, optionLabelKey, staticOptions] = field;
+    return {
+      key,
+      label,
+      kind,
+      optionsEndpoint,
+      optionLabelKey,
+      options: staticOptions
+    };
+  }
+  return {
+    ...field,
+    kind: field.kind ?? "text",
+    options: field.options
+  };
+}
+
+function shouldShowField(field: NormalizedFieldSpec, values: Record<string, unknown>) {
+  if (!field.visibleWhen) return true;
+  return Object.entries(field.visibleWhen).every(([key, expected]) => values[key] === expected);
+}
+
+function safeJsonParse(value: unknown, fieldLabel: string) {
+  if (value === undefined || value === null || value === "") return {};
+  try {
+    return typeof value === "string" ? JSON.parse(value) : value;
+  } catch {
+    throw new Error(`${fieldLabel} 不是合法 JSON`);
+  }
+}
+
 function formatMoney(value: unknown) {
   const amount = Number(value ?? 0);
   if (!Number.isFinite(amount)) return String(value ?? "-");
@@ -425,7 +516,7 @@ function formatMoney(value: unknown) {
   })}`;
 }
 
-function renderValue(value: unknown, key?: string, kind?: FieldSpec[2], options?: FieldOption[]) {
+function renderValue(value: unknown, key?: string, kind?: FieldKind, options?: FieldOption[]) {
   if (key === "visible_platforms" && typeof value === "string") {
     return value
       .split(",")
@@ -436,7 +527,10 @@ function renderValue(value: unknown, key?: string, kind?: FieldSpec[2], options?
   if ((kind === "money" || (key && moneyFieldKeys.has(key))) && value !== null && value !== undefined) {
     return <Typography.Text strong>{formatMoney(value)}</Typography.Text>;
   }
-  if (options?.length && typeof value === "string") {
+  if (options?.length && (typeof value === "string" || Array.isArray(value))) {
+    if (Array.isArray(value)) {
+      return value.map((item) => options.find((option) => option.value === item)?.label ?? item).join("、");
+    }
     return options.find((option) => option.value === value)?.label ?? value;
   }
   if (key && typeof value === "string") {
@@ -454,14 +548,19 @@ function renderValue(value: unknown, key?: string, kind?: FieldSpec[2], options?
   return String(value ?? "-");
 }
 
-function buildPayload(values: Record<string, unknown>, fields: FieldSpec[]) {
+function buildPayload(values: Record<string, unknown>, fields: NormalizedFieldSpec[]) {
   const payload: Record<string, unknown> = {};
-  for (const [key, , kind] of fields) {
+  for (const field of fields) {
+    const { key, kind } = field;
+    if (field.readonly) continue;
     const value = values[key];
+    if (field.sensitive && (value === undefined || value === null || value === "")) continue;
     if (kind === "json") {
-      payload[key] = value ? JSON.parse(String(value)) : {};
+      payload[key] = safeJsonParse(value, field.label);
     } else if (kind === "money") {
       payload[key] = value === undefined || value === null || value === "" ? null : Math.round(Number(value) * 100);
+    } else if (kind === "multi_select") {
+      payload[key] = Array.isArray(value) ? value : [];
     } else {
       payload[key] = value;
     }
@@ -483,18 +582,35 @@ export default function ResourcePage(props: ResourcePageProps) {
   const [options, setOptions] = useState<Record<string, FieldOption[]>>({});
   const [form] = Form.useForm();
 
-  const editableFields = props.editableFields ?? [];
-  const editable = props.canEdit === false ? [] : editableFields;
+  const columns = useMemo(() => props.columns.map(normalizeField), [props.columns]);
+  const detailFields = useMemo(() => (props.detailFields ?? []).map(normalizeField), [props.detailFields]);
+  const editableFields = useMemo(() => (props.editableFields ?? []).map(normalizeField), [props.editableFields]);
+  const editable = useMemo(
+    () => (props.canEdit === false ? [] : editableFields),
+    [props.canEdit, editableFields]
+  );
   const labelMap = useMemo(
-    () => Object.fromEntries([...props.columns, ...editableFields].map(([key, label]) => [key, label])),
-    [props.columns, editableFields]
+    () => Object.fromEntries([...columns, ...detailFields, ...editableFields].map((field) => [field.key, field.label])),
+    [columns, detailFields, editableFields]
+  );
+  const fieldMap = useMemo(
+    () => new Map([...columns, ...detailFields, ...editableFields].map((field) => [field.key, field])),
+    [columns, detailFields, editableFields]
   );
 
   async function load(page = 1, pageSize = 20) {
     setLoading(true);
     try {
-      const query = toQuery({ page, pageSize, search });
-      const res = await apiFetch<ApiList>(`${props.endpoint}?${query}`);
+      const searchParams = new URLSearchParams(window.location.search);
+      const merged: Record<string, unknown> = { page, pageSize, search };
+      searchParams.forEach((value, key) => {
+        if (!["page", "pageSize", "search"].includes(key)) {
+          merged[key] = value;
+        }
+      });
+      const query = toQuery(merged);
+      const separator = props.endpoint.includes("?") ? "&" : "?";
+      const res = await apiFetch<ApiList>(`${props.endpoint}${separator}${query}`);
       setRows(res.data);
       setTotal(res.total);
     } catch (error) {
@@ -506,41 +622,54 @@ export default function ResourcePage(props: ResourcePageProps) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [props.endpoint]);
 
   useEffect(() => {
-    const allFields = [...props.columns, ...editable];
+    const allFields = [...columns, ...editable];
     const staticEntries = allFields
-      .filter(([, , kind, , , staticOptions]) => kind === "select" && staticOptions?.length)
-      .map(([key, , , , , staticOptions]) => [key, staticOptions ?? []] as const);
+      .filter((field) => ["select", "multi_select"].includes(field.kind) && field.options?.length)
+      .map((field) => [field.key, field.options ?? []] as const);
     if (staticEntries.length) {
       setOptions((current) => ({ ...current, ...Object.fromEntries(staticEntries) }));
     }
-    const selectFields = allFields.filter(([, , kind, endpoint]) => kind === "select" && endpoint);
+    const selectFields = allFields.filter((field) =>
+      ["select", "multi_select"].includes(field.kind) && (field.optionsEndpoint || field.optionsResource)
+    );
     if (!selectFields.length) return;
     Promise.all(
-      selectFields.map(async ([key, , , endpoint, optionLabelKey]) => {
-        const separator = endpoint!.includes("?") ? "&" : "?";
-        const res = await apiFetch<ApiList>(`${endpoint}${separator}pageSize=100`);
+      selectFields.map(async (field) => {
+        const endpoint = field.optionsResource ? `/api/admin/options/${field.optionsResource}` : field.optionsEndpoint!;
+        const separator = endpoint.includes("?") ? "&" : "?";
+        const res = await apiFetch<ApiList>(`${endpoint}${separator}${toQuery({ pageSize: 50 })}`);
         return [
-          key,
+          field.key,
           res.data.map((item) => ({
-            value: item.id,
-            label: String(item[optionLabelKey ?? "name"] ?? item.email ?? item.code ?? item.public_model_code ?? item.id)
+            value: String(item.value ?? item.id),
+            label: String(
+              item.label ??
+                item[field.optionLabelKey ?? "name"] ??
+                item.email ??
+                item.code ??
+                item.public_model_code ??
+                item.id
+            )
           }))
         ] as const;
       })
     )
       .then((entries) => setOptions((current) => ({ ...current, ...Object.fromEntries(entries) })))
       .catch((error) => message.error((error as Error).message));
-  }, [props.endpoint]);
+  }, [props.endpoint, columns, editable]);
 
   const tableColumns = useMemo<ColumnsType<any>>(() => {
-    const base = props.columns.map(([key, label, kind]) => ({
-      title: label,
-      dataIndex: key,
+    const base = columns.map((field) => ({
+      title: field.label,
+      dataIndex: field.key,
       ellipsis: true,
-      render: (value: unknown) => renderValue(value, key, kind, kind === "select" ? options[key] : undefined)
+      render: (value: unknown) =>
+        field.sensitive
+          ? <Typography.Text type="secondary">已保护</Typography.Text>
+          : renderValue(value, field.key, field.kind, ["select", "multi_select"].includes(field.kind) ? options[field.key] : undefined)
     }));
     const renderActions = (_: unknown, row: any) => {
       const deleteDisabled = props.deleteDisabled?.(row) ?? false;
@@ -559,6 +688,7 @@ export default function ResourcePage(props: ResourcePageProps) {
               删除
             </Button>
           )}
+          {props.rowActions?.(row, () => load())}
         </Space>
       );
     };
@@ -586,12 +716,16 @@ export default function ResourcePage(props: ResourcePageProps) {
         render: renderActions
       }
     ];
-  }, [props.columns, editable.length, options, props.canDelete, props.deleteDisabled]);
+  }, [columns, editable.length, options, props.canDelete, props.deleteDisabled, props.rowActions]);
 
   function startEdit(row?: any) {
     setEditing(row ?? null);
     const values = row ? { ...row } : {};
-    for (const [key, , kind] of editable) {
+    for (const { key, kind, sensitive } of editable) {
+      if (sensitive) {
+        values[key] = "";
+        continue;
+      }
       if (kind === "json" && values[key] !== undefined) {
         values[key] = JSON.stringify(values[key] ?? {}, null, 2);
       }
@@ -650,6 +784,54 @@ export default function ResourcePage(props: ResourcePageProps) {
     }
   }
 
+  async function loadRemoteOptions(field: NormalizedFieldSpec, keyword = "") {
+    if (!field.optionsResource && !field.optionsEndpoint) return;
+    const currentValues = form.getFieldsValue(true);
+    const params: Record<string, unknown> = {
+      pageSize: 50,
+      search: keyword
+    };
+    field.dependsOn?.forEach((key) => {
+      params[key] = currentValues[key];
+    });
+    if (field.optionsResource) {
+      for (const key of ["tenant_id", "project_id", "platform"]) {
+        if (currentValues[key]) params[key] = currentValues[key];
+      }
+    }
+    const endpoint = field.optionsResource ? `/api/admin/options/${field.optionsResource}` : field.optionsEndpoint!;
+    const separator = endpoint.includes("?") ? "&" : "?";
+    const res = await apiFetch<ApiList>(`${endpoint}${separator}${toQuery(params)}`);
+    setOptions((current) => ({
+      ...current,
+      [field.key]: res.data.map((item) => ({
+        value: String(item.value ?? item.id),
+        label: String(
+          item.label ??
+            item[field.optionLabelKey ?? "name"] ??
+            item.email ??
+            item.code ??
+            item.public_model_code ??
+            item.id
+        )
+      }))
+    }));
+  }
+
+  function handleValuesChange(changed: Record<string, unknown>) {
+    const changedKeys = Object.keys(changed);
+    const dependentFields = editable.filter((field) =>
+      field.dependsOn?.some((key) => changedKeys.includes(key)) ||
+      (field.optionsResource && changedKeys.some((key) => ["tenant_id", "project_id", "platform"].includes(key)))
+    );
+    if (!dependentFields.length) return;
+    const resetValues = Object.fromEntries(dependentFields.map((field) => [field.key, undefined]));
+    form.setFieldsValue(resetValues);
+    dependentFields.forEach((field) => {
+      loadRemoteOptions(field).catch((error) => message.error((error as Error).message));
+    });
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -689,27 +871,58 @@ export default function ResourcePage(props: ResourcePageProps) {
         onClose={() => setOpen(false)}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" onFinish={submit}>
-          {editable.map(([key, label, kind]) => (
-            <Form.Item key={key} label={label} name={key} valuePropName={kind === "boolean" ? "checked" : "value"}>
-              {kind === "number" ? (
-                <InputNumber className="full-width" />
-              ) : kind === "money" ? (
-                <InputNumber className="full-width" min={0} precision={2} step={1} addonAfter="元" />
-              ) : kind === "boolean" ? (
-                <Switch />
-              ) : kind === "select" ? (
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  options={options[key] ?? []}
-                  placeholder="请选择"
-                />
-              ) : kind === "json" ? (
-                <Input.TextArea rows={8} />
-              ) : (
-                <Input />
-              )}
+        <Form form={form} layout="vertical" onFinish={submit} onValuesChange={handleValuesChange}>
+          {editable.map((field) => (
+            <Form.Item noStyle shouldUpdate key={field.key}>
+              {({ getFieldsValue }) => {
+                const values = getFieldsValue(true);
+                if (!shouldShowField(field, values)) return null;
+                const rules = field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined;
+                return (
+                  <Form.Item
+                    extra={field.help}
+                    label={field.label}
+                    name={field.key}
+                    rules={rules}
+                    valuePropName={field.kind === "boolean" ? "checked" : "value"}
+                  >
+                    {field.kind === "number" ? (
+                      <InputNumber className="full-width" disabled={field.readonly} />
+                    ) : field.kind === "money" ? (
+                      <InputNumber className="full-width" disabled={field.readonly} min={0} precision={2} step={1} addonAfter="元" />
+                    ) : field.kind === "boolean" ? (
+                      <Switch disabled={field.readonly} />
+                    ) : field.kind === "select" || field.kind === "multi_select" ? (
+                      <Select
+                        allowClear
+                        disabled={field.readonly}
+                        mode={field.kind === "multi_select" || field.mode === "multiple" ? "multiple" : undefined}
+                        showSearch
+                        filterOption={field.remoteSearch ? false : undefined}
+                        optionFilterProp="label"
+                        options={options[field.key] ?? []}
+                        placeholder={field.placeholder ?? "请选择"}
+                        onFocus={() => loadRemoteOptions(field).catch((error) => message.error((error as Error).message))}
+                        onSearch={
+                          field.remoteSearch
+                            ? (keyword) => loadRemoteOptions(field, keyword).catch((error) => message.error((error as Error).message))
+                            : undefined
+                        }
+                      />
+                    ) : field.kind === "json" ? (
+                      <Input.TextArea rows={8} disabled={field.readonly} placeholder={field.placeholder ?? "{ }"} />
+                    ) : field.kind === "textarea" ? (
+                      <Input.TextArea rows={4} disabled={field.readonly} placeholder={field.placeholder} />
+                    ) : (
+                      <Input
+                        disabled={field.readonly}
+                        placeholder={field.sensitive ? "留空表示不修改敏感配置" : field.placeholder}
+                        type={field.kind === "url" ? "url" : undefined}
+                      />
+                    )}
+                  </Form.Item>
+                );
+              }}
             </Form.Item>
           ))}
           {editing && (
@@ -731,9 +944,14 @@ export default function ResourcePage(props: ResourcePageProps) {
       >
         {detail && (
           <Descriptions column={1} bordered size="small">
-            {Object.entries(detail).map(([key, value]) => (
+            {(detailFields.length
+              ? detailFields.map((field) => [field.key, detail[field.key]] as const)
+              : Object.entries(detail)
+            ).map(([key, value]) => (
               <Descriptions.Item key={key} label={getFieldLabel(key, labelMap)}>
-                {renderValue(value, key, undefined, options[key])}
+                {fieldMap.get(key)?.sensitive
+                  ? <Typography.Text type="secondary">已保护，不回显</Typography.Text>
+                  : renderValue(value, key, fieldMap.get(key)?.kind, options[key])}
               </Descriptions.Item>
             ))}
           </Descriptions>

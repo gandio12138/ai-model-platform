@@ -732,6 +732,9 @@ class DioOneTokenApi implements OneTokenApi {
       settlementNotice: '客户付款进入同一钱包，租户结算由服务端基于支付订单和用量记录汇总。',
       iosIapEnabled: isIos,
       androidUnifiedCheckoutEnabled: !isIos,
+      appDownload: data['app_download'] is Map
+          ? Map<String, dynamic>.from(data['app_download'] as Map)
+          : const <String, dynamic>{},
     );
   }
 }

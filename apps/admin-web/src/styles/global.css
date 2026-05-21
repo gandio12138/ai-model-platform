@@ -324,6 +324,52 @@ body {
   margin-top: 12px;
 }
 
+.config-center-header {
+  margin-bottom: 12px;
+}
+
+.modal-alert {
+  margin-bottom: 16px;
+}
+
+.json-preview {
+  max-height: 520px;
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.version-list {
+  display: grid;
+  gap: 12px;
+}
+
+.version-list article {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+
+.version-list strong {
+  color: var(--app-text);
+}
+
+.version-list span,
+.version-list em,
+.version-list p {
+  margin: 0;
+  color: var(--app-subtle);
+  font-size: 12px;
+}
+
 :root[data-admin-theme="dark"] .login-page {
   background: linear-gradient(135deg, #0d1420 0%, #111827 52%, #182033 100%);
 }

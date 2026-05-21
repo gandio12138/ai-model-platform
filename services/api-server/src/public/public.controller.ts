@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { ConfigResolutionService } from "../config-resolution/config-resolution.service.js";
 import { PublicAuthGuard, PublicRequestUser } from "./public-auth.guard.js";
 import { PublicService } from "./public.service.js";
 
 @Controller("/api/public")
 export class PublicController {
-  constructor(@Inject(PublicService) private readonly publicService: PublicService) {}
+  constructor(
+    @Inject(PublicService) private readonly publicService: PublicService,
+    @Inject(ConfigResolutionService) private readonly configResolution: ConfigResolutionService
+  ) {}
 
   @Post("auth/register")
   register(@Body() body: Record<string, unknown>) {
@@ -37,6 +41,11 @@ export class PublicController {
   @Get("bootstrap")
   bootstrap(@Query() query: Record<string, unknown>) {
     return this.publicService.bootstrap(query);
+  }
+
+  @Get("site-config")
+  siteConfig(@Query() query: Record<string, unknown>, @Headers() headers: Record<string, unknown>) {
+    return this.configResolution.resolveSiteConfig(query, headers);
   }
 
   @Get("products")

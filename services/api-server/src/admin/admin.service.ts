@@ -12,6 +12,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { AuditActor, AuditService } from "../common/audit.service.js";
 import { CryptoService } from "../common/crypto.service.js";
 import { parsePagination, requireReason } from "../common/http.js";
+import { ConfigResolutionService } from "../config-resolution/config-resolution.service.js";
 import { PaymentService } from "../payment/payment.service.js";
 
 interface ResourceConfig {
@@ -657,6 +658,7 @@ export class AdminService {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(CryptoService) private readonly crypto: CryptoService,
+    @Inject(ConfigResolutionService) private readonly configResolution: ConfigResolutionService,
     @Inject(PaymentService) private readonly payment: PaymentService
   ) {}
 
@@ -664,6 +666,82 @@ export class AdminService {
     if (user?.accountType !== "admin") {
       throw new ForbiddenException("Platform admin account is required");
     }
+  }
+
+  async options(resourceName: string, query: Record<string, unknown>, user: any) {
+    const resource = String(resourceName ?? "").trim();
+    const staticOptions = this.staticOptions(resource, query);
+    if (staticOptions) {
+      return staticOptions;
+    }
+
+    const optionConfig = this.optionConfig(resource);
+    if (!optionConfig) {
+      throw new NotFoundException("Option resource not found");
+    }
+    this.assertPermission(user, optionConfig.permission);
+
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(`(${optionConfig.search.map((column: string) => `${column}::text ilike $${params.length}`).join(" or ")})`);
+    }
+    if (optionConfig.tenantColumn) {
+      if (query.tenant_id) {
+        params.push(query.tenant_id);
+        filters.push(`${optionConfig.alias}.${optionConfig.tenantColumn} = $${params.length}`);
+      } else if (!this.isSuperAdmin(user)) {
+        const tenantIds = await this.getScopedTenantIds(user);
+        if (!tenantIds?.length) {
+          filters.push("false");
+        } else {
+          params.push(tenantIds);
+          filters.push(`${optionConfig.alias}.${optionConfig.tenantColumn} = any($${params.length}::uuid[])`);
+        }
+      }
+    }
+    if (optionConfig.projectColumn && query.project_id) {
+      params.push(query.project_id);
+      filters.push(`${optionConfig.alias}.${optionConfig.projectColumn} = $${params.length}`);
+    }
+    if (optionConfig.platformColumn && query.platform) {
+      params.push(query.platform);
+      filters.push(`${optionConfig.alias}.${optionConfig.platformColumn} = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total from ${optionConfig.from} ${where}`,
+        params
+      ),
+      this.db.query(
+        `select ${optionConfig.valueSql} as value,
+                ${optionConfig.labelSql} as label,
+                ${optionConfig.descriptionSql} as description,
+                ${optionConfig.disabledSql} as disabled,
+                ${optionConfig.metaSql} as meta
+           from ${optionConfig.from}
+          ${where}
+          order by ${optionConfig.orderBy}
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+
+    return {
+      data: dataResult.rows.map((row) => ({
+        value: row.value,
+        label: row.label,
+        description: row.description,
+        disabled: Boolean(row.disabled),
+        meta: row.meta ?? {}
+      })),
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
   }
 
   async dashboard(user: any) {
@@ -934,7 +1012,19 @@ export class AdminService {
       );
     }
 
-    for (const field of ["status", "tenant_id", "project_id", "user_id", "provider_id", "model_id", "platform", "payment_method"]) {
+    for (const field of [
+      "status",
+      "tenant_id",
+      "project_id",
+      "user_id",
+      "provider_id",
+      "model_id",
+      "platform",
+      "payment_method",
+      "payment_order_id",
+      "related_id",
+      "request_log_id"
+    ]) {
       if (query[field]) {
         params.push(query[field]);
         filters.push(`${field} = $${params.length}`);
@@ -1507,6 +1597,9 @@ export class AdminService {
     if (resource === "appReleases") {
       await this.validateAppRelease(payload);
     }
+    if (resource === "configs") {
+      this.validateConfigPayload(payload);
+    }
     if (!Object.keys(payload).length) {
       throw new BadRequestException("No writable fields provided");
     }
@@ -1560,6 +1653,9 @@ export class AdminService {
     }
     if (resource === "appReleases") {
       await this.validateAppRelease({ ...before, ...payload });
+    }
+    if (resource === "configs") {
+      this.validateConfigPayload({ ...before, ...payload });
     }
     if (!Object.keys(payload).length) {
       throw new BadRequestException("No writable fields provided");
@@ -2327,20 +2423,42 @@ export class AdminService {
     this.assertPermission(user, "config.publish");
     requireReason(body);
     const before = await this.findById(resourceMap.configs, id);
+    this.configResolution.validateConfigValue(before.config_key, before.draft_value ?? {});
     const nextVersion = Number(before.config_version ?? 0) + 1;
-    const { rows } = await this.db.query(
-      `update configs
-          set published_value = draft_value,
-              status = 'published',
-              config_version = $1,
-              published_by = $2,
-              published_at = now(),
-              rollback_from_version = null,
-              updated_at = now()
-        where id = $3
-        returning *`,
-      [nextVersion, actor.id, id]
-    );
+    const { rows } = await this.db.transaction(async (client) => {
+      const updated = await client.query(
+        `update configs
+            set published_value = draft_value,
+                status = 'published',
+                config_version = $1,
+                published_by = $2,
+                published_at = now(),
+                rollback_from_version = null,
+                updated_at = now()
+          where id = $3
+          returning *`,
+        [nextVersion, actor.id, id]
+      );
+      await client.query(
+        `insert into config_versions
+          (config_id, config_key, config_version, value, status, published_by, reason, metadata)
+         values ($1, $2, $3, $4::jsonb, 'published', $5, $6, $7::jsonb)
+         on conflict (config_id, config_version) do update
+            set value = excluded.value,
+                reason = excluded.reason,
+                metadata = config_versions.metadata || excluded.metadata`,
+        [
+          id,
+          before.config_key,
+          nextVersion,
+          JSON.stringify(before.draft_value ?? {}),
+          actor.id,
+          String(body.reason),
+          JSON.stringify({ action: "publish" })
+        ]
+      );
+      return updated;
+    });
     await this.audit.record({
       actor,
       action: "config.publish",
@@ -2357,15 +2475,23 @@ export class AdminService {
     this.assertPermission(user, "config.publish");
     requireReason(body);
     const before = await this.findById(resourceMap.configs, id);
+    const targetVersion = body.version ? Number(body.version) : null;
+    const versionValue = targetVersion
+      ? await this.findConfigVersionValue(id, targetVersion)
+      : before.published_value;
     const { rows } = await this.db.query(
       `update configs
-          set draft_value = published_value,
-              status = 'draft',
+          set draft_value = $2::jsonb,
+              published_value = $2::jsonb,
+              status = 'published',
+              config_version = case when $3::int is null then config_version else $3::int end,
               rollback_from_version = config_version,
+              published_by = $4,
+              published_at = now(),
               updated_at = now()
         where id = $1
         returning *`,
-      [id]
+      [id, JSON.stringify(versionValue ?? {}), targetVersion, actor.id]
     );
     await this.audit.record({
       actor,
@@ -2377,6 +2503,38 @@ export class AdminService {
       reason: String(body.reason)
     });
     return rows[0];
+  }
+
+  async previewConfig(id: string, query: Record<string, unknown>, user: any) {
+    this.assertPermission(user, "config.read");
+    return this.configResolution.previewConfig(id, query);
+  }
+
+  async configVersions(id: string, query: Record<string, unknown>, user: any) {
+    this.assertPermission(user, "config.read");
+    const { page, pageSize, offset } = parsePagination(query);
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total from config_versions where config_id = $1`,
+        [id]
+      ),
+      this.db.query(
+        `select cv.*,
+                u.email as published_by_email
+           from config_versions cv
+           left join users u on u.id = cv.published_by
+          where cv.config_id = $1
+          order by cv.config_version desc
+          limit $2 offset $3`,
+        [id, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
   }
 
   async approveCommission(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
@@ -2996,6 +3154,222 @@ export class AdminService {
     return rows[0];
   }
 
+  private async findConfigVersionValue(configId: string, version: number) {
+    if (!Number.isInteger(version) || version < 1) {
+      throw new BadRequestException("Invalid config version");
+    }
+    const { rows } = await this.db.query(
+      `select value
+         from config_versions
+        where config_id = $1
+          and config_version = $2`,
+      [configId, version]
+    );
+    if (!rows[0]) {
+      throw new NotFoundException("Config version not found");
+    }
+    return rows[0].value;
+  }
+
+  private staticOptions(resource: string, query: Record<string, unknown>) {
+    const values: Record<string, Array<{ value: string; label: string; description?: string; meta?: Record<string, unknown> }>> = {
+      platforms: [
+        { value: "web", label: "Web 收银台", description: "客户 Web 控制台和支付页" },
+        { value: "ios", label: "iOS App", description: "Apple IAP 和 iOS 审核策略" },
+        { value: "android", label: "Android App", description: "安卓统一收银台" },
+        { value: "api", label: "Developer API", description: "OpenAI 兼容 API 调用" }
+      ],
+      regions: [
+        { value: "CN", label: "中国大陆" },
+        { value: "HK", label: "中国香港" },
+        { value: "US", label: "美国" },
+        { value: "GLOBAL", label: "全球" }
+      ],
+      "distribution-channels": [
+        { value: "official", label: "官方默认" },
+        { value: "official_apk", label: "官网 APK" },
+        { value: "testflight", label: "TestFlight" },
+        { value: "app_store", label: "App Store" },
+        { value: "huawei_market", label: "华为应用市场" },
+        { value: "xiaomi_market", label: "小米应用商店" },
+        { value: "oppo_market", label: "OPPO 软件商店" },
+        { value: "vivo_market", label: "vivo 应用商店" },
+        { value: "yingyongbao", label: "应用宝" }
+      ]
+    };
+    if (resource === "payment-methods") {
+      const platform = String(query.platform ?? "");
+      const all = [
+        { value: "apple_iap", label: "Apple IAP", meta: { platforms: ["ios"] } },
+        { value: "alipay_app", label: "支付宝 App 支付", meta: { platforms: ["android"] } },
+        { value: "wechat_app", label: "微信 App 支付", meta: { platforms: ["android"] } },
+        { value: "card_checkout", label: "银行卡/信用卡托管收银台", meta: { platforms: ["android", "web"] } },
+        { value: "alipay_web", label: "支付宝 Web", meta: { platforms: ["web"] } },
+        { value: "wechat_native", label: "微信 Native", meta: { platforms: ["web"] } },
+        { value: "enterprise_transfer", label: "企业对公转账", meta: { platforms: ["web"] } }
+      ];
+      const filtered = platform ? all.filter((item) => (item.meta.platforms as string[]).includes(platform)) : all;
+      return { data: filtered, total: filtered.length, page: 1, pageSize: filtered.length };
+    }
+    const data = values[resource];
+    if (!data) return null;
+    return {
+      data,
+      total: data.length,
+      page: 1,
+      pageSize: data.length
+    };
+  }
+
+  private optionConfig(resource: string) {
+    const map: Record<string, any> = {
+      tenants: {
+        permission: "tenant.read",
+        alias: "t",
+        from: "tenants t",
+        valueSql: "t.id",
+        labelSql: "concat(t.name, ' / ', t.tenant_code)",
+        descriptionSql: "concat('计费：', coalesce(t.billing_mode, 'prepaid'), ' · 状态：', t.status)",
+        disabledSql: "t.status <> 'active'",
+        metaSql: "jsonb_build_object('tenant_code', t.tenant_code, 'tenant_type', t.tenant_type, 'billing_mode', t.billing_mode)",
+        search: ["t.name", "t.tenant_code", "t.billing_mode", "t.status"],
+        orderBy: "t.created_at desc",
+        tenantColumn: "id"
+      },
+      users: {
+        permission: "user.read",
+        alias: "u",
+        from: "users u",
+        valueSql: "u.id",
+        labelSql: "coalesce(u.email, u.phone, u.id::text)",
+        descriptionSql: "concat('账号类型：', u.user_type, ' · 状态：', u.status)",
+        disabledSql: "u.status <> 'active'",
+        metaSql: "jsonb_build_object('email', u.email, 'phone', u.phone, 'user_type', u.user_type)",
+        search: ["u.email", "u.phone", "u.user_type", "u.status"],
+        orderBy: "u.created_at desc"
+      },
+      "tenant-members": {
+        permission: "tenant.read",
+        alias: "tm",
+        from: "tenant_memberships tm join users u on u.id = tm.user_id",
+        valueSql: "tm.id",
+        labelSql: "concat(coalesce(u.email, u.phone, u.id::text), ' / ', tm.role_code)",
+        descriptionSql: "concat('状态：', tm.status)",
+        disabledSql: "tm.status <> 'active'",
+        metaSql: "jsonb_build_object('tenant_id', tm.tenant_id, 'user_id', tm.user_id, 'role_code', tm.role_code)",
+        search: ["u.email", "u.phone", "tm.role_code", "tm.status"],
+        orderBy: "tm.created_at desc",
+        tenantColumn: "tenant_id"
+      },
+      "tenant-projects": {
+        permission: "tenant.project.read",
+        alias: "tp",
+        from: "tenant_projects tp",
+        valueSql: "tp.id",
+        labelSql: "concat(tp.name, ' / ', tp.project_code)",
+        descriptionSql: "concat(tp.platform, ' · ', tp.project_type, ' · ', tp.status)",
+        disabledSql: "tp.status <> 'active'",
+        metaSql: "jsonb_build_object('tenant_id', tp.tenant_id, 'project_code', tp.project_code, 'platform', tp.platform, 'project_type', tp.project_type)",
+        search: ["tp.name", "tp.project_code", "tp.platform", "tp.project_type"],
+        orderBy: "tp.created_at desc",
+        tenantColumn: "tenant_id",
+        platformColumn: "platform"
+      },
+      "tenant-customers": {
+        permission: "tenant.customer.read",
+        alias: "tc",
+        from: "tenant_customers tc join users u on u.id = tc.user_id",
+        valueSql: "tc.id",
+        labelSql: "concat(coalesce(u.email, u.phone, u.id::text), ' / ', tc.customer_code)",
+        descriptionSql: "concat('状态：', tc.status)",
+        disabledSql: "tc.status <> 'active'",
+        metaSql: "jsonb_build_object('tenant_id', tc.tenant_id, 'user_id', tc.user_id, 'customer_code', tc.customer_code, 'project_id', tc.source_project_id)",
+        search: ["u.email", "u.phone", "tc.customer_code", "tc.status"],
+        orderBy: "tc.created_at desc",
+        tenantColumn: "tenant_id",
+        projectColumn: "source_project_id"
+      },
+      providers: {
+        permission: "provider.read",
+        alias: "p",
+        from: "providers p",
+        valueSql: "p.id",
+        labelSql: "concat(p.name, ' / ', p.code)",
+        descriptionSql: "concat('状态：', p.status, ' · 健康：', coalesce(p.health_status, '-'))",
+        disabledSql: "p.status <> 'active'",
+        metaSql: "jsonb_build_object('code', p.code, 'health_status', p.health_status)",
+        search: ["p.name", "p.code", "p.status", "p.health_status"],
+        orderBy: "p.created_at desc"
+      },
+      models: {
+        permission: "model.read",
+        alias: "m",
+        from: "models m",
+        valueSql: "m.id",
+        labelSql: "concat(m.display_name, ' / ', m.public_model_code)",
+        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · ', m.status)",
+        disabledSql: "m.status <> 'active'",
+        metaSql: "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family)",
+        search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],
+        orderBy: "m.created_at desc"
+      },
+      "model-routes": {
+        permission: "route.read",
+        alias: "mr",
+        from: "model_routes mr left join models m on m.id = mr.model_id left join providers p on p.id = mr.provider_id",
+        valueSql: "mr.id",
+        labelSql: "concat(mr.route_code, ' / ', coalesce(m.public_model_code, '-'), ' / ', coalesce(p.name, '-'))",
+        descriptionSql: "concat('优先级：', mr.priority, ' · 权重：', mr.weight)",
+        disabledSql: "mr.enabled = false",
+        metaSql: "jsonb_build_object('model_id', mr.model_id, 'provider_id', mr.provider_id)",
+        search: ["mr.route_code", "mr.provider_model_code", "m.public_model_code", "p.name"],
+        orderBy: "mr.created_at desc"
+      },
+      "payment-products": {
+        permission: "payment.read",
+        alias: "pp",
+        from: "payment_products pp",
+        valueSql: "pp.id",
+        labelSql: "concat(pp.name, ' / ', pp.product_code)",
+        descriptionSql: "concat('售价：', (pp.sale_amount::numeric / 100)::text, ' 元 · ', pp.status)",
+        disabledSql: "pp.status <> 'active'",
+        metaSql: "jsonb_build_object('tenant_id', pp.tenant_id, 'project_id', pp.project_id, 'product_code', pp.product_code, 'product_type', pp.product_type)",
+        search: ["pp.name", "pp.product_code", "pp.product_type", "pp.status"],
+        orderBy: "pp.created_at desc",
+        tenantColumn: "tenant_id",
+        projectColumn: "project_id"
+      },
+      "payment-channels": {
+        permission: "payment.read",
+        alias: "pc",
+        from: "payment_channels pc",
+        valueSql: "pc.id",
+        labelSql: "concat(pc.display_name, ' / ', pc.channel_code)",
+        descriptionSql: "concat(pc.platform, ' · ', pc.payment_method, ' · ', case when pc.enabled then '启用' else '禁用' end)",
+        disabledSql: "pc.enabled = false",
+        metaSql: "jsonb_build_object('tenant_id', pc.tenant_id, 'project_id', pc.project_id, 'platform', pc.platform, 'payment_method', pc.payment_method)",
+        search: ["pc.display_name", "pc.channel_code", "pc.channel_type", "pc.payment_method"],
+        orderBy: "pc.sort_order asc, pc.created_at desc",
+        tenantColumn: "tenant_id",
+        projectColumn: "project_id",
+        platformColumn: "platform"
+      },
+      "billing-plans": {
+        permission: "tenant.billing.read",
+        alias: "tpn",
+        from: "tenant_plans tpn",
+        valueSql: "tpn.id",
+        labelSql: "concat(tpn.name, ' / ', tpn.plan_code)",
+        descriptionSql: "concat(tpn.billing_cycle, ' · ', tpn.status)",
+        disabledSql: "tpn.status <> 'active'",
+        metaSql: "jsonb_build_object('plan_code', tpn.plan_code, 'billing_cycle', tpn.billing_cycle)",
+        search: ["tpn.name", "tpn.plan_code", "tpn.billing_cycle", "tpn.status"],
+        orderBy: "tpn.created_at desc"
+      }
+    };
+    return map[resource] ?? null;
+  }
+
   private isSuperAdmin(user: any) {
     return user.accountType === "admin" &&
       Array.isArray(user.permissions) &&
@@ -3278,6 +3652,21 @@ export class AdminService {
     if (project.rows[0].platform !== platform) {
       throw new BadRequestException("Project platform must match app release platform");
     }
+  }
+
+  private validateConfigPayload(payload: Record<string, unknown>) {
+    const configKey = String(payload.config_key ?? "");
+    const allowedKeys = new Set([
+      "site_config",
+      "app_download",
+      "web_payment_entry",
+      "feature_flags",
+      "review_policy"
+    ]);
+    if (!allowedKeys.has(configKey)) {
+      throw new BadRequestException("config_key must be selected from the config center schema");
+    }
+    this.configResolution.validateConfigValue(configKey, payload.draft_value ?? {});
   }
 
   private async validateCustomerAssignment(payload: Record<string, unknown>) {

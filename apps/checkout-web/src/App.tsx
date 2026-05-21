@@ -60,6 +60,7 @@ import {
   PaymentOrder,
   ReferralSummary,
   SessionPayload,
+  SiteConfigPayload,
   UsageLogItem,
   UsageSummary,
   Wallet,
@@ -124,6 +125,7 @@ export default function App() {
   const [messageApi, contextHolder] = message.useMessage();
   const [context] = useState(() => checkoutContextFromUrl());
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
+  const [siteConfig, setSiteConfig] = useState<SiteConfigPayload | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKeyRecord[]>([]);
   const [createdKey, setCreatedKey] = useState("");
@@ -224,8 +226,17 @@ export default function App() {
   async function loadInitialData() {
     setLoading(true);
     try {
-      const [checkoutPayload, modelPayload] = await Promise.all([
+      const [checkoutPayload, , modelPayload] = await Promise.all([
         apiFetch<BootstrapPayload>(`/api/public/bootstrap?${toQuery(context)}`),
+        apiFetch<SiteConfigPayload>(`/api/public/site-config?${toQuery(context)}`)
+          .then((payload) => {
+            setSiteConfig(payload);
+            return payload;
+          })
+          .catch((error) => {
+            messageApi.warning(`后台站点配置加载失败，已使用默认展示：${error instanceof Error ? error.message : "未知错误"}`);
+            return null;
+          }),
         apiFetch<{ data: ModelInfo[] }>(`/api/public/models?${toQuery(context)}`)
       ]);
       setBootstrap(checkoutPayload);
@@ -477,6 +488,7 @@ export default function App() {
         logout={logout}
         setActive={setSiteSection}
         setAuthMode={setAuthMode}
+        siteConfig={siteConfig}
         user={user}
       >
         {contextHolder}
@@ -484,6 +496,7 @@ export default function App() {
           appReleases={bootstrap?.app_releases ?? []}
           models={models}
           setActive={setSiteSection}
+          siteConfig={siteConfig}
           user={user}
         />
       </PublicLayout>
@@ -497,6 +510,7 @@ export default function App() {
         logout={logout}
         setActive={setSiteSection}
         setAuthMode={setAuthMode}
+        siteConfig={siteConfig}
         user={user}
       >
         {contextHolder}
@@ -514,6 +528,7 @@ export default function App() {
         logout={logout}
         setActive={setSiteSection}
         setAuthMode={setAuthMode}
+        siteConfig={siteConfig}
         user={user}
       >
         {contextHolder}
@@ -529,6 +544,7 @@ export default function App() {
         logout={logout}
         setActive={setSiteSection}
         setAuthMode={setAuthMode}
+        siteConfig={siteConfig}
         user={user}
       >
         {contextHolder}
@@ -548,6 +564,7 @@ export default function App() {
       logout={logout}
       setActive={setSiteSection}
       setAuthMode={setAuthMode}
+      siteConfig={siteConfig}
       user={user}
     >
       {contextHolder}
@@ -564,6 +581,7 @@ export default function App() {
               apiKeys={apiKeys}
               models={models}
               setView={setView}
+              siteConfig={siteConfig}
               usageLogs={usageLogs}
               usageSummary={usageSummary}
               user={user}
@@ -585,6 +603,7 @@ export default function App() {
           {view === "logs" ? <UsageLogs logs={usageLogs} summary={usageSummary} /> : null}
           {view === "wallet" ? (
             <WalletManager
+              appDownload={siteConfig?.app_download ?? null}
               availableMethods={availableMethods}
               createOrder={createOrder}
               ledger={walletLedger}
@@ -654,6 +673,7 @@ function PublicLayout({
   logout,
   setActive,
   setAuthMode,
+  siteConfig,
   user
 }: {
   active: SiteSection;
@@ -661,6 +681,7 @@ function PublicLayout({
   logout: () => void;
   setActive: (section: SiteSection) => void;
   setAuthMode: (mode: AuthMode) => void;
+  siteConfig: SiteConfigPayload | null;
   user: any;
 }) {
   function openAuth(mode: AuthMode) {
@@ -668,6 +689,13 @@ function PublicLayout({
     setActive("auth");
   }
   const displayName = user ? String(user.email ?? "victor").split("@")[0] : "";
+  const nav = siteConfig?.site_config.navigation?.filter((item) => item.visible !== false) ?? [
+    { key: "home", label: "首页" },
+    { key: "console", label: "控制台" },
+    { key: "models", label: "模型广场" },
+    { key: "docs", label: "文档" }
+  ];
+  const siteName = siteConfig?.site_config.branding.site_name ?? "OneToken";
 
   return (
     <main className="app-shell">
@@ -675,25 +703,23 @@ function PublicLayout({
         <div className="site-header-inner">
           <button className="site-brand" onClick={() => setActive("home")} type="button">
             <span className="site-brand-mark">O</span>
-            <span>OneToken</span>
+            <span>{siteName}</span>
           </button>
           <nav className="top-links" aria-label="主导航">
-            <button className={active === "home" ? "active" : ""} onClick={() => setActive("home")} type="button">
-              首页
-            </button>
-            <button
-              className={active === "console" ? "active" : ""}
-              onClick={() => setActive(user ? "console" : "auth")}
-              type="button"
-            >
-              控制台
-            </button>
-            <button className={active === "models" ? "active" : ""} onClick={() => setActive("models")} type="button">
-              模型广场
-            </button>
-            <button className={active === "docs" ? "active" : ""} onClick={() => setActive("docs")} type="button">
-              文档
-            </button>
+            {nav.map((item) => {
+              const key = item.key as SiteSection;
+              if (!["home", "console", "models", "docs"].includes(key)) return null;
+              return (
+                <button
+                  className={active === key ? "active" : ""}
+                  key={item.key}
+                  onClick={() => setActive(key === "console" ? (user ? "console" : "auth") : key)}
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </nav>
           <div className="header-actions">
             <button aria-label="通知" className="header-icon-button" type="button">
@@ -783,17 +809,29 @@ function HomePage({
   appReleases,
   models,
   setActive,
+  siteConfig,
   user
 }: {
   appReleases: AppRelease[];
   models: ModelInfo[];
   setActive: (section: SiteSection) => void;
+  siteConfig: SiteConfigPayload | null;
   user: SessionPayload["user"] | null;
 }) {
-  const iosRelease = appReleases.find((release) => release.platform === "ios");
-  const androidRelease = appReleases.find((release) => release.platform === "android");
-  const iosDownloadUrl = iosRelease?.download_url || iosAppDownloadUrl;
-  const androidDownloadUrl = androidRelease?.download_url || androidAppDownloadUrl;
+  const appDownload = siteConfig?.app_download;
+  const iosRelease = appDownload?.releases?.find((release) => release.platform === "ios") ?? appReleases.find((release) => release.platform === "ios");
+  const androidRelease = appDownload?.releases?.find((release) => release.platform === "android") ?? appReleases.find((release) => release.platform === "android");
+  const iosDownloadUrl = appDownload?.ios.app_store_url || appDownload?.ios.testflight_url || appDownload?.ios.download_url || iosRelease?.download_url || iosAppDownloadUrl;
+  const androidDownloadUrl =
+    appDownload?.android.apk_url ||
+    appDownload?.android.official_url ||
+    appDownload?.android.markets?.find((item) => item.enabled !== false)?.url ||
+    androidRelease?.download_url ||
+    androidAppDownloadUrl;
+  const branding = siteConfig?.site_config.branding;
+  const heroTitle = branding?.hero_title ?? "一站式企业级大模型服务平台";
+  const heroSubtitle = branding?.hero_subtitle ?? "通过一个高速、稳定、统一的接口，轻松调用所有主流大模型。不限时间、按量计费、明细透明，在线充值后即可使用所有模型。";
+  const showDownloads = Boolean(appDownload?.enabled ?? (iosDownloadUrl || androidDownloadUrl)) && Boolean(appDownload?.show_on_web_home ?? true);
 
   return (
     <section className="home-page landing-home">
@@ -810,13 +848,9 @@ function HomePage({
 
         <div className="landing-hero">
           <span className="landing-eyebrow">Enterprise AI Gateway</span>
-          <h1>
-            <span>一站式企业级大</span>
-            <span>模型服务平台</span>
-          </h1>
+          <h1>{heroTitle}</h1>
           <p>
-            <span>通过一个高速、稳定、统一的接口，轻松调用所有主流大模型。</span>
-            <span>不限时间、按量计费、明细透明，在线充值后即可使用所有模型。</span>
+            {heroSubtitle}
           </p>
           <div className="landing-actions">
             <Button className="landing-doc-button" size="large" onClick={() => setActive("docs")}>
@@ -912,11 +946,11 @@ response = client.chat.completions.create(
           </div>
         </section>
 
-        <section className="mobile-downloads" aria-labelledby="mobile-download-title">
+        {showDownloads ? <section className="mobile-downloads" aria-labelledby="mobile-download-title">
           <div className="mobile-download-copy">
             <span>Mobile App</span>
-            <h2 id="mobile-download-title">移动端随时使用 OneToken</h2>
-            <p>App 端优先承载 AI 对话、模型切换、钱包充值和账单查看，Web、App 与 API 共用同一个客户账号和余额。</p>
+            <h2 id="mobile-download-title">{appDownload?.title ?? "移动端随时使用 OneToken"}</h2>
+            <p>{appDownload?.subtitle ?? "App 端优先承载 AI 对话、模型切换、钱包充值和账单查看，Web、App 与 API 共用同一个客户账号和余额。"}</p>
           </div>
           <div className="mobile-download-grid">
             <article className="mobile-download-card">
@@ -925,10 +959,10 @@ response = client.chat.completions.create(
               </div>
               <div>
                 <h3>iOS App</h3>
-                <p>支持 iPhone 真机、TestFlight 内测和 Apple IAP 充值链路。</p>
+                <p>{appDownload?.ios.release_notes ?? "支持 iPhone 真机、TestFlight 内测和 Apple IAP 充值链路。"}</p>
               </div>
-              {iosRelease?.version && <span className="mobile-release-meta">{iosRelease.version} · {iosRelease.distribution_channel}</span>}
-              {iosDownloadUrl ? (
+              {(appDownload?.ios.version || iosRelease?.version) && <span className="mobile-release-meta">{appDownload?.ios.version ?? iosRelease?.version} · {iosRelease?.distribution_channel ?? "ios"}</span>}
+              {appDownload?.ios.enabled !== false && iosDownloadUrl ? (
                 <a className="mobile-download-button" href={iosDownloadUrl} target="_blank" rel="noreferrer">
                   下载 iOS
                 </a>
@@ -944,10 +978,10 @@ response = client.chat.completions.create(
               </div>
               <div>
                 <h3>Android App</h3>
-                <p>支持官网 APK、应用市场包和安卓统一收银台支付链路。</p>
+                <p>{appDownload?.android.release_notes ?? "支持官网 APK、应用市场包和安卓统一收银台支付链路。"}</p>
               </div>
-              {androidRelease?.version && <span className="mobile-release-meta">{androidRelease.version} · {androidRelease.distribution_channel}</span>}
-              {androidDownloadUrl ? (
+              {(appDownload?.android.version || androidRelease?.version) && <span className="mobile-release-meta">{appDownload?.android.version ?? androidRelease?.version} · {androidRelease?.distribution_channel ?? "android"}</span>}
+              {appDownload?.android.enabled !== false && androidDownloadUrl ? (
                 <a className="mobile-download-button" href={androidDownloadUrl} target="_blank" rel="noreferrer">
                   下载 Android
                 </a>
@@ -958,10 +992,10 @@ response = client.chat.completions.create(
               )}
             </article>
           </div>
-        </section>
+        </section> : null}
 
         <footer className="landing-footer">
-          <span>© 2026 OneToken. 版权所有</span>
+          <span>{branding?.footer_text ?? "© 2026 OneToken. 版权所有"}</span>
           <span>
             设计与开发由 <strong>OneToken</strong>
           </span>
@@ -1071,6 +1105,7 @@ function Dashboard({
   copyText,
   models,
   setView,
+  siteConfig,
   usageLogs,
   usageSummary,
   user,
@@ -1080,6 +1115,7 @@ function Dashboard({
   copyText: (text: string) => void;
   models: ModelInfo[];
   setView: (view: ConsoleView) => void;
+  siteConfig: SiteConfigPayload | null;
   usageLogs: UsageLogItem[];
   usageSummary: UsageSummary | null;
   user: any;
@@ -1088,6 +1124,9 @@ function Dashboard({
   const activeKeys = apiKeys.filter((item) => item.status === "active").length;
   const trend = usageSummary?.trend ?? [];
   const maxTrendRequests = Math.max(...trend.map((item) => item.requests), 1);
+  const siteAnnouncements = siteConfig?.site_config.announcements?.filter((item) => item.visible !== false) ?? [];
+  const siteFaqs = siteConfig?.site_config.faq?.filter((item) => item.visible !== false) ?? [];
+  const showAppDownload = Boolean(siteConfig?.app_download?.enabled && siteConfig.app_download.show_on_console);
   return (
     <div className="dashboard-page">
       <div className="page-heading dashboard-heading">
@@ -1177,6 +1216,7 @@ function Dashboard({
               <span>活跃令牌</span>
             </div>
           </div>
+          {showAppDownload ? <AppDownloadMini appDownload={siteConfig!.app_download} /> : null}
         </section>
       </div>
 
@@ -1184,11 +1224,11 @@ function Dashboard({
         <section className="panel">
           <PanelTitle icon={<Bell size={17} />} title="系统公告" extra={<Tag>显示最新20条</Tag>} />
           <div className="timeline">
-            {announcements.map((item) => (
-              <div className="timeline-item" key={item.date}>
-                <span className={`dot ${item.status}`} />
-                <p>{item.text}</p>
-                <small>{item.date}</small>
+            {(siteAnnouncements.length ? siteAnnouncements : announcements).map((item: any) => (
+              <div className="timeline-item" key={item.title ?? item.date}>
+                <span className={`dot ${item.level ?? item.status}`} />
+                <p>{item.content ?? item.text}</p>
+                <small>{item.start_at ?? item.date ?? "后台配置"}</small>
               </div>
             ))}
           </div>
@@ -1196,9 +1236,9 @@ function Dashboard({
         <section className="panel">
           <PanelTitle icon={<BookOpen size={17} />} title="常见问答" />
           <div className="faq-list">
-            {faqs.map((item) => (
-              <button key={item} type="button">
-                {item}
+            {(siteFaqs.length ? siteFaqs : faqs).map((item: any) => (
+              <button key={item.question ?? item} type="button">
+                {item.question ?? item}
                 <Plus size={16} />
               </button>
             ))}
@@ -1332,6 +1372,33 @@ function TokenManager({
   );
 }
 
+function AppDownloadMini({ appDownload }: { appDownload: SiteConfigPayload["app_download"] }) {
+  const iosUrl = appDownload.ios.app_store_url || appDownload.ios.testflight_url || appDownload.ios.download_url;
+  const androidUrl = appDownload.android.apk_url || appDownload.android.official_url || appDownload.android.markets?.find((item) => item.enabled !== false)?.url;
+  return (
+    <div className="app-download-mini">
+      <div>
+        <strong>{appDownload.title}</strong>
+        <span>{appDownload.subtitle}</span>
+      </div>
+      <div className="app-download-mini-actions">
+        {appDownload.ios.enabled && iosUrl ? (
+          <a href={iosUrl} target="_blank" rel="noreferrer">
+            <Phone size={14} />
+            iOS {appDownload.ios.version ?? ""}
+          </a>
+        ) : null}
+        {appDownload.android.enabled && androidUrl ? (
+          <a href={androidUrl} target="_blank" rel="noreferrer">
+            <Smartphone size={14} />
+            Android {appDownload.android.version ?? ""}
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ModelMarket({ copyText, models }: { copyText: (text: string) => void; models: ModelInfo[] }) {
   const [provider, setProvider] = useState("全部供应商");
   const [keyword, setKeyword] = useState("");
@@ -1446,6 +1513,7 @@ function ModelMarket({ copyText, models }: { copyText: (text: string) => void; m
 }
 
 function WalletManager(props: {
+  appDownload: SiteConfigPayload["app_download"] | null;
   availableMethods: PaymentMethod[];
   createOrder: () => void;
   ledger: WalletLedgerItem[];
@@ -1576,6 +1644,9 @@ function WalletManager(props: {
             }
             showIcon
           />
+        ) : null}
+        {props.order?.status === "FULFILLED" && props.appDownload?.enabled && props.appDownload.show_on_payment_success ? (
+          <AppDownloadMini appDownload={props.appDownload} />
         ) : null}
         {props.order?.payment_action?.type === "qr_code" && props.order.payment_action.qr_content ? (
           <div className="qr-cashier">
