@@ -11,6 +11,7 @@ BUILD_API="${BUILD_API:-true}"
 BUILD_ADMIN="${BUILD_ADMIN:-true}"
 BUILD_CHECKOUT="${BUILD_CHECKOUT:-true}"
 NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=768}"
+export NODE_OPTIONS
 
 log() {
   printf '\n[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
