@@ -1,6 +1,6 @@
 import { Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
@@ -618,11 +618,15 @@ export default function ResourcePage(props: ResourcePageProps) {
     [columns, detailFields, editableFields]
   );
 
-  async function load(page = 1, pageSize = 20) {
+  async function load(page = 1, pageSize = 20, searchOverride?: string) {
     setLoading(true);
     try {
       const searchParams = new URLSearchParams(window.location.search);
-      const merged: Record<string, unknown> = { page, pageSize, search };
+      const merged: Record<string, unknown> = { page, pageSize };
+      const keyword = searchOverride ?? search;
+      if (keyword) {
+        merged.search = keyword;
+      }
       searchParams.forEach((value, key) => {
         if (!["page", "pageSize", "search"].includes(key)) {
           merged[key] = value;
@@ -673,7 +677,8 @@ export default function ResourcePage(props: ResourcePageProps) {
                 item.code ??
                 item.public_model_code ??
                 item.id
-            )
+            ),
+            meta: item.meta ?? {}
           }))
         ] as const;
       })
@@ -871,6 +876,14 @@ export default function ResourcePage(props: ResourcePageProps) {
     });
   }
 
+  function handleSearchChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextValue = event.target.value;
+    setSearch(nextValue);
+    if (!nextValue) {
+      load(1, 20, "").catch((error) => message.error((error as Error).message));
+    }
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -883,7 +896,7 @@ export default function ResourcePage(props: ResourcePageProps) {
             allowClear
             placeholder="搜索"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={handleSearchChange}
             onSearch={() => load()}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => load()} />

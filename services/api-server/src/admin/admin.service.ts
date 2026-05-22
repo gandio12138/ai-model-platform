@@ -1031,6 +1031,9 @@ export class AdminService {
     if (resource === "tenantModelPrices") {
       return this.listTenantModelPrices(query, user);
     }
+    if (resource === "modelPrices") {
+      return this.listModelPrices(query);
+    }
     if (resource === "tenantUsageAggregates") {
       return this.listTenantUsageAggregates(query, user);
     }
@@ -1396,6 +1399,60 @@ export class AdminService {
            join models m on m.id = tmp.model_id
           ${where}
           order by tmp.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
+  private async listModelPrices(query: Record<string, unknown>) {
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [];
+    const filters: string[] = [];
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(m.public_model_code ilike $${params.length}
+          or m.display_name ilike $${params.length}
+          or m.model_family ilike $${params.length}
+          or mp.price_version ilike $${params.length}
+          or mp.currency ilike $${params.length}
+          or mp.status ilike $${params.length})`
+      );
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`mp.status = $${params.length}`);
+    }
+    if (query.model_id) {
+      params.push(query.model_id);
+      filters.push(`mp.model_id = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `select count(*)::int as total
+           from model_prices mp
+           join models m on m.id = mp.model_id
+          ${where}`,
+        params
+      ),
+      this.db.query(
+        `select mp.*,
+                m.public_model_code,
+                m.display_name as model_display_name,
+                m.model_family,
+                m.max_context_tokens
+           from model_prices mp
+           join models m on m.id = mp.model_id
+          ${where}
+          order by mp.created_at desc
           limit $${params.length + 1} offset $${params.length + 2}`,
         [...params, pageSize, offset]
       )

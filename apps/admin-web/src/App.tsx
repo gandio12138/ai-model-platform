@@ -1186,7 +1186,8 @@ function Shell({
                   endpoint="/api/admin/model-prices"
                   rowKey="id"
                   columns={[
-                    ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
+                    ["model_display_name", "模型名称"],
+                    ["public_model_code", "模型 ID"],
                     ["price_version", "版本"],
                     ["currency", "币种"],
                     ["input_price_per_1m", "输入/1M（元）", "money"],
