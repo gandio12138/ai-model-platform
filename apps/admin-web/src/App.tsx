@@ -666,7 +666,7 @@ function Shell({
                     ["public_model_code", "模型"],
                     ["model_display_name", "展示名"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["max_context_tokens", "上下文上限"],
+                    ["max_context_tokens", "上下文上限（可选）"],
                     ["rpm_limit", "RPM"],
                     ["tpm_limit", "TPM"],
                     ["monthly_budget", "月预算（元）", "money"]
@@ -675,7 +675,12 @@ function Shell({
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
                     { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
-                    { key: "max_context_tokens", label: "上下文上限", kind: "number" },
+                    {
+                      key: "max_context_tokens",
+                      label: "上下文上限（可选）",
+                      kind: "number",
+                      help: "留空表示不额外限制，按模型目录中的默认上下文能力生效。"
+                    },
                     { key: "rpm_limit", label: "RPM", kind: "number" },
                     { key: "tpm_limit", label: "TPM", kind: "number" },
                     { key: "daily_budget", label: "日预算（元）", kind: "money" },
