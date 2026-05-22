@@ -262,7 +262,7 @@ const menuSections = [
       { key: "/models", icon: <ApiOutlined />, label: "模型目录", permission: "model.read", accountTypes: adminOnly },
       { key: "/model-prices", icon: <BankOutlined />, label: "平台价格", permission: "price.read", accountTypes: adminOnly },
       ...(enableAdvancedModelRouting ? ([{ key: "/model-routes", icon: <DeploymentUnitOutlined />, label: "模型路由", permission: "route.read", accountTypes: adminOnly }] satisfies MenuItem[]) : []),
-      { key: "/tenant-model-authorizations", icon: <ApiOutlined />, label: "租户授权", permission: "tenant.model.read", accountTypes: adminAndTenant },
+      { key: "/tenant-model-authorizations", icon: <ApiOutlined />, label: "租户模型设置", permission: "tenant.model.read", accountTypes: adminAndTenant },
       { key: "/tenant-model-prices", icon: <BankOutlined />, label: "租户价格覆盖", permission: "tenant.model.read", accountTypes: adminAndTenant }
     ]
   },
@@ -657,8 +657,8 @@ function Shell({
                 "tenant.model.read",
                 adminAndTenant,
                 <ResourcePage
-                  title="租户模型授权"
-                  description="仅为非默认租户配置可用模型。平台默认自营租户自动继承模型目录中的全部已启用模型，不需要在这里维护授权。"
+                  title="租户模型设置"
+                  description="所有租户默认可使用全部已上架、已定价、有上下文的模型；这里只配置某个租户的上下文上限、预算和状态覆盖，不需要逐个授权模型。"
                   endpoint="/api/admin/tenant-model-authorizations"
                   rowKey="id"
                   columns={[
@@ -670,7 +670,7 @@ function Shell({
                     ["monthly_budget", "月预算（元）", "money"]
                   ]}
                   editableFields={[
-                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户自动拥有全部模型，这里只展示需要单独授权的业务租户。" },
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认租户无需配置；业务租户不配置时使用平台默认模型上下文和价格。" },
                     {
                       key: "model_id",
                       label: "模型",
@@ -679,7 +679,7 @@ function Shell({
                       remoteSearch: true,
                       required: true,
                       autofillFromOption: { max_context_tokens: "max_context_tokens" },
-                      help: "选择模型后会自动带出模型目录中的默认上下文上限，可按租户实际需要改小。"
+                      help: "选择模型后会自动带出模型目录中的默认上下文上限；这里只在需要对该租户改小时配置。"
                     },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
                     {

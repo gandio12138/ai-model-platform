@@ -172,7 +172,7 @@ export class AiGatewayService {
                 m.public_model_code,
                 m.display_name,
                 m.model_family,
-                m.max_context_tokens,
+                coalesce(tma.max_context_tokens, m.max_context_tokens) as max_context_tokens,
                 m.default_max_output_tokens,
                 m.supports_stream,
                 m.supports_tools,
@@ -211,11 +211,6 @@ export class AiGatewayService {
            ) tmp on true
           where m.status = 'active'
             and m.max_context_tokens is not null
-            and (
-              tenant.tenant_type = 'platform_default'
-              or tenant.tenant_code = 'platform_default_tenant'
-              or tma.id is not null
-            )
             and coalesce(tmp.price_version, mp.price_version) is not null
        ),
        ranked as (
@@ -820,10 +815,6 @@ export class AiGatewayService {
               coalesce(tmp.currency, mp.currency) as currency
          from models m
          join tenants tenant on tenant.id = $1
-         left join tenant_model_authorizations tma
-           on tma.model_id = m.id
-          and tma.tenant_id = tenant.id
-          and tma.status = 'active'
          left join lateral (
            select input_price_per_1k,
                   output_price_per_1k,
@@ -855,12 +846,7 @@ export class AiGatewayService {
             order by effective_from desc, created_at desc
             limit 1
          ) mp on true
-        where (
-            tenant.tenant_type = 'platform_default'
-            or tenant.tenant_code = 'platform_default_tenant'
-            or tma.id is not null
-          )
-          and m.status = 'active'
+        where m.status = 'active'
           and m.max_context_tokens is not null
           and m.public_model_code = $2
         limit 1`,

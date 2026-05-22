@@ -4464,42 +4464,34 @@ export class AdminService {
     }
   }
 
-  private async validateTenantModelWhitelist(tenantId: string, modelCodes: string[]) {
-    if (await this.isPlatformDefaultTenantId(tenantId)) {
-      const { rows } = await this.db.query<{ public_model_code: string }>(
-        `select public_model_code
-           from models
-          where status = 'active'
-            and public_model_code = any($1::text[])`,
-        [modelCodes]
-      );
-      const allowed = new Set(rows.map((row) => row.public_model_code));
-      const denied = modelCodes.filter((code) => !allowed.has(code));
-      if (denied.length) {
-        throw new ForbiddenException(`Model is not available: ${denied.join(", ")}`);
-      }
-      return;
-    }
+  private async validateTenantModelWhitelist(_tenantId: string, modelCodes: string[]) {
     const { rows } = await this.db.query<{ public_model_code: string }>(
       `select m.public_model_code
          from models m
-         join tenant_model_authorizations tma on tma.model_id = m.id
-        where tma.tenant_id = $1
-          and tma.status = 'active'
-          and m.public_model_code = any($2::text[])`,
-      [tenantId, modelCodes]
+        where m.status = 'active'
+          and m.max_context_tokens is not null
+          and m.public_model_code = any($1::text[])
+          and exists (
+            select 1
+              from model_prices mp
+             where mp.model_id = m.id
+               and mp.status = 'active'
+               and mp.effective_from <= now()
+               and (mp.effective_to is null or mp.effective_to > now())
+          )`,
+      [modelCodes]
     );
     const allowed = new Set(rows.map((row) => row.public_model_code));
     const denied = modelCodes.filter((code) => !allowed.has(code));
     if (denied.length) {
-      throw new ForbiddenException(`Model is not authorized for this tenant: ${denied.join(", ")}`);
+      throw new ForbiddenException(`Model is not available: ${denied.join(", ")}`);
     }
   }
 
   private async assertExplicitModelPolicyTenant(tenantId: string) {
     if (!tenantId) return;
     if (await this.isPlatformDefaultTenantId(tenantId)) {
-      throw new BadRequestException("默认自营租户自动拥有全部模型，不需要配置租户模型授权或租户模型价格");
+      throw new BadRequestException("默认自营租户自动使用平台模型和平台价格，不需要配置租户模型设置或租户价格覆盖");
     }
   }
 

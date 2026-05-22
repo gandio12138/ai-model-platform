@@ -378,7 +378,7 @@ export class PublicService {
                 m.display_name,
                 m.model_family,
                 m.modality,
-                m.max_context_tokens,
+                coalesce(tma.max_context_tokens, m.max_context_tokens) as max_context_tokens,
                 m.default_max_output_tokens,
                 m.supports_stream,
                 m.supports_tools,
@@ -415,8 +415,8 @@ export class PublicService {
                     input_price_per_1m,
                     output_price_per_1m
                from tenant_model_prices
-              where tenant_id = tma.tenant_id
-                and model_id = tma.model_id
+              where tenant_id = context_tenant.id
+                and model_id = m.id
                 and status = 'active'
                 and effective_from <= now()
                 and (effective_to is null or effective_to > now())
@@ -1674,35 +1674,22 @@ export class PublicService {
     return rows[0];
   }
 
-  private async validateModelWhitelist(tenantId: string, modelCodes: string[]) {
-    const tenant = await this.db.query<{ tenant_type: string; tenant_code: string }>(
-      `select tenant_type, tenant_code from tenants where id = $1 limit 1`,
-      [tenantId]
-    );
-    if (this.isPlatformDefaultTenant(tenant.rows[0] ?? {})) {
-      const { rows } = await this.db.query<{ public_model_code: string }>(
-        `select public_model_code
-           from models
-          where status = 'active'
-            and public_model_code = any($1::text[])`,
-        [modelCodes]
-      );
-      const allowed = new Set(rows.map((row) => row.public_model_code));
-      const invalid = modelCodes.filter((code) => !allowed.has(code));
-      if (invalid.length) {
-        throw new BadRequestException(`Model is not available: ${invalid.join(", ")}`);
-      }
-      return;
-    }
-    const { rows } = await this.db.query(
+  private async validateModelWhitelist(_tenantId: string, modelCodes: string[]) {
+    const { rows } = await this.db.query<{ public_model_code: string }>(
       `select m.public_model_code
-         from tenant_model_authorizations tma
-         join models m on m.id = tma.model_id
-        where tma.tenant_id = $1
-          and tma.status = 'active'
-          and m.status = 'active'
-          and m.public_model_code = any($2::text[])`,
-      [tenantId, modelCodes]
+         from models m
+        where m.status = 'active'
+          and m.max_context_tokens is not null
+          and m.public_model_code = any($1::text[])
+          and exists (
+            select 1
+              from model_prices mp
+             where mp.model_id = m.id
+               and mp.status = 'active'
+               and mp.effective_from <= now()
+               and (mp.effective_to is null or mp.effective_to > now())
+          )`,
+      [modelCodes]
     );
     const allowed = new Set(rows.map((row) => row.public_model_code));
     const invalid = modelCodes.filter((code) => !allowed.has(code));
