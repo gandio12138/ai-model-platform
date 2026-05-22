@@ -715,6 +715,9 @@ export class AdminService {
       params.push(`%${String(query.search)}%`);
       filters.push(`(${optionConfig.search.map((column: string) => `${column}::text ilike $${params.length}`).join(" or ")})`);
     }
+    if (optionConfig.fixedWhere) {
+      filters.push(optionConfig.fixedWhere);
+    }
     if (optionConfig.tenantColumn) {
       if (query.tenant_id) {
         params.push(query.tenant_id);
@@ -1261,7 +1264,7 @@ export class AdminService {
   private async listTenantModelAuthorizations(query: Record<string, unknown>, user: any) {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
-    const filters: string[] = [];
+    const filters: string[] = ["tenant.tenant_type <> 'platform_default'", "tenant.tenant_code <> 'platform_default_tenant'"];
     if (!this.isSuperAdmin(user)) {
       const tenantIds = await this.getScopedTenantIds(user);
       if (!tenantIds?.length) {
@@ -1326,7 +1329,7 @@ export class AdminService {
   private async listTenantModelPrices(query: Record<string, unknown>, user: any) {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
-    const filters: string[] = [];
+    const filters: string[] = ["tenant.tenant_type <> 'platform_default'", "tenant.tenant_code <> 'platform_default_tenant'"];
     if (!this.isSuperAdmin(user)) {
       const tenantIds = await this.getScopedTenantIds(user);
       if (!tenantIds?.length) {
@@ -1621,6 +1624,9 @@ export class AdminService {
     if (resource === "paymentChannels") {
       await this.validatePaymentChannel(payload);
     }
+    if (resource === "tenantModelAuthorizations" || resource === "tenantModelPrices") {
+      await this.assertExplicitModelPolicyTenant(String(payload.tenant_id ?? ""));
+    }
     if (resource === "tenants") {
       this.prepareTenantPayload(payload, true);
     }
@@ -1678,6 +1684,9 @@ export class AdminService {
     }
     if (resource === "paymentChannels") {
       await this.validatePaymentChannel({ ...before, ...payload });
+    }
+    if (resource === "tenantModelAuthorizations" || resource === "tenantModelPrices") {
+      await this.assertExplicitModelPolicyTenant(String(payload.tenant_id ?? before.tenant_id ?? ""));
     }
     if (resource === "tenants") {
       if (payload.tenant_type === "platform_default" && before.tenant_type !== "platform_default") {
@@ -3707,6 +3716,20 @@ export class AdminService {
         orderBy: "t.created_at desc",
         tenantColumn: "id"
       },
+      "tenant-model-target-tenants": {
+        permission: "tenant.read",
+        alias: "t",
+        from: "tenants t",
+        valueSql: "t.id",
+        labelSql: "concat(t.name, ' / ', t.tenant_code)",
+        descriptionSql: "concat('计费：', coalesce(t.billing_mode, 'prepaid'), ' · 状态：', t.status)",
+        disabledSql: "t.status <> 'active'",
+        metaSql: "jsonb_build_object('tenant_code', t.tenant_code, 'tenant_type', t.tenant_type, 'billing_mode', t.billing_mode)",
+        search: ["t.name", "t.tenant_code", "t.billing_mode", "t.status"],
+        orderBy: "t.created_at desc",
+        tenantColumn: "id",
+        fixedWhere: "t.tenant_type <> 'platform_default' and t.tenant_code <> 'platform_default_tenant'"
+      },
       users: {
         permission: "user.read",
         alias: "u",
@@ -3994,6 +4017,21 @@ export class AdminService {
   }
 
   private async validateTenantModelWhitelist(tenantId: string, modelCodes: string[]) {
+    if (await this.isPlatformDefaultTenantId(tenantId)) {
+      const { rows } = await this.db.query<{ public_model_code: string }>(
+        `select public_model_code
+           from models
+          where status = 'active'
+            and public_model_code = any($1::text[])`,
+        [modelCodes]
+      );
+      const allowed = new Set(rows.map((row) => row.public_model_code));
+      const denied = modelCodes.filter((code) => !allowed.has(code));
+      if (denied.length) {
+        throw new ForbiddenException(`Model is not available: ${denied.join(", ")}`);
+      }
+      return;
+    }
     const { rows } = await this.db.query<{ public_model_code: string }>(
       `select m.public_model_code
          from models m
@@ -4008,6 +4046,23 @@ export class AdminService {
     if (denied.length) {
       throw new ForbiddenException(`Model is not authorized for this tenant: ${denied.join(", ")}`);
     }
+  }
+
+  private async assertExplicitModelPolicyTenant(tenantId: string) {
+    if (!tenantId) return;
+    if (await this.isPlatformDefaultTenantId(tenantId)) {
+      throw new BadRequestException("默认自营租户自动拥有全部模型，不需要配置租户模型授权或租户模型价格");
+    }
+  }
+
+  private async isPlatformDefaultTenantId(tenantId: string) {
+    if (!tenantId) return false;
+    const { rows } = await this.db.query<{ tenant_type: string; tenant_code: string }>(
+      `select tenant_type, tenant_code from tenants where id = $1 limit 1`,
+      [tenantId]
+    );
+    const row = rows[0];
+    return row?.tenant_type === "platform_default" || row?.tenant_code === "platform_default_tenant";
   }
 
   private async assertTenantAccess(user: any, tenantId: string) {

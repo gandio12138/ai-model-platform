@@ -50,15 +50,16 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
       apiFetch<ApiList>("/api/admin/tenants?pageSize=100"),
       apiFetch<ApiList>("/api/admin/tenant-projects?pageSize=100"),
       apiFetch<ApiList>("/api/admin/tenant-customers?pageSize=100"),
-      apiFetch<ApiList>("/api/admin/tenant-model-authorizations?pageSize=100")
+      apiFetch<ApiList>("/api/admin/options/models?pageSize=500")
     ]);
     setTenants(tenantRes.data.map((item) => ({ value: item.id, label: item.name ?? item.tenant_code ?? item.id })));
     setProjects(projectRes.data.map((item) => ({ value: item.id, label: `${item.name ?? item.project_code} / ${item.platform}` })));
     setCustomers(customerRes.data.map((item) => ({ value: item.user_id, label: item.customer_email ?? item.customer_code ?? item.user_id })));
     const modelOptions = new Map<string, string>();
     for (const item of modelRes.data) {
-      if (item.public_model_code) {
-        modelOptions.set(item.public_model_code, item.model_display_name ?? item.public_model_code);
+      const value = String(item.value ?? item.public_model_code ?? item.id ?? "");
+      if (value) {
+        modelOptions.set(value, String(item.label ?? item.display_name ?? item.public_model_code ?? value));
       }
     }
     setModels([...modelOptions].map(([value, label]) => ({ value, label })));
@@ -200,8 +201,12 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
           <Form.Item label="Key 名称" name="name" rules={[{ required: true }]}>
             <Input prefix={<KeyRound size={16} />} />
           </Form.Item>
-          <Form.Item label="模型白名单" name="model_whitelist">
-            <Select mode="multiple" showSearch optionFilterProp="label" options={models} placeholder="留空表示使用租户默认授权策略" />
+          <Form.Item
+            label="模型白名单"
+            name="model_whitelist"
+            help="留空表示该 API Key 可使用租户策略允许的所有模型；只有需要限制单个 Key 时才选择模型。"
+          >
+            <Select mode="multiple" showSearch optionFilterProp="label" options={models} placeholder="默认不限制模型" />
           </Form.Item>
           <Form.Item label="IP 白名单" name="ip_whitelist">
             <Input.TextArea rows={3} placeholder="多个 IP 用逗号或换行分隔" />

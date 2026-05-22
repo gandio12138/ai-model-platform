@@ -383,18 +383,21 @@ export class PublicService {
               m.supports_tools,
               m.supports_json_mode,
               m.metadata as model_metadata,
+              context_tenant.tenant_type as tenant_type,
+              context_tenant.tenant_code as tenant_code,
               tma.id as authorization_id,
               tma.rpm_limit,
               tma.tpm_limit,
               tma.daily_budget,
               tma.monthly_budget,
               tma.enabled_features,
-              tmp.price_version,
-              tmp.currency,
-              tmp.pricing_mode,
-              tmp.input_price_per_1k,
-              tmp.output_price_per_1k
+              coalesce(tmp.price_version, mp.price_version) as price_version,
+              coalesce(tmp.currency, mp.currency) as currency,
+              coalesce(tmp.pricing_mode, 'catalog_price') as pricing_mode,
+              coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
+              coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k
          from models m
+         join tenants context_tenant on context_tenant.id = $1
          left join tenant_model_authorizations tma
            on tma.model_id = m.id
           and tma.tenant_id = $1
@@ -414,6 +417,19 @@ export class PublicService {
             order by effective_from desc, created_at desc
             limit 1
          ) tmp on true
+         left join lateral (
+           select price_version,
+                  currency,
+                  input_price_per_1k,
+                  output_price_per_1k
+             from model_prices
+            where model_id = m.id
+              and status = 'active'
+              and effective_from <= now()
+              and (effective_to is null or effective_to > now())
+            order by effective_from desc, created_at desc
+            limit 1
+         ) mp on true
         where m.status = 'active'
         order by m.model_family nulls last, m.display_name asc`,
       [context.tenant.id]
@@ -1633,6 +1649,25 @@ export class PublicService {
   }
 
   private async validateModelWhitelist(tenantId: string, modelCodes: string[]) {
+    const tenant = await this.db.query<{ tenant_type: string; tenant_code: string }>(
+      `select tenant_type, tenant_code from tenants where id = $1 limit 1`,
+      [tenantId]
+    );
+    if (this.isPlatformDefaultTenant(tenant.rows[0] ?? {})) {
+      const { rows } = await this.db.query<{ public_model_code: string }>(
+        `select public_model_code
+           from models
+          where status = 'active'
+            and public_model_code = any($1::text[])`,
+        [modelCodes]
+      );
+      const allowed = new Set(rows.map((row) => row.public_model_code));
+      const invalid = modelCodes.filter((code) => !allowed.has(code));
+      if (invalid.length) {
+        throw new BadRequestException(`Model is not available: ${invalid.join(", ")}`);
+      }
+      return;
+    }
     const { rows } = await this.db.query(
       `select m.public_model_code
          from tenant_model_authorizations tma
@@ -1850,12 +1885,16 @@ export class PublicService {
           }
         : null,
       availability: {
-        authorized: Boolean(row.authorization_id),
+        authorized: this.isPlatformDefaultTenant(row) || Boolean(row.authorization_id),
         priced: Boolean(row.price_version),
-        chat_enabled: Boolean(row.price_version)
+        chat_enabled: (this.isPlatformDefaultTenant(row) || Boolean(row.authorization_id)) && Boolean(row.price_version)
       },
       metadata: row.model_metadata ?? {}
     };
+  }
+
+  private isPlatformDefaultTenant(row: any) {
+    return row.tenant_type === "platform_default" || row.tenant_code === "platform_default_tenant";
   }
 
   private resolveModelCategory(row: any): ModelCategoryKey {

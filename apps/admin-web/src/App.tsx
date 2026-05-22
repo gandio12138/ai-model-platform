@@ -401,8 +401,12 @@ function Shell({
       <Layout>
         <Header className="admin-header">
           <div className="header-left">
-            <Tag color="red" className="env-tag">DEV</Tag>
-            <span className="header-hint">本地开发环境</span>
+            {import.meta.env.DEV ? (
+              <>
+                <Tag color="red" className="env-tag">DEV</Tag>
+                <span className="header-hint">本地开发环境</span>
+              </>
+            ) : null}
           </div>
           <div className="header-right">
             <Segmented
@@ -659,6 +663,7 @@ function Shell({
                 adminAndTenant,
                 <ResourcePage
                   title="租户模型授权"
+                  description="仅为非默认租户配置可用模型。平台默认自营租户自动继承模型目录中的全部已启用模型，不需要在这里维护授权。"
                   endpoint="/api/admin/tenant-model-authorizations"
                   rowKey="id"
                   columns={[
@@ -672,7 +677,7 @@ function Shell({
                     ["monthly_budget", "月预算（元）", "money"]
                   ]}
                   editableFields={[
-                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户自动拥有全部模型，这里只展示需要单独授权的业务租户。" },
                     { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
                     {
@@ -698,6 +703,7 @@ function Shell({
                 adminAndTenant,
                 <ResourcePage
                   title="租户模型价格"
+                  description="仅配置非默认租户的模型价格覆盖。默认自营租户使用模型目录中的全局价格。"
                   endpoint="/api/admin/tenant-model-prices"
                   rowKey="id"
                   columns={[
@@ -711,7 +717,7 @@ function Shell({
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
-                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
+                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户使用全局模型价格，不在这里配置价格覆盖。" },
                     { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
                     { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
                     { key: "input_price_per_1k", label: "输入/1K（元）", kind: "money", required: true },

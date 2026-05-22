@@ -24,6 +24,7 @@ interface GatewayContext {
   tenantCustomerId: string | null;
   userId: string;
   apiKeyId: string | null;
+  modelWhitelist: string[];
 }
 
 interface ChatMessageInput {
@@ -130,12 +131,15 @@ export class AiGatewayService {
       projectId: key.project_id,
       tenantCustomerId: key.tenant_customer_id,
       userId: key.user_id,
-      apiKeyId: key.id
+      apiKeyId: key.id,
+      modelWhitelist: key.model_whitelist ?? []
     };
   }
 
   async listOpenAiModels(context: GatewayContext) {
-    const models = await this.listTenantModels(context.tenantId);
+    const models = (await this.listTenantModels(context.tenantId)).filter(
+      (model) => !context.modelWhitelist.length || context.modelWhitelist.includes(model.public_model_code)
+    );
     return {
       object: "list",
       data: models.map((model) => ({
@@ -169,11 +173,18 @@ export class AiGatewayService {
               m.supports_stream,
               m.supports_tools,
               m.supports_json_mode
-         from tenant_model_authorizations tma
-         join models m on m.id = tma.model_id
-        where tma.tenant_id = $1
+         from models m
+         join tenants tenant on tenant.id = $1
+         left join tenant_model_authorizations tma
+           on tma.model_id = m.id
+          and tma.tenant_id = tenant.id
           and tma.status = 'active'
-          and m.status = 'active'
+        where m.status = 'active'
+          and (
+            tenant.tenant_type = 'platform_default'
+            or tenant.tenant_code = 'platform_default_tenant'
+            or tma.id is not null
+          )
         order by m.model_family nulls last, m.display_name asc`,
       [tenantId]
     );
@@ -286,7 +297,8 @@ export class AiGatewayService {
       projectId: session.project_id,
       tenantCustomerId: session.tenant_customer_id,
       userId: session.user_id,
-      apiKeyId: null
+      apiKeyId: null,
+      modelWhitelist: []
     };
     const content = String(body.content ?? "").trim();
     if (!content) {
@@ -358,6 +370,7 @@ export class AiGatewayService {
     if (!input.model) {
       throw new BadRequestException("model is required");
     }
+    this.assertApiKeyModelAccess(input.context, input.model);
 
     if (input.idempotencyKey) {
       const cached = await this.findCachedCompletion(input.context, input.idempotencyKey);
@@ -703,8 +716,16 @@ export class AiGatewayService {
       projectId: context.project?.id ?? null,
       tenantCustomerId: customerContext.tenant_customer.id,
       userId: user.id,
-      apiKeyId: null
+      apiKeyId: null,
+      modelWhitelist: []
     };
+  }
+
+  private assertApiKeyModelAccess(context: GatewayContext, modelCode: string) {
+    if (!context.modelWhitelist.length) return;
+    if (!context.modelWhitelist.includes(modelCode)) {
+      throw new ForbiddenException("Model is not allowed by this API key");
+    }
   }
 
   private parseMessages(value: unknown): ChatMessageInput[] {
@@ -735,28 +756,48 @@ export class AiGatewayService {
               m.public_model_code,
               m.display_name,
               m.default_max_output_tokens,
-              tmp.input_price_per_1k,
-              tmp.output_price_per_1k,
-              tmp.price_version,
-              tmp.currency
-         from tenant_model_authorizations tma
-         join models m on m.id = tma.model_id
+              coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
+              coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
+              coalesce(tmp.price_version, mp.price_version) as price_version,
+              coalesce(tmp.currency, mp.currency) as currency
+         from models m
+         join tenants tenant on tenant.id = $1
+         left join tenant_model_authorizations tma
+           on tma.model_id = m.id
+          and tma.tenant_id = tenant.id
+          and tma.status = 'active'
          left join lateral (
            select input_price_per_1k,
                   output_price_per_1k,
                   price_version,
                   currency
              from tenant_model_prices
-            where tenant_id = tma.tenant_id
-              and model_id = tma.model_id
+            where tenant_id = tenant.id
+              and model_id = m.id
               and status = 'active'
               and effective_from <= now()
               and (effective_to is null or effective_to > now())
             order by effective_from desc, created_at desc
             limit 1
          ) tmp on true
-        where tma.tenant_id = $1
-          and tma.status = 'active'
+         left join lateral (
+           select input_price_per_1k,
+                  output_price_per_1k,
+                  price_version,
+                  currency
+             from model_prices
+            where model_id = m.id
+              and status = 'active'
+              and effective_from <= now()
+              and (effective_to is null or effective_to > now())
+            order by effective_from desc, created_at desc
+            limit 1
+         ) mp on true
+        where (
+            tenant.tenant_type = 'platform_default'
+            or tenant.tenant_code = 'platform_default_tenant'
+            or tma.id is not null
+          )
           and m.status = 'active'
           and m.public_model_code = $2
         limit 1`,
