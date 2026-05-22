@@ -1,4 +1,4 @@
-import { Button, Form, Input, InputNumber, Modal, Select, Space, message } from "antd";
+import { Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, message } from "antd";
 import { KeyRound, RefreshCw, TestTube2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiList, apiFetch } from "../api";
@@ -327,17 +327,23 @@ export default function ProviderPage({
               <Input.Password autoComplete="new-password" />
             </Form.Item>
           )}
-          <Space>
-            <Form.Item label="RPM" name="rpm_limit">
-              <InputNumber />
-            </Form.Item>
-            <Form.Item label="TPM" name="tpm_limit">
-              <InputNumber />
-            </Form.Item>
-          </Space>
-          <Button type="primary" htmlType="submit">
-            加密保存
-          </Button>
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item label="RPM" name="rpm_limit">
+                <InputNumber className="full-width" min={0} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="TPM" name="tpm_limit">
+                <InputNumber className="full-width" min={0} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" block>
+              加密保存
+            </Button>
+          </Form.Item>
         </Form>
       </Modal>
       <Modal title="同步模型目录" open={syncOpen} onCancel={() => setSyncOpen(false)} footer={null} destroyOnClose>
