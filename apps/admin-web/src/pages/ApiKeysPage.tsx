@@ -1,6 +1,7 @@
-import { Alert, Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Alert, Button, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { KeyRound, Plus, RefreshCw, Save } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
 
@@ -28,41 +29,48 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
   const [tenants, setTenants] = useState<Option[]>([]);
   const [projects, setProjects] = useState<Option[]>([]);
   const [customers, setCustomers] = useState<Option[]>([]);
-  const [models, setModels] = useState<Option[]>([]);
   const [form] = Form.useForm();
+  const latestLoadRef = useRef(0);
 
-  async function load(page = 1, pageSize = 20) {
+  async function load(page = 1, pageSize = 20, searchOverride?: string) {
+    const loadId = latestLoadRef.current + 1;
+    latestLoadRef.current = loadId;
     setLoading(true);
     try {
-      const query = toQuery({ page, pageSize, search });
+      const keyword = searchOverride ?? search;
+      const query = toQuery({ page, pageSize, search: keyword });
       const res = await apiFetch<ApiList>(`/api/admin/api-keys?${query}`);
+      if (loadId !== latestLoadRef.current) return;
       setRows(res.data);
       setTotal(res.total);
     } catch (error) {
-      message.error((error as Error).message);
+      if (loadId === latestLoadRef.current) {
+        message.error((error as Error).message);
+      }
     } finally {
-      setLoading(false);
+      if (loadId === latestLoadRef.current) {
+        setLoading(false);
+      }
+    }
+  }
+
+  function handleSearchChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextValue = event.target.value;
+    setSearch(nextValue);
+    if (!nextValue) {
+      load(1, 20, "").catch((error) => message.error((error as Error).message));
     }
   }
 
   async function loadOptions() {
-    const [tenantRes, projectRes, customerRes, modelRes] = await Promise.all([
+    const [tenantRes, projectRes, customerRes] = await Promise.all([
       apiFetch<ApiList>("/api/admin/tenants?pageSize=100"),
       apiFetch<ApiList>("/api/admin/tenant-projects?pageSize=100"),
-      apiFetch<ApiList>("/api/admin/tenant-customers?pageSize=100"),
-      apiFetch<ApiList>("/api/admin/options/models?pageSize=500")
+      apiFetch<ApiList>("/api/admin/tenant-customers?pageSize=100")
     ]);
     setTenants(tenantRes.data.map((item) => ({ value: item.id, label: item.name ?? item.tenant_code ?? item.id })));
     setProjects(projectRes.data.map((item) => ({ value: item.id, label: `${item.name ?? item.project_code} / ${item.platform}` })));
     setCustomers(customerRes.data.map((item) => ({ value: item.user_id, label: item.customer_email ?? item.customer_code ?? item.user_id })));
-    const modelOptions = new Map<string, string>();
-    for (const item of modelRes.data) {
-      const value = String(item.value ?? item.public_model_code ?? item.id ?? "");
-      if (value) {
-        modelOptions.set(value, String(item.label ?? item.display_name ?? item.public_model_code ?? value));
-      }
-    }
-    setModels([...modelOptions].map(([value, label]) => ({ value, label })));
   }
 
   useEffect(() => {
@@ -79,12 +87,8 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
           project_id: values.project_id,
           user_id: values.user_id,
           name: values.name,
-          model_whitelist: values.model_whitelist,
+          model_whitelist: [],
           ip_whitelist: values.ip_whitelist,
-          rpm_limit: values.rpm_limit,
-          tpm_limit: values.tpm_limit,
-          daily_budget: values.daily_budget,
-          monthly_budget: values.monthly_budget,
           expires_at: values.expires_at
         })
       });
@@ -152,16 +156,19 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
     <div>
       <div className="page-header">
         <div>
-          <Typography.Title level={3}>API Key 管理</Typography.Title>
-          <Typography.Text type="secondary">按租户、项目、客户账号签发和吊销 API Key</Typography.Text>
+          <Typography.Title level={3}>API Key 管控</Typography.Title>
+          <Typography.Text type="secondary">这里和 Web/App 自助创建的 API Key 使用同一张数据表；后台用于运营查看、代签和吊销异常 Key。</Typography.Text>
         </div>
         <Space>
           <Input.Search
             allowClear
             placeholder="搜索名称、前后缀、状态"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onSearch={() => load()}
+            onChange={handleSearchChange}
+            onSearch={(value) => {
+              setSearch(value);
+              load(1, 20, value).catch((error) => message.error((error as Error).message));
+            }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => load()} />
           {canWrite && <Button type="primary" icon={<Plus size={16} />} onClick={() => {
@@ -201,22 +208,16 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
           <Form.Item label="Key 名称" name="name" rules={[{ required: true }]}>
             <Input prefix={<KeyRound size={16} />} />
           </Form.Item>
-          <Form.Item
-            label="模型白名单"
-            name="model_whitelist"
-            help="留空表示该 API Key 可使用租户策略允许的所有模型；只有需要限制单个 Key 时才选择模型。"
-          >
-            <Select mode="multiple" showSearch optionFilterProp="label" options={models} placeholder="默认不限制模型" />
-          </Form.Item>
+          <Alert
+            className="mb-16"
+            type="info"
+            showIcon
+            message="模型权限"
+            description="API Key 默认可调用当前租户已授权的全部模型，不在单个 Key 上重复勾选模型。不同模型按各自价格扣费。"
+          />
           <Form.Item label="IP 白名单" name="ip_whitelist">
             <Input.TextArea rows={3} placeholder="多个 IP 用逗号或换行分隔" />
           </Form.Item>
-          <Space align="start" wrap>
-            <Form.Item label="RPM 限制" name="rpm_limit"><InputNumber /></Form.Item>
-            <Form.Item label="TPM 限制" name="tpm_limit"><InputNumber /></Form.Item>
-            <Form.Item label="日预算，单位分" name="daily_budget"><InputNumber /></Form.Item>
-            <Form.Item label="月预算，单位分" name="monthly_budget"><InputNumber /></Form.Item>
-          </Space>
           <Form.Item label="过期时间 ISO" name="expires_at">
             <Input placeholder="2026-06-30T00:00:00Z" />
           </Form.Item>
@@ -233,12 +234,8 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
             <Descriptions.Item label="Key 前缀">{detail.key_prefix}</Descriptions.Item>
             <Descriptions.Item label="Key 后缀">{detail.key_suffix}</Descriptions.Item>
             <Descriptions.Item label="状态">{detail.status}</Descriptions.Item>
-            <Descriptions.Item label="模型白名单">{renderArray(detail.model_whitelist)}</Descriptions.Item>
+            <Descriptions.Item label="模型权限">当前租户全部已授权模型</Descriptions.Item>
             <Descriptions.Item label="IP 白名单">{renderArray(detail.ip_whitelist)}</Descriptions.Item>
-            <Descriptions.Item label="RPM 限制">{detail.rpm_limit ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="TPM 限制">{detail.tpm_limit ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="日预算，单位分">{detail.daily_budget ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="月预算，单位分">{detail.monthly_budget ?? "-"}</Descriptions.Item>
             <Descriptions.Item label="过期时间">{formatTime(detail.expires_at)}</Descriptions.Item>
             <Descriptions.Item label="最后使用">{formatTime(detail.last_used_at)}</Descriptions.Item>
             <Descriptions.Item label="创建时间">{formatTime(detail.created_at)}</Descriptions.Item>

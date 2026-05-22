@@ -1,6 +1,7 @@
 import { Button, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, RefreshCw } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
 
@@ -25,18 +26,35 @@ export default function TenantInvoicesPage({ canGenerate }: { canGenerate: boole
   const [previewOpen, setPreviewOpen] = useState(false);
   const [tenants, setTenants] = useState<Option[]>([]);
   const [previewForm] = Form.useForm();
+  const latestLoadRef = useRef(0);
 
-  async function load(page = 1, pageSize = 20) {
+  async function load(page = 1, pageSize = 20, searchOverride?: string) {
+    const loadId = latestLoadRef.current + 1;
+    latestLoadRef.current = loadId;
     setLoading(true);
     try {
-      const query = toQuery({ page, pageSize, search });
+      const keyword = searchOverride ?? search;
+      const query = toQuery({ page, pageSize, search: keyword });
       const res = await apiFetch<ApiList>(`/api/admin/tenant-invoices?${query}`);
+      if (loadId !== latestLoadRef.current) return;
       setRows(res.data);
       setTotal(res.total);
     } catch (error) {
-      message.error((error as Error).message);
+      if (loadId === latestLoadRef.current) {
+        message.error((error as Error).message);
+      }
     } finally {
-      setLoading(false);
+      if (loadId === latestLoadRef.current) {
+        setLoading(false);
+      }
+    }
+  }
+
+  function handleSearchChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextValue = event.target.value;
+    setSearch(nextValue);
+    if (!nextValue) {
+      load(1, 20, "").catch((error) => message.error((error as Error).message));
     }
   }
 
@@ -132,8 +150,11 @@ export default function TenantInvoicesPage({ canGenerate }: { canGenerate: boole
             allowClear
             placeholder="搜索账单号、状态"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onSearch={() => load()}
+            onChange={handleSearchChange}
+            onSearch={(value) => {
+              setSearch(value);
+              load(1, 20, value).catch((error) => message.error((error as Error).message));
+            }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => load()} />
         </Space>

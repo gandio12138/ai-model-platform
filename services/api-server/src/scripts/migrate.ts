@@ -10,11 +10,17 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "../../migrations");
 
+function resolveDatabaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production") {
+    throw new Error("DATABASE_URL is required in production");
+  }
+  return "postgres://postgres@localhost:5432/ai_model_platform";
+}
+
 async function main() {
   const pool = new Pool({
-    connectionString:
-      process.env.DATABASE_URL ??
-      "postgres://chengchengxu@localhost:5432/ai_model_platform"
+    connectionString: resolveDatabaseUrl()
   });
   const files = (await fs.readdir(migrationsDir))
     .filter((file) => file.endsWith(".sql"))
@@ -52,4 +58,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

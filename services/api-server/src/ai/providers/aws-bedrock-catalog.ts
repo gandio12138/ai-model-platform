@@ -18,7 +18,7 @@ export interface BedrockResolvedPricing {
   sourceProviderName: string;
 }
 
-interface BedrockPriceEntry {
+export interface BedrockPriceEntry {
   modelName: string;
   providerName: string;
   sourceOfferCode: string;
@@ -26,6 +26,10 @@ interface BedrockPriceEntry {
   outputUsdPer1k?: number;
   cacheReadUsdPer1k?: number;
   cacheWriteUsdPer1k?: number;
+  inputPriceGlobal?: boolean;
+  outputPriceGlobal?: boolean;
+  cacheReadPriceGlobal?: boolean;
+  cacheWritePriceGlobal?: boolean;
 }
 
 export interface BedrockPriceCatalog {
@@ -35,6 +39,11 @@ export interface BedrockPriceCatalog {
   usdToCnyRate: number;
   markupMultiplier: number;
   entries: Map<string, BedrockPriceEntry>;
+}
+
+export interface BedrockPriceOfferPayload {
+  offerCode: string;
+  payload: any;
 }
 
 export interface BedrockModelContext {
@@ -50,8 +59,7 @@ export async function fetchAwsBedrockPriceCatalog(
   options: { usdToCnyRate: number; markupMultiplier: number }
 ): Promise<BedrockPriceCatalog> {
   const normalizedRegion = region || "us-east-1";
-  const entries = new Map<string, BedrockPriceEntry>();
-  const publicationDates: string[] = [];
+  const offers: BedrockPriceOfferPayload[] = [];
   for (const offerCode of bedrockPriceOffers) {
     const response = await fetch(
       `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/${offerCode}/current/${encodeURIComponent(normalizedRegion)}/index.json`
@@ -62,7 +70,20 @@ export async function fetchAwsBedrockPriceCatalog(
       }
       continue;
     }
-    const payload = (await response.json()) as any;
+    offers.push({ offerCode, payload: (await response.json()) as any });
+  }
+  return buildAwsBedrockPriceCatalogFromOfferPayloads(normalizedRegion, offers, options);
+}
+
+export function buildAwsBedrockPriceCatalogFromOfferPayloads(
+  region: string,
+  offers: BedrockPriceOfferPayload[],
+  options: { usdToCnyRate: number; markupMultiplier: number }
+): BedrockPriceCatalog {
+  const normalizedRegion = region || "us-east-1";
+  const entries = new Map<string, BedrockPriceEntry>();
+  const publicationDates: string[] = [];
+  for (const { offerCode, payload } of offers) {
     if (typeof payload.publicationDate === "string") {
       publicationDates.push(payload.publicationDate);
     }
@@ -77,18 +98,21 @@ export async function fetchAwsBedrockPriceCatalog(
       const modelName = resolvePriceListModelName(attributes);
       if (!modelName) continue;
       const providerName = String(attributes.provider ?? inferBedrockProviderName(modelName)).trim() || "AWS Bedrock";
-      const key = priceKey(providerName, modelName);
-      const entry = entries.get(key) ?? { modelName, providerName, sourceOfferCode: offerCode };
-      if (isCacheReadPrice(inferenceType)) {
-        entry.cacheReadUsdPer1k = usdPer1k;
-      } else if (isCacheWritePrice(inferenceType)) {
-        entry.cacheWriteUsdPer1k = usdPer1k;
-      } else if (inferenceType.includes("input")) {
-        entry.inputUsdPer1k = usdPer1k;
-      } else if (inferenceType.includes("output")) {
-        entry.outputUsdPer1k = usdPer1k;
+      const globalPrice = isGlobalBedrockPrice(attributes);
+      for (const alias of priceAliasNames(attributes, modelName)) {
+        const key = priceKey(providerName, alias);
+        const entry = entries.get(key) ?? { modelName, providerName, sourceOfferCode: offerCode };
+        if (isCacheReadPrice(inferenceType)) {
+          setBedrockTokenPrice(entry, "cacheReadUsdPer1k", "cacheReadPriceGlobal", usdPer1k, globalPrice);
+        } else if (isCacheWritePrice(inferenceType)) {
+          setBedrockTokenPrice(entry, "cacheWriteUsdPer1k", "cacheWritePriceGlobal", usdPer1k, globalPrice);
+        } else if (inferenceType.includes("input")) {
+          setBedrockTokenPrice(entry, "inputUsdPer1k", "inputPriceGlobal", usdPer1k, globalPrice);
+        } else if (inferenceType.includes("output")) {
+          setBedrockTokenPrice(entry, "outputUsdPer1k", "outputPriceGlobal", usdPer1k, globalPrice);
+        }
+        entries.set(key, entry);
       }
-      entries.set(key, entry);
     }
   }
   publicationDates.sort();
@@ -147,6 +171,9 @@ export function resolveAwsBedrockModelContext(input: {
   if (output.some((item) => item.includes("embedding"))) {
     return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
   }
+  if (/\b(rerank|reranker|rank)\b/.test(searchable)) {
+    return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
+  }
   if (/claude/.test(searchable)) {
     return { maxContextTokens: 200000, defaultMaxOutputTokens: 4096, contextSource: "catalog_rule" };
   }
@@ -164,14 +191,15 @@ export function resolveAwsBedrockModelContext(input: {
 
 function readUsdPer1k(onDemandTerm: unknown, attributes: Record<string, unknown>) {
   if (!onDemandTerm || typeof onDemandTerm !== "object") return null;
+  const usageType = String(attributes.usagetype ?? "").toLowerCase();
   for (const term of Object.values(onDemandTerm as Record<string, any>)) {
     const dimensions = term?.priceDimensions ?? {};
     for (const dimension of Object.values<any>(dimensions)) {
       const amount = Number(dimension?.pricePerUnit?.USD);
       if (!Number.isFinite(amount)) continue;
       if (dimension?.unit === "1K tokens") return amount;
-      const usageType = String(attributes.usagetype ?? "").toLowerCase();
-      if (dimension?.unit === "Units" && usageType.includes("tokencount")) {
+      const description = String(dimension?.description ?? "").toLowerCase();
+      if (dimension?.unit === "Units" && isMarketplaceTokenUsage(usageType, description)) {
         return amount / 1000;
       }
     }
@@ -201,6 +229,19 @@ function inferInferenceType(attributes: Record<string, unknown>) {
   const explicit = String(attributes.inferenceType ?? "").toLowerCase();
   if (explicit) return explicit;
   const usageType = String(attributes.usagetype ?? "").toLowerCase();
+  const normalizedUsageType = usageType.replace(/[^a-z]/g, "");
+  if (normalizedUsageType.includes("cachereadtokens") || normalizedUsageType.includes("cachereadinputtokencount")) {
+    return "cache read input tokens";
+  }
+  if (normalizedUsageType.includes("cachewritetokens") || normalizedUsageType.includes("cachewrite")) {
+    return "cache write input tokens";
+  }
+  if (normalizedUsageType.includes("inputtokens") || normalizedUsageType.includes("inputtokencount")) {
+    return "input tokens";
+  }
+  if (normalizedUsageType.includes("outputtokens") || normalizedUsageType.includes("responsetokens") || normalizedUsageType.includes("outputtokencount")) {
+    return "output tokens";
+  }
   if (usageType.includes("cachereadinputtokencount")) return "cache read input tokens";
   if (usageType.includes("cachewrite")) return "cache write input tokens";
   if (usageType.includes("inputtokencount")) return "input tokens";
@@ -208,6 +249,86 @@ function inferInferenceType(attributes: Record<string, unknown>) {
   const feature = String(attributes.feature ?? "").toLowerCase();
   if (feature.includes("on-demand inference")) return explicit;
   return "";
+}
+
+function setBedrockTokenPrice(
+  entry: BedrockPriceEntry,
+  priceKeyName: "inputUsdPer1k" | "outputUsdPer1k" | "cacheReadUsdPer1k" | "cacheWriteUsdPer1k",
+  globalKeyName: "inputPriceGlobal" | "outputPriceGlobal" | "cacheReadPriceGlobal" | "cacheWritePriceGlobal",
+  usdPer1k: number,
+  isGlobal: boolean
+) {
+  const current = entry[priceKeyName];
+  const currentIsGlobal = entry[globalKeyName] === true;
+  if (current === undefined || (currentIsGlobal && !isGlobal)) {
+    entry[priceKeyName] = usdPer1k;
+    entry[globalKeyName] = isGlobal;
+  }
+}
+
+function isMarketplaceTokenUsage(usageType: string, description: string) {
+  const value = `${usageType} ${description}`.toLowerCase();
+  return (
+    value.includes("tokencount") ||
+    value.includes("input_tokens") ||
+    value.includes("output_tokens") ||
+    value.includes("response tokens") ||
+    value.includes("input tokens") ||
+    value.includes("cache read tokens") ||
+    value.includes("cache write tokens") ||
+    value.includes("million input tokens") ||
+    value.includes("million response tokens")
+  );
+}
+
+function isGlobalBedrockPrice(attributes: Record<string, unknown>) {
+  const usageType = String(attributes.usagetype ?? "").toLowerCase();
+  return usageType.includes("_global") || usageType.includes("-global");
+}
+
+function priceAliasNames(attributes: Record<string, unknown>, modelName: string) {
+  const aliases = new Set<string>();
+  const add = (value: unknown) => {
+    const alias = String(value ?? "").trim();
+    if (!alias) return;
+    aliases.add(alias);
+    const stripped = stripKnownProviderPrefix(alias);
+    if (stripped && stripped !== alias) aliases.add(stripped);
+  };
+  add(modelName);
+  for (const alias of modelAliasesFromUsageType(attributes.usagetype)) {
+    add(alias);
+  }
+  return [...aliases];
+}
+
+function stripKnownProviderPrefix(value: string) {
+  return value
+    .replace(/^(amazon|anthropic|cohere|mistral(?: ai)?|meta(?: llama)?|ai21(?: labs)?|writer|deepseek|openai|z ai)\s+/i, "")
+    .trim();
+}
+
+function modelAliasesFromUsageType(value: unknown) {
+  const usageType = String(value ?? "");
+  const aliases: string[] = [];
+  for (const rawSegment of usageType.split(":")) {
+    let segment = rawSegment.trim();
+    if (!segment) continue;
+    segment = segment.replace(/^use\d+[a-z]*[-_]/i, "");
+    segment = segment.replace(/_+/g, "-");
+    segment = segment.replace(/-(?:mantle-)?(?:input|output|cache|cached|million|reserved|provisioned|customization).*$/i, "");
+    segment = segment.replace(/-mantle$/i, "");
+    if (!isUsageModelAlias(segment)) continue;
+    aliases.push(segment);
+  }
+  return aliases;
+}
+
+function isUsageModelAlias(value: string) {
+  const normalized = value.toLowerCase();
+  if (!normalized || normalized === "mp") return false;
+  if (/^(input|output|cache|cached|token|tokencount|unit|units)/.test(normalized)) return false;
+  return normalized.includes(".") || normalized.split("-").length >= 3;
 }
 
 function resolvePriceListModelName(attributes: Record<string, unknown>) {
@@ -222,8 +343,10 @@ function resolvePriceListModelName(attributes: Record<string, unknown>) {
 function pricingCandidateKeys(input: { providerName: string; displayName: string; modelId: string }) {
   const names = new Set<string>([
     input.displayName,
+    input.displayName.replace(/\s*\([^)]*\)\s*/g, " ").trim(),
     input.modelId,
     modelIdToName(input.modelId),
+    modelIdToBaseName(input.modelId),
     input.displayName.replace(/^Amazon\s+/i, ""),
     input.displayName.replace(/^Anthropic\s+/i, ""),
     input.displayName.replace(/^Meta\s+/i, "")
@@ -252,6 +375,7 @@ function normalizeProvider(value: string) {
     .toLowerCase()
     .replace(/^amazon\s+web\s+services$/, "amazon")
     .replace(/^aws$/, "amazon")
+    .replace(/^mistral\s+ai$/, "mistral")
     .replace(/^meta\s+llama$/, "meta")
     .replace(/[^a-z0-9]+/g, "");
 }
@@ -259,6 +383,7 @@ function normalizeProvider(value: string) {
 function normalizeModelName(value: string) {
   return value
     .toLowerCase()
+    .replace(/\+/g, " plus ")
     .replace(/^([a-z0-9]+)\./, "")
     .replace(/[:_./-]+/g, " ")
     .replace(/\bv\d+\b/g, "")
@@ -275,6 +400,14 @@ function modelIdToName(modelId: string) {
     .replace(/^[a-z]+\./, "")
     .replace(/:[^:]+$/, "")
     .replace(/-/g, " ");
+}
+
+function modelIdToBaseName(modelId: string) {
+  return modelIdToName(modelId)
+    .replace(/\bv\d+\b/gi, "")
+    .replace(/\b20\d{2}(?:\d{2})?(?:\d{2})?\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function inferBedrockProviderName(value: string) {

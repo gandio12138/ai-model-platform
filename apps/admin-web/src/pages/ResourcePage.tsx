@@ -1,7 +1,7 @@
 import { Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { ChangeEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
 
@@ -636,6 +636,7 @@ export default function ResourcePage(props: ResourcePageProps) {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<Record<string, FieldOption[]>>({});
   const [form] = Form.useForm();
+  const latestLoadRef = useRef(0);
 
   const columns = useMemo(() => props.columns.map(normalizeField), [props.columns]);
   const detailFields = useMemo(() => (props.detailFields ?? []).map(normalizeField), [props.detailFields]);
@@ -654,6 +655,8 @@ export default function ResourcePage(props: ResourcePageProps) {
   );
 
   async function load(page = 1, pageSize = 20, searchOverride?: string) {
+    const loadId = latestLoadRef.current + 1;
+    latestLoadRef.current = loadId;
     setLoading(true);
     try {
       const searchParams = new URLSearchParams(window.location.search);
@@ -670,12 +673,17 @@ export default function ResourcePage(props: ResourcePageProps) {
       const query = toQuery(merged);
       const separator = props.endpoint.includes("?") ? "&" : "?";
       const res = await apiFetch<ApiList>(`${props.endpoint}${separator}${query}`);
+      if (loadId !== latestLoadRef.current) return;
       setRows(res.data);
       setTotal(res.total);
     } catch (error) {
-      message.error((error as Error).message);
+      if (loadId === latestLoadRef.current) {
+        message.error((error as Error).message);
+      }
     } finally {
-      setLoading(false);
+      if (loadId === latestLoadRef.current) {
+        setLoading(false);
+      }
     }
   }
 
@@ -932,7 +940,10 @@ export default function ResourcePage(props: ResourcePageProps) {
             placeholder="搜索"
             value={search}
             onChange={handleSearchChange}
-            onSearch={() => load()}
+            onSearch={(value) => {
+              setSearch(value);
+              load(1, 20, value).catch((error) => message.error((error as Error).message));
+            }}
           />
           <Button icon={<RefreshCw size={16} />} onClick={() => load()} />
           {props.canCreate && <Button type="primary" icon={<Plus size={16} />} onClick={() => startEdit()}>新增</Button>}

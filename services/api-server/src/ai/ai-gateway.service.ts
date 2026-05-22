@@ -70,6 +70,7 @@ interface ModelRouteConfig {
   provider_timeout_ms: number | null;
   provider_retry_count: number | null;
   provider_metadata: Record<string, unknown> | null;
+  route_metadata: Record<string, unknown> | null;
   credential_type: string | null;
   auth_method: string | null;
   encrypted_secret: string | null;
@@ -166,47 +167,81 @@ export class AiGatewayService {
       supports_tools: boolean;
       supports_json_mode: boolean;
     }>(
-      `select m.id,
-              m.public_model_code,
-              m.display_name,
-              m.model_family,
-              m.max_context_tokens,
-              m.default_max_output_tokens,
-              m.supports_stream,
-              m.supports_tools,
-              m.supports_json_mode
-         from models m
-         join tenants tenant on tenant.id = $1
-         left join tenant_model_authorizations tma
-           on tma.model_id = m.id
-          and tma.tenant_id = tenant.id
-          and tma.status = 'active'
-        where m.status = 'active'
-          and (
-            tenant.tenant_type = 'platform_default'
-            or tenant.tenant_code = 'platform_default_tenant'
-            or tma.id is not null
-          )
-          and (
-            exists (
-              select 1
-                from model_prices mp
-               where mp.model_id = m.id
-                 and mp.status = 'active'
-                 and mp.effective_from <= now()
-                 and (mp.effective_to is null or mp.effective_to > now())
+      `with model_rows as (
+         select m.id,
+                m.public_model_code,
+                m.display_name,
+                m.model_family,
+                m.max_context_tokens,
+                m.default_max_output_tokens,
+                m.supports_stream,
+                m.supports_tools,
+                m.supports_json_mode,
+                m.metadata,
+                coalesce(m.metadata->>'canonical_model_key', m.public_model_code) as canonical_model_key,
+                coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
+                coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m,
+                coalesce(tmp.price_version, mp.price_version) as price_version
+           from models m
+           join tenants tenant on tenant.id = $1
+           left join tenant_model_authorizations tma
+             on tma.model_id = m.id
+            and tma.tenant_id = tenant.id
+            and tma.status = 'active'
+           left join lateral (
+             select *
+               from model_prices mp
+              where mp.model_id = m.id
+                and mp.status = 'active'
+                and mp.effective_from <= now()
+                and (mp.effective_to is null or mp.effective_to > now())
+              order by effective_from desc, created_at desc
+              limit 1
+           ) mp on true
+           left join lateral (
+             select *
+               from tenant_model_prices tmp
+              where tmp.tenant_id = tenant.id
+                and tmp.model_id = m.id
+                and tmp.status = 'active'
+                and tmp.effective_from <= now()
+                and (tmp.effective_to is null or tmp.effective_to > now())
+              order by effective_from desc, created_at desc
+              limit 1
+           ) tmp on true
+          where m.status = 'active'
+            and m.max_context_tokens is not null
+            and (
+              tenant.tenant_type = 'platform_default'
+              or tenant.tenant_code = 'platform_default_tenant'
+              or tma.id is not null
             )
-            or exists (
-              select 1
-                from tenant_model_prices tmp
-               where tmp.tenant_id = tenant.id
-                 and tmp.model_id = m.id
-                 and tmp.status = 'active'
-                 and tmp.effective_from <= now()
-                 and (tmp.effective_to is null or tmp.effective_to > now())
-            )
-          )
-        order by m.model_family nulls last, m.display_name asc`,
+            and coalesce(tmp.price_version, mp.price_version) is not null
+       ),
+       ranked as (
+         select *,
+                row_number() over (
+                  partition by canonical_model_key
+                  order by
+                    case when metadata->>'public_preferred' = 'true' then 0 else 1 end,
+                    input_price_per_1m asc,
+                    output_price_per_1m asc,
+                    display_name asc
+                ) as model_rank
+           from model_rows
+       )
+       select id,
+              public_model_code,
+              display_name,
+              model_family,
+              max_context_tokens,
+              default_max_output_tokens,
+              supports_stream,
+              supports_tools,
+              supports_json_mode
+         from ranked
+        where model_rank = 1
+        order by model_family nulls last, display_name asc`,
       [tenantId]
     );
     return rows;
@@ -826,6 +861,7 @@ export class AiGatewayService {
             or tma.id is not null
           )
           and m.status = 'active'
+          and m.max_context_tokens is not null
           and m.public_model_code = $2
         limit 1`,
       [tenantId, modelCode]
@@ -917,6 +953,7 @@ export class AiGatewayService {
               p.timeout_ms as provider_timeout_ms,
               p.retry_count as provider_retry_count,
               p.metadata as provider_metadata,
+              mr.metadata as route_metadata,
               pc.credential_type,
               pc.auth_method,
               pc.encrypted_secret,
@@ -956,7 +993,7 @@ export class AiGatewayService {
       endpoint: route.provider_endpoint,
       timeoutMs: route.provider_timeout_ms === null ? null : Number(route.provider_timeout_ms),
       retryCount: route.provider_retry_count === null ? null : Number(route.provider_retry_count),
-      metadata: route.provider_metadata ?? {},
+      metadata: { ...(route.provider_metadata ?? {}), ...(route.route_metadata ?? {}) },
       credential: route.credential_id
         ? {
             id: route.credential_id,

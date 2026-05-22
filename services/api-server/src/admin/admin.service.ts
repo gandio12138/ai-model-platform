@@ -27,6 +27,13 @@ import {
   resolveAwsBedrockModelContext,
   resolveAwsBedrockPricing
 } from "../ai/providers/aws-bedrock-catalog.js";
+import {
+  VertexResolvedPricing,
+  buildGoogleVertexCatalogSyncItems,
+  fetchGoogleVertexPublisherModels
+} from "../ai/providers/google-vertex-catalog.js";
+
+type ResolvedProviderPricing = BedrockResolvedPricing | VertexResolvedPricing;
 
 interface ProviderModelSyncItem {
   publicModelCode: string;
@@ -40,12 +47,12 @@ interface ProviderModelSyncItem {
   supportsStream: boolean;
   supportsTools: boolean;
   sourceModelId: string;
-  invocationType: "foundation_model" | "inference_profile";
+  invocationType: "foundation_model" | "inference_profile" | "vertex_managed_api";
   inferenceProfileId?: string | null;
   inferenceProfileArn?: string | null;
   maxContextTokens?: number | null;
   defaultMaxOutputTokens?: number | null;
-  pricing?: BedrockResolvedPricing | null;
+  pricing?: ResolvedProviderPricing | null;
   raw: Record<string, unknown>;
 }
 
@@ -1054,6 +1061,23 @@ export class AdminService {
       filters.push("status <> 'archived'");
     }
 
+    if (resource === "models") {
+      filters.push("max_context_tokens is not null");
+      filters.push(
+        `exists (
+          select 1
+            from model_prices mp
+           where mp.model_id = models.id
+             and mp.status = 'active'
+             and mp.effective_from <= now()
+             and (mp.effective_to is null or mp.effective_to > now())
+        )`
+      );
+      if (!query.status) {
+        filters.push("status = 'active'");
+      }
+    }
+
     if (query.search && config.searchable?.length) {
       params.push(`%${String(query.search)}%`);
       const p = `$${params.length}`;
@@ -1110,8 +1134,18 @@ export class AdminService {
       this.db.query(dataSql, [...params, pageSize, offset])
     ]);
 
+    const data = resource === "models"
+      ? dataResult.rows.map((row) => ({
+          ...row,
+          provider_source: row.metadata?.source ?? "-",
+          model_company: row.metadata?.model_company ?? row.metadata?.provider_name ?? row.model_family,
+          canonical_model_key: row.metadata?.canonical_model_key ?? row.public_model_code,
+          source_model_id: row.metadata?.source_model_id ?? row.public_model_code
+        }))
+      : this.hideFields(dataResult.rows, config.hidden);
+
     return {
-      data: this.hideFields(dataResult.rows, config.hidden),
+      data,
       total: countResult.rows[0]?.total ?? 0,
       page,
       pageSize
@@ -1284,7 +1318,11 @@ export class AdminService {
   private async listTenantModelAuthorizations(query: Record<string, unknown>, user: any) {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
-    const filters: string[] = ["tenant.tenant_type <> 'platform_default'", "tenant.tenant_code <> 'platform_default_tenant'"];
+    const filters: string[] = [
+      "tenant.tenant_type <> 'platform_default'",
+      "tenant.tenant_code <> 'platform_default_tenant'",
+      "m.max_context_tokens is not null"
+    ];
     if (!this.isSuperAdmin(user)) {
       const tenantIds = await this.getScopedTenantIds(user);
       if (!tenantIds?.length) {
@@ -1349,7 +1387,11 @@ export class AdminService {
   private async listTenantModelPrices(query: Record<string, unknown>, user: any) {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
-    const filters: string[] = ["tenant.tenant_type <> 'platform_default'", "tenant.tenant_code <> 'platform_default_tenant'"];
+    const filters: string[] = [
+      "tenant.tenant_type <> 'platform_default'",
+      "tenant.tenant_code <> 'platform_default_tenant'",
+      "m.max_context_tokens is not null"
+    ];
     if (!this.isSuperAdmin(user)) {
       const tenantIds = await this.getScopedTenantIds(user);
       if (!tenantIds?.length) {
@@ -1416,7 +1458,7 @@ export class AdminService {
   private async listModelPrices(query: Record<string, unknown>) {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
-    const filters: string[] = [];
+    const filters: string[] = ["m.max_context_tokens is not null"];
     if (query.search) {
       params.push(`%${String(query.search)}%`);
       filters.push(
@@ -2233,16 +2275,18 @@ export class AdminService {
     const credential = body.credential_id
       ? await this.resolveProviderCredential(providerId, String(body.credential_id))
       : null;
-    const providerType = String(provider.provider_type);
+    const providerType = this.normalizeProviderType(String(provider.provider_type));
     const providerConfig = this.buildAdminProviderConfig(provider, credential);
     const syncItems = await this.fetchProviderModelSyncItems(providerConfig, body);
     const synced: any[] = [];
     let pricingSynced = 0;
     let pricingMissing = 0;
+    let contextMissing = 0;
     const unpricedSourceModelIds: string[] = [];
     for (const item of syncItems) {
-      if (providerType === "aws_bedrock" && !item.pricing) {
-        pricingMissing += 1;
+      if (["aws_bedrock", "google_vertex_ai"].includes(providerType) && (!item.pricing || !item.maxContextTokens)) {
+        if (!item.pricing) pricingMissing += 1;
+        if (!item.maxContextTokens) contextMissing += 1;
         unpricedSourceModelIds.push(item.sourceModelId);
         continue;
       }
@@ -2271,11 +2315,18 @@ export class AdminService {
       });
     }
     const archivedUnpricedCount =
-      providerType === "aws_bedrock"
-        ? await this.archiveUnpricedAwsBedrockModels(provider.id, unpricedSourceModelIds)
+      ["aws_bedrock", "google_vertex_ai"].includes(providerType)
+        ? await this.archiveUnpricedSyncedModels(provider.id, providerType, unpricedSourceModelIds)
         : 0;
 
-    const region = String(body.aws_region ?? providerConfig.credential?.awsRegion ?? providerConfig.region ?? "us-east-1");
+    const region = String(
+      body.aws_region ??
+      body.vertex_location ??
+      body.location ??
+      providerConfig.credential?.awsRegion ??
+      providerConfig.region ??
+      (providerType === "google_vertex_ai" ? "global" : "us-east-1")
+    );
     const authMode = this.resolveProviderAuthMode(providerConfig);
 
     await this.db.query(
@@ -2289,6 +2340,7 @@ export class AdminService {
           last_model_sync_count: synced.length,
           last_model_sync_price_count: pricingSynced,
           last_model_sync_price_missing_count: pricingMissing,
+          last_model_sync_context_missing_count: contextMissing,
           last_model_sync_archived_unpriced_count: archivedUnpricedCount,
           last_model_sync_region: region,
           last_model_sync_auth_mode: authMode,
@@ -2311,6 +2363,7 @@ export class AdminService {
         synced_count: synced.length,
         pricing_synced_count: pricingSynced,
         pricing_missing_count: pricingMissing,
+        context_missing_count: contextMissing,
         archived_unpriced_count: archivedUnpricedCount
       },
       reason: String(body.reason ?? "sync provider models")
@@ -2323,6 +2376,7 @@ export class AdminService {
       synced_count: synced.length,
       pricing_synced_count: pricingSynced,
       pricing_missing_count: pricingMissing,
+      context_missing_count: contextMissing,
       archived_unpriced_count: archivedUnpricedCount,
       models: synced
     };
@@ -2439,10 +2493,65 @@ export class AdminService {
     provider: ProviderConfig,
     body: Record<string, unknown>
   ): Promise<ProviderModelSyncItem[]> {
-    if (provider.providerType === "aws_bedrock") {
+    const providerType = this.normalizeProviderType(provider.providerType);
+    if (providerType === "aws_bedrock") {
       return this.fetchAwsBedrockModelSyncItems(provider, body);
     }
+    if (providerType === "google_vertex_ai") {
+      return this.fetchGoogleVertexModelSyncItems(provider, body);
+    }
     throw new BadRequestException(`Model sync adapter is not implemented for provider type: ${provider.providerType}`);
+  }
+
+  private async fetchGoogleVertexModelSyncItems(
+    provider: ProviderConfig,
+    body: Record<string, unknown>
+  ): Promise<ProviderModelSyncItem[]> {
+    const projectId = String(
+      body.gcp_project_id ??
+      body.project_id ??
+      provider.metadata?.gcp_project_id ??
+      provider.metadata?.project_id ??
+      process.env.GCP_PROJECT_ID ??
+      process.env.GOOGLE_CLOUD_PROJECT ??
+      ""
+    ).trim();
+    if (!projectId) {
+      throw new BadRequestException("Google Vertex sync requires gcp_project_id or GCP_PROJECT_ID");
+    }
+    const publishers = this.asOptionalArray(body.publishers)?.map(String);
+    const regions = this.asOptionalArray(body.vertex_regions ?? body.regions)?.map(String);
+    const catalog = await fetchGoogleVertexPublisherModels({
+      projectId,
+      publishers,
+      regions,
+      credential: provider.credential ?? null
+    });
+    const usdToCnyRate = this.positiveNumber(process.env.GOOGLE_VERTEX_PRICE_USD_TO_CNY, 7.3);
+    const markupMultiplier = this.positiveNumber(
+      process.env.GOOGLE_VERTEX_PRICE_MARKUP_MULTIPLIER ?? process.env.VERTEX_PRICE_MARKUP_MULTIPLIER,
+      1.2
+    );
+    const items = buildGoogleVertexCatalogSyncItems(catalog.rows, {
+      usdToCnyRate,
+      markupMultiplier,
+      priceVersion: String(body.price_version ?? "").trim() || undefined
+    });
+    await this.db.query(
+      `update providers
+          set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
+              updated_at = now()
+        where id = $2`,
+      [
+        JSON.stringify({
+          gcp_project_id: projectId,
+          last_vertex_sync_token_source: catalog.tokenSource,
+          last_vertex_sync_errors: catalog.errors.slice(0, 20)
+        }),
+        provider.id
+      ]
+    );
+    return items as ProviderModelSyncItem[];
   }
 
   private async fetchAwsBedrockModelSyncItems(
@@ -2531,6 +2640,12 @@ export class AdminService {
     if (authMethod === "iam_access_key" || credentialType === "iam_access_key") return "iam_access_key";
     if (authMethod === "assume_role" || credentialType === "assume_role") return "assume_role";
     return "bedrock_api_key";
+  }
+
+  private normalizeProviderType(providerType: string) {
+    const normalized = String(providerType ?? "").toLowerCase();
+    if (normalized === "vertex_ai" || normalized === "google_vertex") return "google_vertex_ai";
+    return normalized;
   }
 
   private resolveBedrockControlEndpoint(provider: ProviderConfig, region: string) {
@@ -3449,7 +3564,7 @@ export class AdminService {
       `insert into models
         (public_model_code, display_name, model_family, modality, max_context_tokens, default_max_output_tokens,
          supports_stream, supports_tools, supports_json_mode, status, metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, false, false, 'active', $8::jsonb)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, false, 'active', $9::jsonb)
        on conflict (public_model_code) do update
           set display_name = excluded.display_name,
               model_family = excluded.model_family,
@@ -3457,6 +3572,7 @@ export class AdminService {
               max_context_tokens = coalesce(excluded.max_context_tokens, models.max_context_tokens),
               default_max_output_tokens = coalesce(excluded.default_max_output_tokens, models.default_max_output_tokens),
               supports_stream = excluded.supports_stream,
+              supports_tools = excluded.supports_tools,
               metadata = coalesce(models.metadata, '{}'::jsonb) || excluded.metadata,
               updated_at = now()
        returning *`,
@@ -3468,15 +3584,17 @@ export class AdminService {
         summary.maxContextTokens ?? null,
         summary.defaultMaxOutputTokens ?? null,
         summary.supportsStream,
+        summary.supportsTools,
         JSON.stringify(metadata)
       ]
     );
     return rows[0];
   }
 
-  private async archiveUnpricedAwsBedrockModels(providerId: string, sourceModelIds: string[]) {
+  private async archiveUnpricedSyncedModels(providerId: string, providerType: string, sourceModelIds: string[]) {
     const uniqueSourceModelIds = [...new Set(sourceModelIds.filter(Boolean))];
     if (!uniqueSourceModelIds.length) return 0;
+    const sourceName = providerType === "google_vertex_ai" ? "google_vertex_ai" : "aws_bedrock";
     const archived = await this.db.query<{ id: string }>(
       `with candidates as (
          select distinct m.id
@@ -3484,34 +3602,37 @@ export class AdminService {
            join model_routes mr on mr.model_id = m.id
           where mr.provider_id = $1
             and coalesce(m.metadata->>'source_model_id', m.public_model_code) = any($2::text[])
-            and coalesce(m.metadata->>'source', '') = 'aws_bedrock'
-            and not exists (
+            and coalesce(m.metadata->>'source', '') = $3
+            and (
+              m.max_context_tokens is null
+              or not exists (
               select 1
                 from model_prices mp
                where mp.model_id = m.id
                  and mp.status = 'active'
                  and mp.effective_from <= now()
                  and (mp.effective_to is null or mp.effective_to > now())
+              )
             )
        )
        update models m
           set status = 'archived',
               metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object(
-                'archived_reason', 'aws_bedrock_price_missing',
+                'archived_reason', 'aws_bedrock_price_or_context_missing',
                 'archived_at', now()
               ),
               updated_at = now()
          from candidates c
         where m.id = c.id
         returning m.id`,
-      [providerId, uniqueSourceModelIds]
+      [providerId, uniqueSourceModelIds, sourceName]
     );
     if (archived.rows.length) {
       await this.db.query(
         `update model_routes
             set enabled = false,
                 metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
-                  'disabled_reason', 'aws_bedrock_price_missing',
+                  'disabled_reason', 'aws_bedrock_price_or_context_missing',
                   'disabled_at', now()
                 ),
                 updated_at = now()
@@ -3523,7 +3644,7 @@ export class AdminService {
     return archived.rows.length;
   }
 
-  private async upsertSyncedModelPrice(modelId: string, pricing: BedrockResolvedPricing) {
+  private async upsertSyncedModelPrice(modelId: string, pricing: ResolvedProviderPricing) {
     const inputPer1k = this.legacyPer1kCents(pricing.inputPricePer1mCents);
     const outputPer1k = this.legacyPer1kCents(pricing.outputPricePer1mCents);
     const cacheReadPer1k = this.legacyPer1kCents(pricing.cacheReadPricePer1mCents);
@@ -3567,7 +3688,7 @@ export class AdminService {
         pricing.cacheWritePricePer1mCents,
         pricing.markupMultiplier,
         JSON.stringify({
-          source: "aws_bedrock_price_list",
+          source: pricing.priceVersion.startsWith("google-vertex") ? "google_vertex_price_catalog" : "aws_bedrock_price_list",
           source_region: pricing.sourceRegion,
           source_currency: pricing.sourceCurrency,
           source_publication_date: pricing.publicationDate,
@@ -3592,7 +3713,8 @@ export class AdminService {
     providerModelCode: string,
     summary: ProviderModelSyncItem
   ) {
-    const routeCode = `bedrock-${providerModelCode.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase()}`;
+    const source = String(summary.raw?.source ?? summary.providerName ?? "provider").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+    const routeCode = `${source}-${providerModelCode.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase()}`;
     const metadata = {
       source: "aws_bedrock_sync",
       source_model_id: summary.sourceModelId,
@@ -4125,9 +4247,9 @@ export class AdminService {
           ) mp on true`,
         valueSql: "m.id",
         labelSql: "concat(m.display_name, ' / ', m.public_model_code)",
-        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · ', m.status, case when mp.price_version is null then ' · 未配置价格' else concat(' · ', mp.price_version) end)",
+        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · 上下文 ', coalesce(m.max_context_tokens::text, '-'), case when mp.price_version is null then ' · 未配置价格' else concat(' · ', mp.price_version) end)",
         disabledSql: "m.status <> 'active'",
-        fixedWhere: "m.status = 'active'",
+        fixedWhere: "m.status = 'active' and m.max_context_tokens is not null and mp.price_version is not null",
         metaSql:
           "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens, 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1k_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100000, 6), 'output_price_per_1k_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100000, 6))",
         search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],

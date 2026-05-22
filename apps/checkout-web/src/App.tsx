@@ -1747,19 +1747,20 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       <section className="market-main">
         <div className="market-hero">
           <div>
-            <span className="market-kicker">Provider Models</span>
+            <span className="market-kicker">Model Catalog</span>
             <h2>模型目录</h2>
             <p>{siteConfig?.site_config.copy?.model_catalog_intro ?? "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。"}</p>
             <div className="market-hero-stats">
               <span>筛选结果 {filtered.length} 个</span>
               <span>全部 {models.length} 个模型</span>
-              <span>{categories.length - 1} 个模型类型</span>
+              <span>{companies.length - 1} 个模型公司</span>
+              <span>按官方价格同步</span>
             </div>
           </div>
           <span className="hero-orbit">AI</span>
         </div>
         <div className="market-toolbar">
-          <Input prefix={<Search size={16} />} placeholder="模糊搜索模型名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          <Input allowClear prefix={<Search size={16} />} placeholder="模糊搜索模型名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Button icon={<Copy size={16} />} onClick={() => copyText(filtered.map((model) => model.model_code).join("\n"))}>
             复制模型 ID
           </Button>
@@ -2800,9 +2801,14 @@ function priceText(value?: number | null) {
 }
 
 function modelPriceText(valuePer1m?: number | null, valuePer1k?: number | null) {
-  if (valuePer1m !== undefined && valuePer1m !== null) return `${money(valuePer1m)} / 1M`;
-  if (valuePer1k !== undefined && valuePer1k !== null) return `${money(valuePer1k)} / 1K`;
+  if (valuePer1m !== undefined && valuePer1m !== null) return `¥${trimDecimal(valuePer1m / 100000)} / 1K`;
+  if (valuePer1k !== undefined && valuePer1k !== null) return `¥${trimDecimal(valuePer1k / 100)} / 1K`;
   return "-";
+}
+
+function trimDecimal(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  return value.toFixed(6).replace(/\.?0+$/, "");
 }
 
 function numberText(value?: number | null) {

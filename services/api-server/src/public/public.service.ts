@@ -372,73 +372,92 @@ export class PublicService {
   async models(query: Record<string, unknown>) {
     const context = await this.resolveCheckoutContext(query);
     const { rows } = await this.db.query(
-      `select m.id,
-              m.public_model_code,
-              m.display_name,
-              m.model_family,
-              m.modality,
-              m.max_context_tokens,
-              m.default_max_output_tokens,
-              m.supports_stream,
-              m.supports_tools,
-              m.supports_json_mode,
-              m.metadata as model_metadata,
-              context_tenant.tenant_type as tenant_type,
-              context_tenant.tenant_code as tenant_code,
-              tma.id as authorization_id,
-              tma.rpm_limit,
-              tma.tpm_limit,
-              tma.daily_budget,
-              tma.monthly_budget,
-              tma.enabled_features,
-              coalesce(tmp.price_version, mp.price_version) as price_version,
-              coalesce(tmp.currency, mp.currency) as currency,
-              coalesce(tmp.pricing_mode, 'catalog_price') as pricing_mode,
-              coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
-              coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
-              coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
-              coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m
-         from models m
-         join tenants context_tenant on context_tenant.id = $1
-         left join tenant_model_authorizations tma
-           on tma.model_id = m.id
-          and tma.tenant_id = $1
-          and tma.status = 'active'
-         left join lateral (
-           select price_version,
-                  currency,
-                  pricing_mode,
-                  input_price_per_1k,
-                  output_price_per_1k,
-                  input_price_per_1m,
-                  output_price_per_1m
-             from tenant_model_prices
-            where tenant_id = tma.tenant_id
-              and model_id = tma.model_id
-              and status = 'active'
-              and effective_from <= now()
-              and (effective_to is null or effective_to > now())
-            order by effective_from desc, created_at desc
-            limit 1
-         ) tmp on true
-         left join lateral (
-           select price_version,
-                  currency,
-                  input_price_per_1k,
-                  output_price_per_1k,
-                  input_price_per_1m,
-                  output_price_per_1m
-             from model_prices
-            where model_id = m.id
-              and status = 'active'
-              and effective_from <= now()
-              and (effective_to is null or effective_to > now())
-            order by effective_from desc, created_at desc
-            limit 1
-         ) mp on true
-        where m.status = 'active'
-          and coalesce(tmp.price_version, mp.price_version) is not null
-        order by m.model_family nulls last, m.display_name asc`,
+      `with model_rows as (
+         select m.id,
+                m.public_model_code,
+                m.display_name,
+                m.model_family,
+                m.modality,
+                m.max_context_tokens,
+                m.default_max_output_tokens,
+                m.supports_stream,
+                m.supports_tools,
+                m.supports_json_mode,
+                m.metadata as model_metadata,
+                coalesce(m.metadata->>'canonical_model_key', m.public_model_code) as canonical_model_key,
+                context_tenant.tenant_type as tenant_type,
+                context_tenant.tenant_code as tenant_code,
+                tma.id as authorization_id,
+                tma.rpm_limit,
+                tma.tpm_limit,
+                tma.daily_budget,
+                tma.monthly_budget,
+                tma.enabled_features,
+                coalesce(tmp.price_version, mp.price_version) as price_version,
+                coalesce(tmp.currency, mp.currency) as currency,
+                coalesce(tmp.pricing_mode, 'catalog_price') as pricing_mode,
+                coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
+                coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
+                coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
+                coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m
+           from models m
+           join tenants context_tenant on context_tenant.id = $1
+           left join tenant_model_authorizations tma
+             on tma.model_id = m.id
+            and tma.tenant_id = $1
+            and tma.status = 'active'
+           left join lateral (
+             select price_version,
+                    currency,
+                    pricing_mode,
+                    input_price_per_1k,
+                    output_price_per_1k,
+                    input_price_per_1m,
+                    output_price_per_1m
+               from tenant_model_prices
+              where tenant_id = tma.tenant_id
+                and model_id = tma.model_id
+                and status = 'active'
+                and effective_from <= now()
+                and (effective_to is null or effective_to > now())
+              order by effective_from desc, created_at desc
+              limit 1
+           ) tmp on true
+           left join lateral (
+             select price_version,
+                    currency,
+                    input_price_per_1k,
+                    output_price_per_1k,
+                    input_price_per_1m,
+                    output_price_per_1m
+               from model_prices
+              where model_id = m.id
+                and status = 'active'
+                and effective_from <= now()
+                and (effective_to is null or effective_to > now())
+              order by effective_from desc, created_at desc
+              limit 1
+           ) mp on true
+          where m.status = 'active'
+            and m.max_context_tokens is not null
+            and coalesce(tmp.price_version, mp.price_version) is not null
+       ),
+       ranked as (
+         select *,
+                row_number() over (
+                  partition by canonical_model_key
+                  order by
+                    case when model_metadata->>'public_preferred' = 'true' then 0 else 1 end,
+                    coalesce(input_price_per_1m, input_price_per_1k * 1000) asc,
+                    coalesce(output_price_per_1m, output_price_per_1k * 1000) asc,
+                    display_name asc
+                ) as model_rank
+           from model_rows
+       )
+       select *
+         from ranked
+        where model_rank = 1
+        order by model_family nulls last, display_name asc`,
       [context.tenant.id]
     );
     return {

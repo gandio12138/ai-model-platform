@@ -265,7 +265,7 @@ class MockOneTokenApi implements OneTokenApi {
     ApiKeyRecord(
       id: 'key-1',
       name: '移动端测试 Key',
-      maskedKey: 'sk-ot-****-8X2D',
+      maskedKey: 'aitp_mock_****_8X2D',
       status: 'active',
     ),
   ];
@@ -275,9 +275,9 @@ class MockOneTokenApi implements OneTokenApi {
     return ApiKeyRecord(
       id: 'key-new',
       name: name,
-      maskedKey: 'sk-ot-****-NEW',
+      maskedKey: 'aitp_mock_****_NEW',
       status: 'active',
-      plainKey: 'sk-ot-dev-only',
+      plainKey: 'aitp_mock_dev_only_not_real',
     );
   }
 

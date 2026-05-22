@@ -506,9 +506,18 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _search,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search_rounded),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
                   hintText: '搜索模型、模型公司或能力',
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () {
+                            _search.clear();
+                            setState(() {});
+                          },
+                        ),
                 ),
                 onChanged: (_) => setState(() {}),
               ),
@@ -590,11 +599,11 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                                       AppBadge(label: model.category),
                                       AppBadge(
                                         label:
-                                            '输入 ${centsToCurrency(model.effectiveInputPer1m)}/1M',
+                                            '输入 ${modelTokenPricePer1k(centsPer1m: model.inputPer1m, centsPer1k: model.inputPer1k)}',
                                       ),
                                       AppBadge(
                                         label:
-                                            '输出 ${centsToCurrency(model.effectiveOutputPer1m)}/1M',
+                                            '输出 ${modelTokenPricePer1k(centsPer1m: model.outputPer1m, centsPer1k: model.outputPer1k)}',
                                       ),
                                       if (model.maxContextTokens > 0)
                                         AppBadge(

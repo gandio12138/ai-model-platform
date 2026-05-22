@@ -14,6 +14,14 @@ const seedTenantPassword = process.env.SEED_TENANT_PASSWORD ?? crypto.randomByte
 const seedCustomerEmail = process.env.SEED_CUSTOMER_EMAIL ?? "seed-customer@local.invalid";
 const seedCustomerPassword = process.env.SEED_CUSTOMER_PASSWORD ?? crypto.randomBytes(18).toString("base64url");
 
+function resolveDatabaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production") {
+    throw new Error("DATABASE_URL is required in production");
+  }
+  return "postgres://postgres@localhost:5432/ai_model_platform";
+}
+
 const permissions = [
   "provider.read",
   "provider.write",
@@ -86,9 +94,7 @@ async function ensureRole(pool: Pool, code: string, name: string, permissionCode
 
 async function main() {
   const pool = new Pool({
-    connectionString:
-      process.env.DATABASE_URL ??
-      "postgres://chengchengxu@localhost:5432/ai_model_platform"
+    connectionString: resolveDatabaseUrl()
   });
 
   for (const code of permissions) {

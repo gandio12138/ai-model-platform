@@ -4,9 +4,7 @@ import { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
   readonly pool = new Pool({
-    connectionString:
-      process.env.DATABASE_URL ??
-      "postgres://chengchengxu@localhost:5432/ai_model_platform"
+    connectionString: resolveDatabaseUrl()
   });
 
   query<T extends QueryResultRow = QueryResultRow>(
@@ -36,3 +34,10 @@ export class DatabaseService implements OnModuleDestroy {
   }
 }
 
+function resolveDatabaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production") {
+    throw new Error("DATABASE_URL is required in production");
+  }
+  return "postgres://postgres@localhost:5432/ai_model_platform";
+}

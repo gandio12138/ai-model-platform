@@ -42,7 +42,7 @@ export interface ProviderTokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  source: "bedrock" | "fake_provider" | "estimated";
+  source: "bedrock" | "vertex_ai" | "fake_provider" | "estimated";
   estimated?: boolean;
 }
 

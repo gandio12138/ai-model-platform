@@ -6,11 +6,12 @@ import ResourcePage from "./ResourcePage";
 
 const providerTypeOptions = [
   { value: "aws_bedrock", label: "AWS Bedrock" },
+  { value: "google_vertex_ai", label: "Google Vertex AI" },
   { value: "openai_compatible", label: "OpenAI-Compatible" },
   { value: "anthropic", label: "Anthropic" },
   { value: "gemini", label: "Gemini" },
   { value: "azure_openai", label: "Azure OpenAI" },
-  { value: "vertex_ai", label: "Vertex AI" }
+  { value: "vertex_ai", label: "Vertex AI（兼容旧配置）" }
 ];
 
 const credentialTypeOptions = [
@@ -19,7 +20,8 @@ const credentialTypeOptions = [
   { value: "iam_access_key", label: "AWS IAM Access Key" },
   { value: "assume_role", label: "AWS Assume Role（预留）" },
   { value: "azure_openai_api_key", label: "Azure OpenAI API Key" },
-  { value: "vertex_service_account", label: "Vertex AI Service Account（预留）" },
+  { value: "vertex_service_account", label: "Vertex AI Service Account JSON" },
+  { value: "vertex_access_token", label: "Vertex AI Access Token（临时调试）" },
   { value: "openai_compatible_api_key", label: "OpenAI-Compatible API Key" },
   { value: "anthropic_api_key", label: "Anthropic API Key" },
   { value: "gemini_api_key", label: "Gemini API Key" }
@@ -30,6 +32,7 @@ const authMethodOptions = [
   { value: "bedrock_api_key", label: "Bedrock API Key" },
   { value: "iam_access_key", label: "IAM Access Key" },
   { value: "assume_role", label: "Assume Role（预留）" },
+  { value: "service_account_json", label: "GCP Service Account JSON" },
   { value: "api_key", label: "通用 API Key / Bearer Token" }
 ];
 
@@ -271,11 +274,20 @@ export default function ProviderPage({
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra="使用 EC2/ECS IAM Role 时可留空；后端会用运行环境的默认 AWS 凭证同步真实 Bedrock 模型目录。">
+          <Form.Item label="使用的密钥" name="credential_id" extra="AWS IAM Role / GCP 本地 ADC 可留空；生产环境建议使用运行环境身份或加密保存的 Service Account JSON。">
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
           <Form.Item label="AWS 区域，可选" name="aws_region">
             <Input placeholder="us-east-1" />
+          </Form.Item>
+          <Form.Item label="GCP Project ID，可选" name="gcp_project_id" extra="Google Vertex AI Provider 同步时使用；留空读取 Provider 元数据或环境变量 GCP_PROJECT_ID。">
+            <Input placeholder="your-gcp-project-id" />
+          </Form.Item>
+          <Form.Item label="Vertex 区域，可选" name="vertex_regions" extra="多个区域用逗号分隔；留空默认扫描 global、us-central1、us-east5。">
+            <Input placeholder="global,us-central1,us-east5" />
+          </Form.Item>
+          <Form.Item label="Vertex Publisher，可选" name="publishers" extra="多个 Publisher 用逗号分隔；留空默认扫描 google、anthropic、mistralai、xai、meta。">
+            <Input placeholder="google,anthropic,mistralai" />
           </Form.Item>
           <Form.Item label="操作原因" name="reason">
             <Input.TextArea rows={3} />

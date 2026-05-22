@@ -161,12 +161,6 @@ const priceTypeOptions = [
   { value: "revenue_share", label: "收入分成" }
 ];
 
-const pricingModeOptions = [
-  { value: "contract_price", label: "合同价" },
-  { value: "cost_plus", label: "成本加价" },
-  { value: "fixed_margin", label: "固定毛利" }
-];
-
 const revenueShareStatusOptions = [
   { value: "pending", label: "待结算" },
   { value: "settled", label: "已结算" },
@@ -218,6 +212,8 @@ const adminOnly: AccountType[] = ["admin"];
 const adminAndTenant: AccountType[] = ["admin", "tenant"];
 const enableSaasBilling = import.meta.env.VITE_ENABLE_SAAS_BILLING === "true";
 const enableRiskCenter = import.meta.env.VITE_ENABLE_RISK_CENTER === "true";
+const enableInternalTenantObjects = import.meta.env.VITE_ENABLE_INTERNAL_TENANT_OBJECTS === "true";
+const enableAdvancedModelRouting = import.meta.env.VITE_ENABLE_ADVANCED_MODEL_ROUTING === "true";
 
 const menuSections = [
   {
@@ -235,9 +231,11 @@ const menuSections = [
     children: [
       { key: "/tenants", icon: <TeamOutlined />, label: "租户列表", permission: "platform.tenant.read_all", accountTypes: adminOnly },
       { key: "/tenant-memberships", icon: <TeamOutlined />, label: "租户管理员账号", permission: "platform.tenant.read_all", accountTypes: adminOnly },
-      { key: "/tenant-projects", icon: <DeploymentUnitOutlined />, label: "项目管理", permission: "tenant.project.read", accountTypes: adminAndTenant },
-      { key: "/tenant-customers", icon: <TeamOutlined />, label: "客户账号", permission: "tenant.customer.read", accountTypes: adminAndTenant },
-      { key: "/api-keys", icon: <KeyOutlined />, label: "API Key", permission: "api_key.read", accountTypes: adminAndTenant }
+      ...(enableInternalTenantObjects ? ([
+        { key: "/tenant-projects", icon: <DeploymentUnitOutlined />, label: "应用项目配置", permission: "tenant.project.read", accountTypes: adminOnly },
+        { key: "/tenant-customers", icon: <TeamOutlined />, label: "客户关系", permission: "tenant.customer.read", accountTypes: adminAndTenant }
+      ] satisfies MenuItem[]) : []),
+      { key: "/api-keys", icon: <KeyOutlined />, label: "API Key 管控", permission: "api_key.read", accountTypes: adminAndTenant }
     ]
   },
   ...(enableSaasBilling ? ([{
@@ -263,9 +261,9 @@ const menuSections = [
       { key: "/providers", icon: <DeploymentUnitOutlined />, label: "Provider", permission: "provider.read", accountTypes: adminOnly },
       { key: "/models", icon: <ApiOutlined />, label: "模型目录", permission: "model.read", accountTypes: adminOnly },
       { key: "/model-prices", icon: <BankOutlined />, label: "平台价格", permission: "price.read", accountTypes: adminOnly },
-      { key: "/model-routes", icon: <DeploymentUnitOutlined />, label: "模型路由", permission: "route.read", accountTypes: adminOnly },
+      ...(enableAdvancedModelRouting ? ([{ key: "/model-routes", icon: <DeploymentUnitOutlined />, label: "模型路由", permission: "route.read", accountTypes: adminOnly }] satisfies MenuItem[]) : []),
       { key: "/tenant-model-authorizations", icon: <ApiOutlined />, label: "租户授权", permission: "tenant.model.read", accountTypes: adminAndTenant },
-      { key: "/tenant-model-prices", icon: <BankOutlined />, label: "租户价格", permission: "tenant.model.read", accountTypes: adminAndTenant }
+      { key: "/tenant-model-prices", icon: <BankOutlined />, label: "租户价格覆盖", permission: "tenant.model.read", accountTypes: adminAndTenant }
     ]
   },
   {
@@ -477,9 +475,10 @@ function Shell({
               path="/tenant-projects"
               element={page(
                 "tenant.project.read",
-                adminAndTenant,
+                adminOnly,
                 <ResourcePage
-                  title="项目管理"
+                  title="应用项目配置"
+                  description="项目用于区分 Web、iOS、Android 和 API 的配置上下文、支付方式、下载入口和审核策略。普通客户不会直接看到这里。"
                   endpoint="/api/admin/tenant-projects"
                   rowKey="id"
                   columns={[
@@ -512,7 +511,8 @@ function Shell({
                 "tenant.customer.read",
                 adminAndTenant,
                 <ResourcePage
-                  title="租户客户"
+                  title="客户关系"
+                  description="这里展示 Web/App 注册或登录后自动归属到租户的客户关系。后台不手动创建普通客户，只用于查看归属和停用异常关系。"
                   endpoint="/api/admin/tenant-customers"
                   rowKey="id"
                   columns={[
@@ -525,13 +525,8 @@ function Shell({
                     ["created_at", "创建时间"]
                   ]}
                   editableFields={[
-                    ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
-                    ["source_project_id", "来源项目", "select", "/api/admin/tenant-projects", "name"],
-                    ["user_id", "客户账号", "select", "/api/admin/users?account_type=customer", "email"],
-                    ["customer_code", "客户编码"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
-                  canCreate={can("tenant.customer.write")}
                   canEdit={can("tenant.customer.write")}
                 />
               )}
@@ -707,16 +702,14 @@ function Shell({
                 "tenant.model.read",
                 adminAndTenant,
                 <ResourcePage
-                  title="租户模型价格"
-                  description="仅配置非默认租户的模型价格覆盖。默认自营租户使用模型目录中的全局价格。"
+                  title="租户价格覆盖"
+                  description="只有租户需要独立售价时才在这里覆盖。未配置覆盖时，Web/App/API 自动使用平台全局模型价格。"
                   endpoint="/api/admin/tenant-model-prices"
                   rowKey="id"
                   columns={[
                     ["tenant_name", "租户"],
                     ["public_model_code", "模型"],
                     ["model_display_name", "展示名"],
-                    ["price_version", "价格版本"],
-                    ["pricing_mode", "计价模式", "select", undefined, undefined, pricingModeOptions],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
@@ -738,9 +731,6 @@ function Shell({
                       },
                       help: "选择模型后会自动带出平台全局价格，管理员可以基于默认价格做租户覆盖。"
                     },
-                    { key: "price_version", label: "价格版本", required: true },
-                    { key: "currency", label: "币种", required: true },
-                    { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
                     { key: "input_price_per_1k_yuan", payloadKey: "input_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输入/1K tokens（元）", kind: "token_price", required: true },
                     { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
@@ -1146,7 +1136,8 @@ function Shell({
                   columns={[
                     ["public_model_code", "公开模型名"],
                     ["display_name", "展示名"],
-                    ["model_family", "模型族"],
+                    ["model_company", "模型公司"],
+                    ["provider_source", "接入来源"],
                     ["max_context_tokens", "上下文"],
                     ["supports_stream", "Stream"],
                     ["supports_tools", "Tools"],
@@ -1182,7 +1173,7 @@ function Shell({
                 adminOnly,
                 <ResourcePage
                   title="模型价格"
-                  description="全局模型价格。AWS Bedrock 同步会按官方 Price List、汇率和加价倍率写入 1M tokens 精度价格；缺失价格的模型可在这里手动配置。"
+                  description="平台全局模型价格。AWS Bedrock 同步会按官方 Price List、汇率和加价倍率写入，页面统一按元/1K tokens 展示，最多保留 6 位小数。"
                   endpoint="/api/admin/model-prices"
                   rowKey="id"
                   columns={[
@@ -1196,21 +1187,14 @@ function Shell({
                     ["status", "状态"]
                   ]}
                   detailFields={[
-                    ["id", "记录 ID"],
                     ["model_display_name", "模型名称"],
                     ["public_model_code", "模型 ID"],
                     ["price_version", "价格版本"],
                     ["currency", "币种"],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
-                    ["cache_read_price_per_1k_yuan", "缓存读取/1K tokens", "token_price"],
-                    ["cache_write_price_per_1k_yuan", "缓存写入/1K tokens", "token_price"],
                     ["reserve_multiplier", "预留倍率"],
-                    ["effective_from", "生效开始"],
-                    ["effective_to", "生效结束"],
-                    ["status", "状态"],
-                    ["created_at", "创建时间"],
-                    ["updated_at", "更新时间"]
+                    ["status", "状态"]
                   ]}
                   editableFields={[
                     {

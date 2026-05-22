@@ -32,7 +32,7 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
   Widget build(BuildContext context) {
     return AppPage(
       title: '模型目录',
-      subtitle: '按模型类型和模型公司浏览后台同步的供应商模型',
+      subtitle: '按模型类型和模型公司浏览后台同步的供应商模型，价格按元/1K tokens 展示',
       child: FutureBuilder<List<ModelInfo>>(
         future: ref.read(apiProvider).fetchModels(),
         builder: (context, snapshot) {
@@ -196,9 +196,18 @@ class _ModelFilterBar extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           TextField(
             controller: controller,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search_rounded),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search_rounded),
               hintText: '搜索模型 ID、名称或模型公司',
+              suffixIcon: controller.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () {
+                        controller.clear();
+                        onSearchChanged('');
+                      },
+                    ),
             ),
             onChanged: onSearchChanged,
           ),
@@ -387,14 +396,20 @@ class ModelCard extends StatelessWidget {
               Expanded(
                 child: _Price(
                   label: '输入',
-                  value: '${centsToCurrency(model.effectiveInputPer1m)}/1M',
+                  value: modelTokenPricePer1k(
+                    centsPer1m: model.inputPer1m,
+                    centsPer1k: model.inputPer1k,
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: _Price(
                   label: '输出',
-                  value: '${centsToCurrency(model.effectiveOutputPer1m)}/1M',
+                  value: modelTokenPricePer1k(
+                    centsPer1m: model.outputPer1m,
+                    centsPer1k: model.outputPer1k,
+                  ),
                 ),
               ),
             ],

@@ -123,11 +123,30 @@ export class PaymentConfigService {
 
   private assertProductionConfiguration() {
     if (!this.isProduction) return;
+    if (this.mockEnabled) {
+      throw new ServiceUnavailableException("Mock payment must be disabled in production");
+    }
+    this.assertProductionUrl("CHECKOUT_WEB_BASE_URL", this.checkoutWebBaseUrl);
+    this.assertProductionUrl("PAYMENT_SUCCESS_URL", this.paymentSuccessUrl);
+    this.assertProductionUrl("PAYMENT_FAILURE_URL", this.paymentFailureUrl);
     if (this.alipay.enabled && !this.alipayConfigured()) {
       throw new ServiceUnavailableException("Alipay is enabled but production credentials are incomplete");
     }
+    if (this.alipay.enabled) {
+      this.assertProductionUrl("ALIPAY_NOTIFY_URL", this.alipay.notifyUrl);
+    }
     if (this.wechat.enabled && !this.wechatConfigured()) {
       throw new ServiceUnavailableException("WeChat Pay is enabled but production credentials are incomplete");
+    }
+    if (this.wechat.enabled) {
+      this.assertProductionUrl("WECHAT_PAY_NOTIFY_URL", this.wechat.notifyUrl);
+      this.assertProductionUrl("WECHAT_PAY_REFUND_NOTIFY_URL", this.wechat.refundNotifyUrl);
+    }
+  }
+
+  private assertProductionUrl(name: string, value: string) {
+    if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(value)) {
+      throw new ServiceUnavailableException(`${name} must not point to a local address in production`);
     }
   }
 

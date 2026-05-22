@@ -141,27 +141,6 @@ select t.id, u.id, p.id, u.invite_code, 'active'
  where u.email = 'external-customer@example.com'
 on conflict (tenant_id, user_id) do nothing;
 
-insert into tenant_memberships (tenant_id, user_id, role_code, status)
-select t.id, u.id, 'tenant_admin', 'active'
-  from tenants t
-  join users u on u.email = 'support@example.com'
- where t.tenant_code = 'platform_default_tenant'
-on conflict (tenant_id, user_id, role_code) do nothing;
-
-insert into user_roles (user_id, role_id)
-select u.id, r.id
-  from users u
-  join roles r on r.code = 'tenant_admin'
- where u.email = 'support@example.com'
-on conflict do nothing;
-
-insert into user_roles (user_id, role_id)
-select u.id, r.id
-  from users u
-  join roles r on r.code = 'platform_master'
- where u.email = 'admin@example.com'
-on conflict do nothing;
-
 alter table wallets add column tenant_id uuid references tenants(id);
 alter table wallets add column tenant_customer_id uuid references tenant_customers(id);
 alter table wallet_ledger add column tenant_id uuid references tenants(id);
