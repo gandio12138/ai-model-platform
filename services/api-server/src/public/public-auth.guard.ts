@@ -52,6 +52,9 @@ export class PublicAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException("Invalid bearer token");
     }
+    if (!payload.sub) {
+      throw new UnauthorizedException("Invalid bearer token");
+    }
 
     const { rows } = await this.db.query<{
       id: string;
