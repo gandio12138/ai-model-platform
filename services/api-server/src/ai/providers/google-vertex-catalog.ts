@@ -1,16 +1,19 @@
 import { resolveGoogleVertexAccessToken } from "./google-vertex-auth.js";
+import { ProviderPriceConversion, ProviderPriceCurrency } from "./fx-rate.js";
 import { ProviderCredentialConfig } from "./types.js";
 
 export type VertexModelCategory = "text_chat" | "embedding" | "image" | "video" | "audio" | "deploy_only";
 
 export interface VertexResolvedPricing {
   priceVersion: string;
-  currency: "CNY";
+  currency: ProviderPriceCurrency;
   sourceCurrency: "USD";
   sourceRegion: string;
   publicationDate: string | null;
-  usdToCnyRate: number;
+  usdToTargetRate: number;
   markupMultiplier: number;
+  fxRateSource: string;
+  fxRateFetchedAt: string | null;
   inputPricePer1mCents: number;
   outputPricePer1mCents: number;
   cacheReadPricePer1mCents: number;
@@ -129,8 +132,7 @@ export async function fetchGoogleVertexPublisherModels(input: {
 export function buildGoogleVertexCatalogSyncItems(
   models: VertexPublisherModel[],
   options: {
-    usdToCnyRate: number;
-    markupMultiplier: number;
+    conversion: ProviderPriceConversion;
     priceVersion?: string;
     includeUnsupportedRuntime?: boolean;
   }
@@ -144,8 +146,7 @@ export function buildGoogleVertexCatalogSyncItems(
     const context = resolveGoogleVertexModelContext(model.publisher, modelId, category);
     const pricing = resolveGoogleVertexPricing(model.publisher, modelId, {
       region: preferredPriceRegion(model),
-      usdToCnyRate: options.usdToCnyRate,
-      markupMultiplier: options.markupMultiplier,
+      conversion: options.conversion,
       priceVersion: options.priceVersion
     });
     if (category !== "text_chat") continue;
@@ -298,22 +299,24 @@ export function resolveGoogleVertexModelContext(
 export function resolveGoogleVertexPricing(
   publisher: string,
   modelId: string,
-  options: { region: string; usdToCnyRate: number; markupMultiplier: number; priceVersion?: string }
+  options: { region: string; conversion: ProviderPriceConversion; priceVersion?: string }
 ): VertexResolvedPricing | null {
   const price = vertexUsdPer1mPrice(publisher, modelId, options.region);
   if (!price) return null;
   return {
     priceVersion: options.priceVersion ?? `google-vertex-${options.region}-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
-    currency: "CNY",
+    currency: options.conversion.currency,
     sourceCurrency: "USD",
     sourceRegion: options.region,
     publicationDate: null,
-    usdToCnyRate: options.usdToCnyRate,
-    markupMultiplier: options.markupMultiplier,
-    inputPricePer1mCents: usdPer1mToCnyCentsPer1m(price.inputUsdPer1m, options),
-    outputPricePer1mCents: usdPer1mToCnyCentsPer1m(price.outputUsdPer1m, options),
-    cacheReadPricePer1mCents: usdPer1mToCnyCentsPer1m(price.cacheReadUsdPer1m ?? 0, options),
-    cacheWritePricePer1mCents: usdPer1mToCnyCentsPer1m(price.cacheWriteUsdPer1m ?? 0, options),
+    usdToTargetRate: options.conversion.usdToTargetRate,
+    markupMultiplier: options.conversion.markupMultiplier,
+    fxRateSource: options.conversion.fxRateSource,
+    fxRateFetchedAt: options.conversion.fxRateFetchedAt,
+    inputPricePer1mCents: usdPer1mToTargetCentsPer1m(price.inputUsdPer1m, options.conversion),
+    outputPricePer1mCents: usdPer1mToTargetCentsPer1m(price.outputUsdPer1m, options.conversion),
+    cacheReadPricePer1mCents: usdPer1mToTargetCentsPer1m(price.cacheReadUsdPer1m ?? 0, options.conversion),
+    cacheWritePricePer1mCents: usdPer1mToTargetCentsPer1m(price.cacheWriteUsdPer1m ?? 0, options.conversion),
     inputUsdPer1k: price.inputUsdPer1m / 1000,
     outputUsdPer1k: price.outputUsdPer1m / 1000,
     cacheReadUsdPer1k: (price.cacheReadUsdPer1m ?? 0) / 1000,
@@ -372,12 +375,12 @@ function multiply<T extends { inputUsdPer1m: number; outputUsdPer1m: number; cac
   };
 }
 
-function usdPer1mToCnyCentsPer1m(
+function usdPer1mToTargetCentsPer1m(
   usdPer1m: number,
-  options: { usdToCnyRate: number; markupMultiplier: number }
+  conversion: ProviderPriceConversion
 ) {
   if (!Number.isFinite(usdPer1m) || usdPer1m <= 0) return 0;
-  return Math.ceil(usdPer1m * options.usdToCnyRate * options.markupMultiplier * 100);
+  return Math.ceil(usdPer1m * conversion.usdToTargetRate * conversion.markupMultiplier * 100);
 }
 
 function vertexProviderDisplayName(publisher: string) {

@@ -6,8 +6,17 @@ import {
   resolveGoogleVertexPricing
 } from "./google-vertex-catalog.js";
 
+const testConversion = {
+  currency: "CNY" as const,
+  sourceCurrency: "USD" as const,
+  usdToTargetRate: 7.3,
+  markupMultiplier: 1.2,
+  fxRateSource: "test",
+  fxRateFetchedAt: "2026-05-22T00:00:00.000Z"
+};
+
 describe("Google Vertex model catalog parsing", () => {
-  it("publishes Claude Opus 4.7 with dynamic model id, pricing and context", () => {
+  it("publishes dynamically discovered Anthropic models with pricing and context", () => {
     const items = buildGoogleVertexCatalogSyncItems(
       [
         {
@@ -19,7 +28,7 @@ describe("Google Vertex model catalog parsing", () => {
           supportedActions: { openGenerationAiStudio: {}, requestAccess: {} }
         }
       ],
-      { usdToCnyRate: 7.3, markupMultiplier: 1.2, priceVersion: "test-vertex" }
+      { conversion: testConversion, priceVersion: "test-vertex" }
     );
 
     assert.equal(items.length, 1);
@@ -44,7 +53,7 @@ describe("Google Vertex model catalog parsing", () => {
           supportedActions: { openGenerationAiStudio: {}, requestAccess: {} }
         }
       ],
-      { usdToCnyRate: 7.3, markupMultiplier: 1.2, priceVersion: "test-vertex" }
+      { conversion: testConversion, priceVersion: "test-vertex" }
     );
 
     assert.equal(items.length, 1);
@@ -76,7 +85,7 @@ describe("Google Vertex model catalog parsing", () => {
           supportedActions: { openGenerationAiStudio: {} }
         }
       ],
-      { usdToCnyRate: 7.3, markupMultiplier: 1.2, priceVersion: "test-vertex" }
+      { conversion: testConversion, priceVersion: "test-vertex" }
     );
 
     assert.deepEqual(items.map((item) => item.publicModelCode), ["gemini-2.5-flash"]);
@@ -85,8 +94,7 @@ describe("Google Vertex model catalog parsing", () => {
   it("resolves Gemini price and context from catalog rules", () => {
     const price = resolveGoogleVertexPricing("google", "gemini-2.5-pro", {
       region: "global",
-      usdToCnyRate: 7.3,
-      markupMultiplier: 1.2,
+      conversion: testConversion,
       priceVersion: "test-vertex"
     });
     const context = resolveGoogleVertexModelContext("google", "gemini-2.5-pro");

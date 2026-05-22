@@ -33,6 +33,7 @@ import {
   buildGoogleVertexCatalogSyncItems,
   fetchGoogleVertexPublisherModels
 } from "../ai/providers/google-vertex-catalog.js";
+import { resolveUsdPriceConversion } from "../ai/providers/fx-rate.js";
 
 type ResolvedProviderPricing = BedrockResolvedPricing | VertexResolvedPricing;
 
@@ -2528,14 +2529,17 @@ export class AdminService {
       regions,
       credential: provider.credential ?? null
     });
-    const usdToCnyRate = this.positiveNumber(process.env.GOOGLE_VERTEX_PRICE_USD_TO_CNY, 7.3);
-    const markupMultiplier = this.positiveNumber(
-      process.env.GOOGLE_VERTEX_PRICE_MARKUP_MULTIPLIER ?? process.env.VERTEX_PRICE_MARKUP_MULTIPLIER,
-      1.2
-    );
+    const conversion = await resolveUsdPriceConversion({
+      targetCurrency: process.env.PROVIDER_PRICE_TARGET_CURRENCY ?? process.env.GOOGLE_VERTEX_PRICE_TARGET_CURRENCY,
+      explicitUsdToCnyRate: process.env.GOOGLE_VERTEX_PRICE_USD_TO_CNY,
+      markupMultiplier: this.positiveNumber(
+        process.env.GOOGLE_VERTEX_PRICE_MARKUP_MULTIPLIER ?? process.env.VERTEX_PRICE_MARKUP_MULTIPLIER,
+        1.2
+      ),
+      fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
+    });
     const items = buildGoogleVertexCatalogSyncItems(catalog.rows, {
-      usdToCnyRate,
-      markupMultiplier,
+      conversion,
       priceVersion: String(body.price_version ?? "").trim() || undefined
     });
     await this.db.query(
@@ -2588,12 +2592,16 @@ export class AdminService {
   }
 
   private async fetchAwsBedrockPriceCatalog(region: string) {
-    const usdToCnyRate = this.positiveNumber(process.env.AWS_BEDROCK_PRICE_USD_TO_CNY, 7.3);
-    const markupMultiplier = this.positiveNumber(
-      process.env.AWS_BEDROCK_PRICE_MARKUP_MULTIPLIER ?? process.env.BEDROCK_PRICE_MARKUP_MULTIPLIER,
-      1.2
-    );
-    return fetchAwsBedrockPriceCatalog(region, { usdToCnyRate, markupMultiplier });
+    const conversion = await resolveUsdPriceConversion({
+      targetCurrency: process.env.PROVIDER_PRICE_TARGET_CURRENCY ?? process.env.AWS_BEDROCK_PRICE_TARGET_CURRENCY,
+      explicitUsdToCnyRate: process.env.AWS_BEDROCK_PRICE_USD_TO_CNY,
+      markupMultiplier: this.positiveNumber(
+        process.env.AWS_BEDROCK_PRICE_MARKUP_MULTIPLIER ?? process.env.BEDROCK_PRICE_MARKUP_MULTIPLIER,
+        1.2
+      ),
+      fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
+    });
+    return fetchAwsBedrockPriceCatalog(region, conversion);
   }
 
   private createBedrockControlClient(provider: ProviderConfig, region: string) {
@@ -3708,9 +3716,11 @@ export class AdminService {
           output_usd_per_1k: pricing.outputUsdPer1k,
           cache_read_usd_per_1k: pricing.cacheReadUsdPer1k,
           cache_write_usd_per_1k: pricing.cacheWriteUsdPer1k,
-          usd_to_cny_rate: pricing.usdToCnyRate,
+          usd_to_target_rate: pricing.usdToTargetRate,
+          fx_rate_source: pricing.fxRateSource,
+          fx_rate_fetched_at: pricing.fxRateFetchedAt,
           markup_multiplier: pricing.markupMultiplier,
-          precision: "cny_cents_per_1m_tokens"
+          precision: `${pricing.currency.toLowerCase()}_cents_per_1m_tokens`
         })
       ]
     );

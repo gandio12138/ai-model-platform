@@ -4,10 +4,11 @@ import { ConfigResolutionModule } from "../config-resolution/config-resolution.m
 import { PaymentModule } from "../payment/payment.module.js";
 import { AdminController } from "./admin.controller.js";
 import { AdminService } from "./admin.service.js";
+import { ProviderModelSyncScheduler } from "./provider-model-sync.scheduler.js";
 
 @Module({
   imports: [PaymentModule, ConfigResolutionModule, AiGatewayModule],
   controllers: [AdminController],
-  providers: [AdminService]
+  providers: [AdminService, ProviderModelSyncScheduler]
 })
 export class AdminModule {}

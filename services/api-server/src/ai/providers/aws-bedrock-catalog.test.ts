@@ -62,7 +62,14 @@ function priceCatalog(...items: ReturnType<typeof tokenProduct>[]) {
         }
       }
     ],
-    { usdToCnyRate: 7.1, markupMultiplier: 1.2 }
+    {
+      currency: "CNY",
+      sourceCurrency: "USD",
+      usdToTargetRate: 7.1,
+      markupMultiplier: 1.2,
+      fxRateSource: "test",
+      fxRateFetchedAt: "2026-05-22T00:00:00.000Z"
+    }
   );
 }
 

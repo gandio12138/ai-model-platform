@@ -1,11 +1,15 @@
+import { ProviderPriceConversion, ProviderPriceCurrency } from "./fx-rate.js";
+
 export interface BedrockResolvedPricing {
   priceVersion: string;
-  currency: "CNY";
+  currency: ProviderPriceCurrency;
   sourceCurrency: "USD";
   sourceRegion: string;
   publicationDate: string | null;
-  usdToCnyRate: number;
+  usdToTargetRate: number;
   markupMultiplier: number;
+  fxRateSource: string;
+  fxRateFetchedAt: string | null;
   inputPricePer1mCents: number;
   outputPricePer1mCents: number;
   cacheReadPricePer1mCents: number;
@@ -36,8 +40,11 @@ export interface BedrockPriceCatalog {
   region: string;
   publicationDate: string | null;
   priceVersion: string;
-  usdToCnyRate: number;
+  currency: ProviderPriceCurrency;
+  usdToTargetRate: number;
   markupMultiplier: number;
+  fxRateSource: string;
+  fxRateFetchedAt: string | null;
   entries: Map<string, BedrockPriceEntry>;
 }
 
@@ -56,7 +63,7 @@ const bedrockPriceOffers = ["AmazonBedrock", "AmazonBedrockService", "AmazonBedr
 
 export async function fetchAwsBedrockPriceCatalog(
   region: string,
-  options: { usdToCnyRate: number; markupMultiplier: number }
+  options: ProviderPriceConversion
 ): Promise<BedrockPriceCatalog> {
   const normalizedRegion = region || "us-east-1";
   const offers: BedrockPriceOfferPayload[] = [];
@@ -78,7 +85,7 @@ export async function fetchAwsBedrockPriceCatalog(
 export function buildAwsBedrockPriceCatalogFromOfferPayloads(
   region: string,
   offers: BedrockPriceOfferPayload[],
-  options: { usdToCnyRate: number; markupMultiplier: number }
+  options: ProviderPriceConversion
 ): BedrockPriceCatalog {
   const normalizedRegion = region || "us-east-1";
   const entries = new Map<string, BedrockPriceEntry>();
@@ -124,8 +131,11 @@ export function buildAwsBedrockPriceCatalogFromOfferPayloads(
     region: normalizedRegion,
     publicationDate,
     priceVersion,
-    usdToCnyRate: options.usdToCnyRate,
+    currency: options.currency,
+    usdToTargetRate: options.usdToTargetRate,
     markupMultiplier: options.markupMultiplier,
+    fxRateSource: options.fxRateSource,
+    fxRateFetchedAt: options.fxRateFetchedAt,
     entries
   };
 }
@@ -139,16 +149,18 @@ export function resolveAwsBedrockPricing(
     if (!entry?.inputUsdPer1k || !entry?.outputUsdPer1k) continue;
     return {
       priceVersion: catalog.priceVersion,
-      currency: "CNY",
+      currency: catalog.currency,
       sourceCurrency: "USD",
       sourceRegion: catalog.region,
       publicationDate: catalog.publicationDate,
-      usdToCnyRate: catalog.usdToCnyRate,
+      usdToTargetRate: catalog.usdToTargetRate,
       markupMultiplier: catalog.markupMultiplier,
-      inputPricePer1mCents: usdPer1kToCnyCentsPer1m(entry.inputUsdPer1k, catalog),
-      outputPricePer1mCents: usdPer1kToCnyCentsPer1m(entry.outputUsdPer1k, catalog),
-      cacheReadPricePer1mCents: usdPer1kToCnyCentsPer1m(entry.cacheReadUsdPer1k ?? 0, catalog),
-      cacheWritePricePer1mCents: usdPer1kToCnyCentsPer1m(entry.cacheWriteUsdPer1k ?? 0, catalog),
+      fxRateSource: catalog.fxRateSource,
+      fxRateFetchedAt: catalog.fxRateFetchedAt,
+      inputPricePer1mCents: usdPer1kToTargetCentsPer1m(entry.inputUsdPer1k, catalog),
+      outputPricePer1mCents: usdPer1kToTargetCentsPer1m(entry.outputUsdPer1k, catalog),
+      cacheReadPricePer1mCents: usdPer1kToTargetCentsPer1m(entry.cacheReadUsdPer1k ?? 0, catalog),
+      cacheWritePricePer1mCents: usdPer1kToTargetCentsPer1m(entry.cacheWriteUsdPer1k ?? 0, catalog),
       inputUsdPer1k: entry.inputUsdPer1k,
       outputUsdPer1k: entry.outputUsdPer1k,
       cacheReadUsdPer1k: entry.cacheReadUsdPer1k ?? 0,
@@ -234,9 +246,9 @@ function readUsdPer1k(onDemandTerm: unknown, attributes: Record<string, unknown>
   return null;
 }
 
-function usdPer1kToCnyCentsPer1m(usdPer1k: number, catalog: BedrockPriceCatalog) {
+function usdPer1kToTargetCentsPer1m(usdPer1k: number, catalog: BedrockPriceCatalog) {
   if (!Number.isFinite(usdPer1k) || usdPer1k <= 0) return 0;
-  return Math.ceil(usdPer1k * 1000 * catalog.usdToCnyRate * catalog.markupMultiplier * 100);
+  return Math.ceil(usdPer1k * 1000 * catalog.usdToTargetRate * catalog.markupMultiplier * 100);
 }
 
 function isNonStandardBedrockPrice(inferenceType: string, attributes: Record<string, unknown>) {
