@@ -84,6 +84,7 @@ export default function ProviderPage({
   const [testOpen, setTestOpen] = useState(false);
   const [providerOptions, setProviderOptions] = useState<{ label: string; value: string }[]>([]);
   const [credentialOptions, setCredentialOptions] = useState<{ label: string; value: string }[]>([]);
+  const [credentialRefreshKey, setCredentialRefreshKey] = useState(0);
   const [credentialForm] = Form.useForm();
   const [syncForm] = Form.useForm();
   const [testForm] = Form.useForm();
@@ -94,7 +95,7 @@ export default function ProviderPage({
   const usesAssumeRole = credentialType === "assume_role" || authMethod === "assume_role";
 
   function loadOptions() {
-    Promise.all([
+    return Promise.all([
       apiFetch<ApiList>("/api/admin/options/providers?pageSize=100"),
       apiFetch<ApiList>("/api/admin/provider-credentials?pageSize=100")
     ])
@@ -111,12 +112,11 @@ export default function ProviderPage({
             label: `${credential.name} / ${credential.credential_type}`
           }))
         );
-      })
-      .catch((error) => message.error((error as Error).message));
+      });
   }
 
   useEffect(() => {
-    loadOptions();
+    loadOptions().catch((error) => message.error((error as Error).message));
   }, []);
 
   async function submitCredential(values: any) {
@@ -128,7 +128,8 @@ export default function ProviderPage({
       message.success("密钥已加密保存，不会再次明文展示");
       setOpen(false);
       credentialForm.resetFields();
-      loadOptions();
+      await loadOptions();
+      setCredentialRefreshKey((value) => value + 1);
     } catch (error) {
       message.error((error as Error).message);
     }
@@ -229,6 +230,7 @@ export default function ProviderPage({
         onAfterSave={loadOptions}
       />
       <ResourcePage
+        key={`provider-credentials-${credentialRefreshKey}`}
         title="Provider 密钥"
         endpoint="/api/admin/provider-credentials"
         rowKey="id"
@@ -237,7 +239,6 @@ export default function ProviderPage({
           ["name", "名称"],
           ["credential_type", "密钥类型", "select", undefined, undefined, credentialTypeOptions],
           ["auth_method", "认证方式"],
-          ["aws_region", "AWS 区域"],
           ["secret_last4", "密钥后四位"],
           ["status", "状态"],
           ["rpm_limit", "RPM"],
@@ -250,7 +251,7 @@ export default function ProviderPage({
           form={credentialForm}
           layout="vertical"
           onFinish={submitCredential}
-          initialValues={{ credential_type: "iam_role", auth_method: "iam_role", aws_region: "us-east-1" }}
+          initialValues={{ credential_type: "vertex_access_token", auth_method: "api_key" }}
         >
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} />
@@ -289,12 +290,6 @@ export default function ProviderPage({
               <Input.Password autoComplete="new-password" />
             </Form.Item>
           )}
-          <Form.Item label="AWS 区域" name="aws_region">
-            <Input placeholder="us-east-1" />
-          </Form.Item>
-          <Form.Item label="Endpoint，可选" name="endpoint_url">
-            <Input placeholder="https://bedrock.us-east-1.amazonaws.com" />
-          </Form.Item>
           <Space>
             <Form.Item label="RPM" name="rpm_limit">
               <InputNumber />
