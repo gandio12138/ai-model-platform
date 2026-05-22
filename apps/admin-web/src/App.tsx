@@ -723,7 +723,23 @@ function Shell({
                   ]}
                   editableFields={[
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户使用全局模型价格，不在这里配置价格覆盖。" },
-                    { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
+                    {
+                      key: "model_id",
+                      label: "模型",
+                      kind: "select",
+                      optionsResource: "models",
+                      remoteSearch: true,
+                      required: true,
+                      autofillFromOption: {
+                        price_version: "price_version",
+                        currency: "currency",
+                        input_price_per_1m: "input_price_per_1m_yuan",
+                        output_price_per_1m: "output_price_per_1m_yuan"
+                      },
+                      help: "选择模型后会自动带出平台全局价格，管理员可以基于默认价格做租户覆盖。"
+                    },
+                    { key: "price_version", label: "价格版本", required: true },
+                    { key: "currency", label: "币种", required: true },
                     { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
                     { key: "input_price_per_1m", label: "输入/1M tokens（元）", kind: "money", required: true, help: "使用 1M tokens 单位，避免低价模型按 1K tokens 计价时精度不足。" },
                     { key: "output_price_per_1m", label: "输出/1M tokens（元）", kind: "money", required: true },
@@ -1179,7 +1195,21 @@ function Shell({
                     ["status", "状态"]
                   ]}
                   editableFields={[
-                    { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
+                    {
+                      key: "model_id",
+                      label: "模型",
+                      kind: "select",
+                      optionsResource: "models",
+                      remoteSearch: true,
+                      required: true,
+                      autofillFromOption: {
+                        price_version: "price_version",
+                        currency: "currency",
+                        input_price_per_1m: "input_price_per_1m_yuan",
+                        output_price_per_1m: "output_price_per_1m_yuan"
+                      },
+                      help: "已有平台价格会自动带出，保存后可作为新的全局价格版本覆盖展示。"
+                    },
                     { key: "price_version", label: "版本", required: true },
                     { key: "currency", label: "币种", required: true },
                     { key: "input_price_per_1m", label: "输入/1M tokens（元）", kind: "money", required: true, help: "推荐按真实供应商价格换算到 1M tokens，避免 1K tokens 低价模型精度丢失。" },

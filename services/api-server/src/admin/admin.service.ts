@@ -4044,14 +4044,29 @@ export class AdminService {
       models: {
         permission: "model.read",
         alias: "m",
-        from: "models m",
+        from: `models m
+          left join lateral (
+            select price_version,
+                   currency,
+                   input_price_per_1m,
+                   output_price_per_1m,
+                   cache_read_price_per_1m,
+                   cache_write_price_per_1m
+              from model_prices
+             where model_id = m.id
+               and status = 'active'
+               and effective_from <= now()
+               and (effective_to is null or effective_to > now())
+             order by effective_from desc, created_at desc
+             limit 1
+          ) mp on true`,
         valueSql: "m.id",
         labelSql: "concat(m.display_name, ' / ', m.public_model_code)",
-        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · ', m.status)",
+        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · ', m.status, case when mp.price_version is null then ' · 未配置价格' else concat(' · ', mp.price_version) end)",
         disabledSql: "m.status <> 'active'",
         fixedWhere: "m.status = 'active'",
         metaSql:
-          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens)",
+          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens, 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1m_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100, 2), 'output_price_per_1m_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100, 2))",
         search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],
         orderBy: "m.created_at desc"
       },
