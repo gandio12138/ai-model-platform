@@ -708,7 +708,7 @@ export class AdminService {
     }
     this.assertPermission(user, optionConfig.permission);
 
-    const { page, pageSize, offset } = parsePagination(query);
+    const { page, pageSize, offset } = parsePagination(query, 500);
     const params: unknown[] = [];
     const filters: string[] = [];
     if (query.search) {

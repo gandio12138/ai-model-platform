@@ -1,8 +1,8 @@
 import { BadRequestException } from "@nestjs/common";
 
-export function parsePagination(query: Record<string, unknown>) {
+export function parsePagination(query: Record<string, unknown>, maxPageSize = 100) {
   const page = Math.max(Number(query.page ?? 1), 1);
-  const pageSize = Math.min(Math.max(Number(query.pageSize ?? 20), 1), 100);
+  const pageSize = Math.min(Math.max(Number(query.pageSize ?? 20), 1), maxPageSize);
   return { page, pageSize, offset: (page - 1) * pageSize };
 }
 
@@ -11,4 +11,3 @@ export function requireReason(body: Record<string, unknown>) {
     throw new BadRequestException("Reason is required for sensitive actions");
   }
 }
-

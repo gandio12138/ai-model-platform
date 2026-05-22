@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
 
-type FieldOption = { label: string; value: string };
+type FieldOption = { label: string; value: string; disabled?: boolean };
 type FieldKind =
   | "text"
   | "number"
@@ -516,6 +516,8 @@ function formatMoney(value: unknown) {
   })}`;
 }
 
+const REMOTE_OPTION_PAGE_SIZE = 500;
+
 function renderValue(value: unknown, key?: string, kind?: FieldKind, options?: FieldOption[]) {
   if (key === "visible_platforms" && typeof value === "string") {
     return value
@@ -640,11 +642,12 @@ export default function ResourcePage(props: ResourcePageProps) {
       selectFields.map(async (field) => {
         const endpoint = field.optionsResource ? `/api/admin/options/${field.optionsResource}` : field.optionsEndpoint!;
         const separator = endpoint.includes("?") ? "&" : "?";
-        const res = await apiFetch<ApiList>(`${endpoint}${separator}${toQuery({ pageSize: 50 })}`);
+        const res = await apiFetch<ApiList>(`${endpoint}${separator}${toQuery({ pageSize: REMOTE_OPTION_PAGE_SIZE })}`);
         return [
           field.key,
           res.data.map((item) => ({
             value: String(item.value ?? item.id),
+            disabled: Boolean(item.disabled),
             label: String(
               item.label ??
                 item[field.optionLabelKey ?? "name"] ??
@@ -788,7 +791,7 @@ export default function ResourcePage(props: ResourcePageProps) {
     if (!field.optionsResource && !field.optionsEndpoint) return;
     const currentValues = form.getFieldsValue(true);
     const params: Record<string, unknown> = {
-      pageSize: 50,
+      pageSize: REMOTE_OPTION_PAGE_SIZE,
       search: keyword
     };
     field.dependsOn?.forEach((key) => {
@@ -806,6 +809,7 @@ export default function ResourcePage(props: ResourcePageProps) {
       ...current,
       [field.key]: res.data.map((item) => ({
         value: String(item.value ?? item.id),
+        disabled: Boolean(item.disabled),
         label: String(
           item.label ??
             item[field.optionLabelKey ?? "name"] ??
