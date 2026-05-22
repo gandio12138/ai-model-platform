@@ -470,7 +470,7 @@ export class PublicService {
 
   async apiKeys(user: PublicRequestUser, query: Record<string, unknown>) {
     const context = await this.resolveCheckoutContext(query);
-    await this.ensureCustomerContext(user.id, context);
+    const customerContext = await this.ensureCustomerContext(user.id, context);
     const { rows } = await this.db.query(
       `select id,
               tenant_id,
@@ -494,9 +494,10 @@ export class PublicService {
          from api_keys
         where tenant_id = $1
           and user_id = $2
-          and (project_id is null or project_id = $3)
+          and (tenant_customer_id is null or tenant_customer_id = $3)
+          and deleted_at is null
         order by created_at desc`,
-      [context.tenant.id, user.id, context.project?.id ?? null]
+      [context.tenant.id, user.id, customerContext.tenant_customer.id]
     );
     return {
       tenant: context.tenant,
@@ -635,10 +636,6 @@ export class PublicService {
     if (!name) {
       throw new BadRequestException("API key name is required");
     }
-    if (!context.project?.id) {
-      throw new BadRequestException("Project context is required");
-    }
-
     const plaintext = `aitp_${randomBytes(24).toString("base64url")}`;
     const keyHash = createHash("sha256").update(plaintext).digest("hex");
     const { rows } = await this.db.query(
@@ -669,7 +666,7 @@ export class PublicService {
                 revoked_at`,
       [
         context.tenant.id,
-        context.project.id,
+        context.project?.id ?? null,
         customerContext.tenant_customer.id,
         user.id,
         name,
@@ -2016,7 +2013,7 @@ export class PublicService {
       name: row.name,
       masked_key: `${row.key_prefix}...${row.key_suffix}`,
       status: row.status,
-      model_whitelist: row.model_whitelist ?? [],
+      model_whitelist: [],
       ip_whitelist: row.ip_whitelist ?? [],
       limits: {
         rpm: row.rpm_limit === null ? null : Number(row.rpm_limit),

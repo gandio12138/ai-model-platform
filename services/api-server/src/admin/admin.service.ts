@@ -324,7 +324,6 @@ const resourceMap: Record<string, ResourceConfig> = {
       "user_id",
       "name",
       "status",
-      "model_whitelist",
       "ip_whitelist",
       "rpm_limit",
       "tpm_limit",
@@ -2786,19 +2785,17 @@ export class AdminService {
   async createApiKey(body: Record<string, unknown>, user: any, actor: AuditActor) {
     this.assertPermission(user, "api_key.write");
     const tenantId = String(body.tenant_id ?? "");
-    const projectId = String(body.project_id ?? "");
+    const projectId = body.project_id ? String(body.project_id) : null;
     const userId = String(body.user_id ?? "");
-    if (!tenantId || !projectId || !userId || !body.name) {
-      throw new BadRequestException("tenant_id, project_id, user_id and name are required");
+    if (!tenantId || !userId || !body.name) {
+      throw new BadRequestException("tenant_id, user_id and name are required");
     }
     await this.assertTenantAccess(user, tenantId);
     await this.assertCustomerAccess(user, userId);
-    await this.assertProjectTenant(projectId, tenantId);
-    const tenantCustomer = await this.findTenantCustomer(tenantId, userId);
-    const modelWhitelist = this.asOptionalArray(body.model_whitelist);
-    if (modelWhitelist?.length) {
-      await this.validateTenantModelWhitelist(tenantId, modelWhitelist);
+    if (projectId) {
+      await this.assertProjectTenant(projectId, tenantId);
     }
+    const tenantCustomer = await this.findTenantCustomer(tenantId, userId);
     const plaintext = `aitp_${crypto.randomBytes(24).toString("base64url")}`;
     const keyHash = crypto.createHash("sha256").update(plaintext).digest("hex");
     const payload = {
@@ -2811,7 +2808,7 @@ export class AdminService {
       key_suffix: plaintext.slice(-6),
       key_hash: keyHash,
       status: body.status ?? "active",
-      model_whitelist: modelWhitelist,
+      model_whitelist: null,
       ip_whitelist: this.asOptionalArray(body.ip_whitelist),
       rpm_limit: body.rpm_limit,
       tpm_limit: body.tpm_limit,

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   HttpException,
   Inject,
   Injectable,
@@ -135,14 +134,12 @@ export class AiGatewayService {
       tenantCustomerId: key.tenant_customer_id,
       userId: key.user_id,
       apiKeyId: key.id,
-      modelWhitelist: key.model_whitelist ?? []
+      modelWhitelist: []
     };
   }
 
   async listOpenAiModels(context: GatewayContext) {
-    const models = (await this.listTenantModels(context.tenantId)).filter(
-      (model) => !context.modelWhitelist.length || context.modelWhitelist.includes(model.public_model_code)
-    );
+    const models = await this.listTenantModels(context.tenantId);
     return {
       object: "list",
       data: models.map((model) => ({
@@ -773,10 +770,8 @@ export class AiGatewayService {
   }
 
   private assertApiKeyModelAccess(context: GatewayContext, modelCode: string) {
-    if (!context.modelWhitelist.length) return;
-    if (!context.modelWhitelist.includes(modelCode)) {
-      throw new ForbiddenException("Model is not allowed by this API key");
-    }
+    void context;
+    void modelCode;
   }
 
   private parseMessages(value: unknown): ChatMessageInput[] {

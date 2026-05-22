@@ -139,7 +139,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
   const columns = useMemo<ColumnsType<any>>(() => [
     { title: "名称", dataIndex: "name", ellipsis: true },
     ...(isTenantAccount ? [] : [{ title: "租户", dataIndex: "tenant_id", ellipsis: true, render: (value: string) => tenants.find((item) => item.value === value)?.label ?? value }]),
-    { title: "项目", dataIndex: "project_id", ellipsis: true, render: (value) => projects.find((item) => item.value === value)?.label ?? value },
+    { title: "来源项目", dataIndex: "project_id", ellipsis: true, render: (value) => value ? projects.find((item) => item.value === value)?.label ?? value : "账号级共享" },
     { title: "客户账号", dataIndex: "user_id", ellipsis: true, render: (value) => customers.find((item) => item.value === value)?.label ?? value },
     { title: "Key 前缀", dataIndex: "key_prefix" },
     { title: "Key 后缀", dataIndex: "key_suffix" },
@@ -163,7 +163,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
       <div className="page-header">
         <div>
           <Typography.Title level={3}>API Key 管控</Typography.Title>
-          <Typography.Text type="secondary">这里和 Web/App 自助创建的 API Key 使用同一张数据表；后台用于运营查看、代签和吊销异常 Key。</Typography.Text>
+          <Typography.Text type="secondary">这里和 Web/App 自助创建的 API Key 使用同一张数据表；API Key 按租户客户账号共享，来源项目只用于审计记录。</Typography.Text>
         </div>
         <Space>
           <Input.Search
@@ -214,7 +214,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
               <Select showSearch optionFilterProp="label" options={tenants} />
             </Form.Item>
           )}
-          <Form.Item label="项目" name="project_id" rules={[{ required: true }]}>
+          <Form.Item label="来源项目（可选）" name="project_id" tooltip="不影响 Web/App 可见性；同一租户客户账号下的 API Key 在 Web 和 App 共享。">
             <Select showSearch optionFilterProp="label" options={projects} />
           </Form.Item>
           <Form.Item label="客户账号" name="user_id" rules={[{ required: true }]}>
@@ -246,7 +246,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
             {!isTenantAccount && (
               <Descriptions.Item label="租户">{tenants.find((item) => item.value === detail.tenant_id)?.label ?? detail.tenant_id}</Descriptions.Item>
             )}
-            <Descriptions.Item label="项目">{projects.find((item) => item.value === detail.project_id)?.label ?? detail.project_id}</Descriptions.Item>
+            <Descriptions.Item label="来源项目">{detail.project_id ? projects.find((item) => item.value === detail.project_id)?.label ?? detail.project_id : "账号级共享"}</Descriptions.Item>
             <Descriptions.Item label="客户账号">{customers.find((item) => item.value === detail.user_id)?.label ?? detail.user_id}</Descriptions.Item>
             <Descriptions.Item label="Key 前缀">{detail.key_prefix}</Descriptions.Item>
             <Descriptions.Item label="Key 后缀">{detail.key_suffix}</Descriptions.Item>
