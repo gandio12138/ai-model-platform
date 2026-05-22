@@ -242,6 +242,8 @@ class ModelInfo {
     required this.providerName,
     required this.inputPer1k,
     required this.outputPer1k,
+    this.inputPer1m,
+    this.outputPer1m,
     required this.maxContextTokens,
     required this.supportsStream,
     required this.supportsTools,
@@ -256,9 +258,14 @@ class ModelInfo {
   final String toolsStatus;
   final int inputPer1k;
   final int outputPer1k;
+  final int? inputPer1m;
+  final int? outputPer1m;
   final int maxContextTokens;
   final bool supportsStream;
   final bool supportsTools;
+
+  int get effectiveInputPer1m => inputPer1m ?? inputPer1k * 1000;
+  int get effectiveOutputPer1m => outputPer1m ?? outputPer1k * 1000;
 
   factory ModelInfo.fromJson(Map<String, dynamic> json) {
     final price = _map(json['price']);
@@ -274,6 +281,12 @@ class ModelInfo {
       ),
       inputPer1k: _int(price['input_per_1k']),
       outputPer1k: _int(price['output_per_1k']),
+      inputPer1m: price.containsKey('input_per_1m')
+          ? _int(price['input_per_1m'])
+          : null,
+      outputPer1m: price.containsKey('output_per_1m')
+          ? _int(price['output_per_1m'])
+          : null,
       maxContextTokens: _int(json['max_context_tokens']),
       supportsStream: _bool(capabilities['stream']),
       supportsTools: _bool(capabilities['tools']),

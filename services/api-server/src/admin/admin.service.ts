@@ -21,6 +21,12 @@ import { ConfigResolutionService } from "../config-resolution/config-resolution.
 import { PaymentService } from "../payment/payment.service.js";
 import { ProviderAdapterRegistry } from "../ai/providers/provider-adapter.registry.js";
 import { ProviderConfig } from "../ai/providers/types.js";
+import {
+  BedrockResolvedPricing,
+  fetchAwsBedrockPriceCatalog,
+  resolveAwsBedrockModelContext,
+  resolveAwsBedrockPricing
+} from "../ai/providers/aws-bedrock-catalog.js";
 
 interface ProviderModelSyncItem {
   publicModelCode: string;
@@ -37,6 +43,9 @@ interface ProviderModelSyncItem {
   invocationType: "foundation_model" | "inference_profile";
   inferenceProfileId?: string | null;
   inferenceProfileArn?: string | null;
+  maxContextTokens?: number | null;
+  defaultMaxOutputTokens?: number | null;
+  pricing?: BedrockResolvedPricing | null;
   raw: Record<string, unknown>;
 }
 
@@ -249,6 +258,10 @@ const resourceMap: Record<string, ResourceConfig> = {
       "pricing_mode",
       "input_price_per_1k",
       "output_price_per_1k",
+      "input_price_per_1m",
+      "output_price_per_1m",
+      "cache_read_price_per_1m",
+      "cache_write_price_per_1m",
       "min_margin_multiplier",
       "cost_plus_markup_rate",
       "status",
@@ -392,6 +405,10 @@ const resourceMap: Record<string, ResourceConfig> = {
       "output_price_per_1k",
       "cache_read_price_per_1k",
       "cache_write_price_per_1k",
+      "input_price_per_1m",
+      "output_price_per_1m",
+      "cache_read_price_per_1m",
+      "cache_write_price_per_1m",
       "reserve_multiplier",
       "effective_from",
       "effective_to",
@@ -2151,8 +2168,16 @@ export class AdminService {
     const providerConfig = this.buildAdminProviderConfig(provider, credential);
     const syncItems = await this.fetchProviderModelSyncItems(providerConfig, body);
     const synced: any[] = [];
+    let pricingSynced = 0;
+    let pricingMissing = 0;
     for (const item of syncItems) {
       const model = await this.upsertSyncedModel(item);
+      if (item.pricing) {
+        await this.upsertSyncedModelPrice(model.id, item.pricing);
+        pricingSynced += 1;
+      } else {
+        pricingMissing += 1;
+      }
       const route = await this.upsertSyncedRoute(
         provider.id,
         credential?.id ?? null,
@@ -2183,6 +2208,8 @@ export class AdminService {
         JSON.stringify({
           last_model_sync_at: new Date().toISOString(),
           last_model_sync_count: synced.length,
+          last_model_sync_price_count: pricingSynced,
+          last_model_sync_price_missing_count: pricingMissing,
           last_model_sync_region: region,
           last_model_sync_auth_mode: authMode,
           model_source: providerType === "aws_bedrock" ? "aws_bedrock_sdk" : providerType
@@ -2201,7 +2228,9 @@ export class AdminService {
         provider_type: providerType,
         region,
         auth_mode: authMode,
-        synced_count: synced.length
+        synced_count: synced.length,
+        pricing_synced_count: pricingSynced,
+        pricing_missing_count: pricingMissing
       },
       reason: String(body.reason ?? "sync provider models")
     });
@@ -2211,6 +2240,8 @@ export class AdminService {
       provider_type: providerType,
       region,
       synced_count: synced.length,
+      pricing_synced_count: pricingSynced,
+      pricing_missing_count: pricingMissing,
       models: synced
     };
   }
@@ -2347,9 +2378,30 @@ export class AdminService {
     );
     const profileResponse = await client.send(new ListInferenceProfilesCommand({}));
     const profilesByModel = this.mapBedrockInferenceProfiles(profileResponse.inferenceProfileSummaries ?? []);
-    return (foundationResponse.modelSummaries ?? [])
-      .map((summary) => this.toBedrockSyncItem(summary, profilesByModel))
-      .filter((item): item is ProviderModelSyncItem => Boolean(item));
+    const priceCatalog = await this.fetchAwsBedrockPriceCatalog(region);
+    const items: ProviderModelSyncItem[] = [];
+    for (const summary of foundationResponse.modelSummaries ?? []) {
+      const item = this.toBedrockSyncItem(summary, profilesByModel);
+      if (!item) continue;
+      items.push({
+        ...item,
+        pricing: resolveAwsBedrockPricing(priceCatalog, {
+          providerName: item.providerName,
+          displayName: item.displayName,
+          modelId: item.sourceModelId
+        })
+      });
+    }
+    return items;
+  }
+
+  private async fetchAwsBedrockPriceCatalog(region: string) {
+    const usdToCnyRate = this.positiveNumber(process.env.AWS_BEDROCK_PRICE_USD_TO_CNY, 7.3);
+    const markupMultiplier = this.positiveNumber(
+      process.env.AWS_BEDROCK_PRICE_MARKUP_MULTIPLIER ?? process.env.BEDROCK_PRICE_MARKUP_MULTIPLIER,
+      1.2
+    );
+    return fetchAwsBedrockPriceCatalog(region, { usdToCnyRate, markupMultiplier });
   }
 
   private createBedrockControlClient(provider: ProviderConfig, region: string) {
@@ -2450,6 +2502,12 @@ export class AdminService {
     const providerModelCode = usesProfile ? String(profile.inferenceProfileId) : modelId;
     const inputModalities = this.asStringList(summary.inputModalities);
     const outputModalities = this.asStringList(summary.outputModalities);
+    const context = resolveAwsBedrockModelContext({
+      providerName: String(summary.providerName ?? "AWS Bedrock"),
+      displayName: String(summary.modelName ?? modelId),
+      modelId,
+      outputModalities
+    });
     return {
       publicModelCode: modelId,
       providerModelCode,
@@ -2465,6 +2523,8 @@ export class AdminService {
       invocationType: usesProfile ? "inference_profile" : "foundation_model",
       inferenceProfileId: profile?.inferenceProfileId ?? null,
       inferenceProfileArn: profile?.inferenceProfileArn ?? null,
+      maxContextTokens: context.maxContextTokens,
+      defaultMaxOutputTokens: context.defaultMaxOutputTokens,
       raw: {
         source: "aws_bedrock",
         source_model_id: modelId,
@@ -2476,6 +2536,7 @@ export class AdminService {
         inference_types_supported: inferenceTypes,
         response_streaming_supported: Boolean(summary.responseStreamingSupported),
         model_lifecycle: summary.modelLifecycle ?? null,
+        context_source: context.contextSource,
         invocation_type: usesProfile ? "inference_profile" : "foundation_model",
         inference_profile_id: profile?.inferenceProfileId ?? null,
         inference_profile_arn: profile?.inferenceProfileArn ?? null
@@ -3304,12 +3365,15 @@ export class AdminService {
       : ["text"];
     const { rows } = await this.db.query(
       `insert into models
-        (public_model_code, display_name, model_family, modality, supports_stream, supports_tools, supports_json_mode, status, metadata)
-       values ($1, $2, $3, $4, $5, false, false, 'active', $6::jsonb)
+        (public_model_code, display_name, model_family, modality, max_context_tokens, default_max_output_tokens,
+         supports_stream, supports_tools, supports_json_mode, status, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, false, false, 'active', $8::jsonb)
        on conflict (public_model_code) do update
           set display_name = excluded.display_name,
               model_family = excluded.model_family,
               modality = excluded.modality,
+              max_context_tokens = coalesce(excluded.max_context_tokens, models.max_context_tokens),
+              default_max_output_tokens = coalesce(excluded.default_max_output_tokens, models.default_max_output_tokens),
               supports_stream = excluded.supports_stream,
               metadata = coalesce(models.metadata, '{}'::jsonb) || excluded.metadata,
               updated_at = now()
@@ -3319,11 +3383,75 @@ export class AdminService {
         summary.displayName,
         summary.modelFamily,
         modality,
+        summary.maxContextTokens ?? null,
+        summary.defaultMaxOutputTokens ?? null,
         summary.supportsStream,
         JSON.stringify(metadata)
       ]
     );
     return rows[0];
+  }
+
+  private async upsertSyncedModelPrice(modelId: string, pricing: BedrockResolvedPricing) {
+    const inputPer1k = this.legacyPer1kCents(pricing.inputPricePer1mCents);
+    const outputPer1k = this.legacyPer1kCents(pricing.outputPricePer1mCents);
+    const cacheReadPer1k = this.legacyPer1kCents(pricing.cacheReadPricePer1mCents);
+    const cacheWritePer1k = this.legacyPer1kCents(pricing.cacheWritePricePer1mCents);
+    await this.db.query(
+      `insert into model_prices
+        (model_id, price_version, currency, input_price_per_1k, output_price_per_1k,
+         cache_read_price_per_1k, cache_write_price_per_1k, input_price_per_1m,
+         output_price_per_1m, cache_read_price_per_1m, cache_write_price_per_1m,
+         reserve_multiplier, effective_from, status, metadata)
+       values
+        ($1, $2, $3, $4, $5,
+         $6, $7, $8,
+         $9, $10, $11,
+         $12, now(), 'active', $13::jsonb)
+       on conflict (model_id, price_version) do update
+          set currency = excluded.currency,
+              input_price_per_1k = excluded.input_price_per_1k,
+              output_price_per_1k = excluded.output_price_per_1k,
+              cache_read_price_per_1k = excluded.cache_read_price_per_1k,
+              cache_write_price_per_1k = excluded.cache_write_price_per_1k,
+              input_price_per_1m = excluded.input_price_per_1m,
+              output_price_per_1m = excluded.output_price_per_1m,
+              cache_read_price_per_1m = excluded.cache_read_price_per_1m,
+              cache_write_price_per_1m = excluded.cache_write_price_per_1m,
+              reserve_multiplier = excluded.reserve_multiplier,
+              status = 'active',
+              metadata = excluded.metadata,
+              updated_at = now()`,
+      [
+        modelId,
+        pricing.priceVersion,
+        pricing.currency,
+        inputPer1k,
+        outputPer1k,
+        cacheReadPer1k,
+        cacheWritePer1k,
+        pricing.inputPricePer1mCents,
+        pricing.outputPricePer1mCents,
+        pricing.cacheReadPricePer1mCents,
+        pricing.cacheWritePricePer1mCents,
+        pricing.markupMultiplier,
+        JSON.stringify({
+          source: "aws_bedrock_price_list",
+          source_region: pricing.sourceRegion,
+          source_currency: pricing.sourceCurrency,
+          source_publication_date: pricing.publicationDate,
+          source_provider_name: pricing.sourceProviderName,
+          source_model_name: pricing.sourceModelName,
+          input_usd_per_1k: pricing.inputUsdPer1k,
+          output_usd_per_1k: pricing.outputUsdPer1k,
+          cache_read_usd_per_1k: pricing.cacheReadUsdPer1k,
+          cache_write_usd_per_1k: pricing.cacheWriteUsdPer1k,
+          usd_to_cny_rate: pricing.usdToCnyRate,
+          markup_multiplier: pricing.markupMultiplier,
+          precision: "cny_cents_per_1m_tokens"
+        })
+      ]
+    );
   }
 
   private async upsertSyncedRoute(
@@ -3557,9 +3685,16 @@ export class AdminService {
       return;
     }
     if (resource === "tenantModelPrices") {
+      this.preparePreciseModelPricePayload(payload);
       if (creating && !payload.price_version) payload.price_version = "default";
       if (creating && !payload.currency) payload.currency = "CNY";
       if (creating && !payload.pricing_mode) payload.pricing_mode = "contract_price";
+      if (creating && !payload.status) payload.status = "active";
+      return;
+    }
+    if (resource === "modelPrices") {
+      this.preparePreciseModelPricePayload(payload);
+      if (creating && !payload.currency) payload.currency = "CNY";
       if (creating && !payload.status) payload.status = "active";
       return;
     }
@@ -3567,6 +3702,32 @@ export class AdminService {
       if (creating && payload.enabled === undefined) payload.enabled = true;
       if (creating && payload.sort_order === undefined) payload.sort_order = 100;
     }
+  }
+
+  private preparePreciseModelPricePayload(payload: Record<string, unknown>) {
+    if (payload.input_price_per_1m !== undefined && payload.input_price_per_1k === undefined) {
+      payload.input_price_per_1k = this.legacyPer1kCents(payload.input_price_per_1m);
+    }
+    if (payload.output_price_per_1m !== undefined && payload.output_price_per_1k === undefined) {
+      payload.output_price_per_1k = this.legacyPer1kCents(payload.output_price_per_1m);
+    }
+    if (payload.cache_read_price_per_1m !== undefined && payload.cache_read_price_per_1k === undefined) {
+      payload.cache_read_price_per_1k = this.legacyPer1kCents(payload.cache_read_price_per_1m);
+    }
+    if (payload.cache_write_price_per_1m !== undefined && payload.cache_write_price_per_1k === undefined) {
+      payload.cache_write_price_per_1k = this.legacyPer1kCents(payload.cache_write_price_per_1m);
+    }
+  }
+
+  private legacyPer1kCents(value: unknown) {
+    const amount = Number(value ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
+    return Math.round(amount / 1000);
+  }
+
+  private positiveNumber(value: unknown, fallback: number) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : fallback;
   }
 
   private generateTenantCode(name: unknown) {

@@ -712,16 +712,16 @@ function Shell({
                     ["model_display_name", "展示名"],
                     ["price_version", "价格版本"],
                     ["pricing_mode", "计价模式", "select", undefined, undefined, pricingModeOptions],
-                    ["input_price_per_1k", "输入/1K（元）", "money"],
-                    ["output_price_per_1k", "输出/1K（元）", "money"],
+                    ["input_price_per_1m", "输入/1M（元）", "money"],
+                    ["output_price_per_1m", "输出/1M（元）", "money"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户使用全局模型价格，不在这里配置价格覆盖。" },
                     { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
                     { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
-                    { key: "input_price_per_1k", label: "输入/1K（元）", kind: "money", required: true },
-                    { key: "output_price_per_1k", label: "输出/1K（元）", kind: "money", required: true },
+                    { key: "input_price_per_1m", label: "输入/1M tokens（元）", kind: "money", required: true, help: "使用 1M tokens 单位，避免低价模型按 1K tokens 计价时精度不足。" },
+                    { key: "output_price_per_1m", label: "输出/1M tokens（元）", kind: "money", required: true },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}
                   canCreate={can("tenant.model.write")}
@@ -1161,25 +1161,28 @@ function Shell({
                 adminOnly,
                 <ResourcePage
                   title="模型价格"
+                  description="全局模型价格。AWS Bedrock 同步会按官方 Price List、汇率和加价倍率写入 1M tokens 精度价格；缺失价格的模型可在这里手动配置。"
                   endpoint="/api/admin/model-prices"
                   rowKey="id"
                   columns={[
                     ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
                     ["price_version", "版本"],
                     ["currency", "币种"],
-                    ["input_price_per_1k", "输入/1K"],
-                    ["output_price_per_1k", "输出/1K"],
+                    ["input_price_per_1m", "输入/1M（元）", "money"],
+                    ["output_price_per_1m", "输出/1M（元）", "money"],
                     ["reserve_multiplier", "预留倍率"],
                     ["status", "状态"]
                   ]}
                   editableFields={[
-                    ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
-                    ["price_version", "版本"],
-                    ["currency", "币种"],
-                    ["input_price_per_1k", "输入/1K"],
-                    ["output_price_per_1k", "输出/1K"],
-                    ["reserve_multiplier", "预留倍率"],
-                    ["status", "状态"]
+                    { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
+                    { key: "price_version", label: "版本", required: true },
+                    { key: "currency", label: "币种", required: true },
+                    { key: "input_price_per_1m", label: "输入/1M tokens（元）", kind: "money", required: true, help: "推荐按真实供应商价格换算到 1M tokens，避免 1K tokens 低价模型精度丢失。" },
+                    { key: "output_price_per_1m", label: "输出/1M tokens（元）", kind: "money", required: true },
+                    { key: "cache_read_price_per_1m", label: "缓存读取/1M tokens（元）", kind: "money" },
+                    { key: "cache_write_price_per_1m", label: "缓存写入/1M tokens（元）", kind: "money" },
+                    { key: "reserve_multiplier", label: "预留倍率", kind: "number" },
+                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}
                   canCreate={can("price.write")}
                   canEdit={can("price.write")}

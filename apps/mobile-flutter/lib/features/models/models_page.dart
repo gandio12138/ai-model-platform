@@ -387,14 +387,14 @@ class ModelCard extends StatelessWidget {
               Expanded(
                 child: _Price(
                   label: '输入',
-                  value: centsToCurrency(model.inputPer1k),
+                  value: '${centsToCurrency(model.effectiveInputPer1m)}/1M',
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: _Price(
                   label: '输出',
-                  value: centsToCurrency(model.outputPer1k),
+                  value: '${centsToCurrency(model.effectiveOutputPer1m)}/1M',
                 ),
               ),
             ],

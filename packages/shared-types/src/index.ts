@@ -290,6 +290,8 @@ export interface ModelInfo {
     mode: string;
     input_per_1k: number | null;
     output_per_1k: number | null;
+    input_per_1m?: number | null;
+    output_per_1m?: number | null;
   } | null;
   metadata?: Record<string, unknown>;
 }

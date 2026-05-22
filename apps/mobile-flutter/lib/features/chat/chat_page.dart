@@ -590,11 +590,11 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                                       AppBadge(label: model.category),
                                       AppBadge(
                                         label:
-                                            '输入 ${centsToCurrency(model.inputPer1k)}/1K',
+                                            '输入 ${centsToCurrency(model.effectiveInputPer1m)}/1M',
                                       ),
                                       AppBadge(
                                         label:
-                                            '输出 ${centsToCurrency(model.outputPer1k)}/1K',
+                                            '输出 ${centsToCurrency(model.effectiveOutputPer1m)}/1M',
                                       ),
                                       if (model.maxContextTokens > 0)
                                         AppBadge(

@@ -39,6 +39,8 @@ interface ModelPricing {
   default_max_output_tokens: number | null;
   input_price_per_1k: number;
   output_price_per_1k: number;
+  input_price_per_1m: number | null;
+  output_price_per_1m: number | null;
   price_version: string | null;
   currency: string;
 }
@@ -758,6 +760,8 @@ export class AiGatewayService {
               m.default_max_output_tokens,
               coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
               coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
+              coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
+              coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m,
               coalesce(tmp.price_version, mp.price_version) as price_version,
               coalesce(tmp.currency, mp.currency) as currency
          from models m
@@ -769,6 +773,8 @@ export class AiGatewayService {
          left join lateral (
            select input_price_per_1k,
                   output_price_per_1k,
+                  input_price_per_1m,
+                  output_price_per_1m,
                   price_version,
                   currency
              from tenant_model_prices
@@ -783,6 +789,8 @@ export class AiGatewayService {
          left join lateral (
            select input_price_per_1k,
                   output_price_per_1k,
+                  input_price_per_1m,
+                  output_price_per_1m,
                   price_version,
                   currency
              from model_prices
@@ -816,6 +824,8 @@ export class AiGatewayService {
         row.default_max_output_tokens === null ? null : Number(row.default_max_output_tokens),
       input_price_per_1k: Number(row.input_price_per_1k ?? 0),
       output_price_per_1k: Number(row.output_price_per_1k ?? 0),
+      input_price_per_1m: row.input_price_per_1m === null ? null : Number(row.input_price_per_1m ?? 0),
+      output_price_per_1m: row.output_price_per_1m === null ? null : Number(row.output_price_per_1m ?? 0),
       currency: row.currency ?? "CNY"
     };
   }
@@ -833,11 +843,10 @@ export class AiGatewayService {
   }
 
   private calculateCost(pricing: ModelPricing, inputTokens: number, outputTokens: number) {
+    const inputPer1m = pricing.input_price_per_1m ?? pricing.input_price_per_1k * 1000;
+    const outputPer1m = pricing.output_price_per_1m ?? pricing.output_price_per_1k * 1000;
     return Math.max(
-      Math.ceil(
-        (inputTokens * Number(pricing.input_price_per_1k ?? 0)) / 1000 +
-          (outputTokens * Number(pricing.output_price_per_1k ?? 0)) / 1000
-      ),
+      Math.ceil((inputTokens * Number(inputPer1m ?? 0) + outputTokens * Number(outputPer1m ?? 0)) / 1_000_000),
       1
     );
   }

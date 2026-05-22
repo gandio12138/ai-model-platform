@@ -1783,11 +1783,11 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                   <dl className="model-price-grid">
                     <div>
                       <dt>输入</dt>
-                      <dd>{priceText(model.price?.input_per_1k)} / 1K</dd>
+                      <dd>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)}</dd>
                     </div>
                     <div>
                       <dt>补全</dt>
-                      <dd>{priceText(model.price?.output_per_1k)} / 1K</dd>
+                      <dd>{modelPriceText(model.price?.output_per_1m, model.price?.output_per_1k)}</dd>
                     </div>
                     <div>
                       <dt>上下文</dt>
@@ -2272,7 +2272,7 @@ resp = client.chat.completions.create(
                   <div key={model.id}>
                     <strong>{model.display_name}</strong>
                     <code>{model.model_code}</code>
-                    <span>{priceText(model.price?.input_per_1k)} / 1K 输入</span>
+                    <span>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)} 输入</span>
                     <Button size="small" onClick={() => copyText(model.model_code)}>复制</Button>
                   </div>
                 ))}
@@ -2797,6 +2797,12 @@ function money(value: number) {
 
 function priceText(value?: number | null) {
   return value === undefined || value === null ? "-" : money(value);
+}
+
+function modelPriceText(valuePer1m?: number | null, valuePer1k?: number | null) {
+  if (valuePer1m !== undefined && valuePer1m !== null) return `${money(valuePer1m)} / 1M`;
+  if (valuePer1k !== undefined && valuePer1k !== null) return `${money(valuePer1k)} / 1K`;
+  return "-";
 }
 
 function numberText(value?: number | null) {

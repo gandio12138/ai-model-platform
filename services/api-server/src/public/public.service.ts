@@ -395,7 +395,9 @@ export class PublicService {
               coalesce(tmp.currency, mp.currency) as currency,
               coalesce(tmp.pricing_mode, 'catalog_price') as pricing_mode,
               coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
-              coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k
+              coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
+              coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
+              coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m
          from models m
          join tenants context_tenant on context_tenant.id = $1
          left join tenant_model_authorizations tma
@@ -407,7 +409,9 @@ export class PublicService {
                   currency,
                   pricing_mode,
                   input_price_per_1k,
-                  output_price_per_1k
+                  output_price_per_1k,
+                  input_price_per_1m,
+                  output_price_per_1m
              from tenant_model_prices
             where tenant_id = tma.tenant_id
               and model_id = tma.model_id
@@ -421,7 +425,9 @@ export class PublicService {
            select price_version,
                   currency,
                   input_price_per_1k,
-                  output_price_per_1k
+                  output_price_per_1k,
+                  input_price_per_1m,
+                  output_price_per_1m
              from model_prices
             where model_id = m.id
               and status = 'active'
@@ -1881,7 +1887,9 @@ export class PublicService {
             currency: row.currency,
             mode: row.pricing_mode,
             input_per_1k: row.input_price_per_1k === null ? null : Number(row.input_price_per_1k),
-            output_per_1k: row.output_price_per_1k === null ? null : Number(row.output_price_per_1k)
+            output_per_1k: row.output_price_per_1k === null ? null : Number(row.output_price_per_1k),
+            input_per_1m: row.input_price_per_1m === null ? null : Number(row.input_price_per_1m),
+            output_per_1m: row.output_price_per_1m === null ? null : Number(row.output_price_per_1m)
           }
         : null,
       availability: {
