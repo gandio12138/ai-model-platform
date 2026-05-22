@@ -217,39 +217,45 @@ export class AdminController {
     return this.admin.update("tenantBillingRules", id, body, req.user, actor(req));
   }
 
-  @RequirePermissions("tenant.model.read")
+  @RequirePermissions("platform.tenant.read_all")
   @Get("tenant-model-authorizations")
   tenantModelAuthorizations(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("tenantModelAuthorizations", query, req.user);
   }
 
-  @RequirePermissions("tenant.model.write")
+  @RequirePermissions("platform.tenant.write_all")
   @Post("tenant-model-authorizations")
   createTenantModelAuthorization(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.create("tenantModelAuthorizations", body, req.user, actor(req));
   }
 
-  @RequirePermissions("tenant.model.write")
+  @RequirePermissions("platform.tenant.write_all")
   @Patch("tenant-model-authorizations/:id")
   updateTenantModelAuthorization(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.update("tenantModelAuthorizations", id, body, req.user, actor(req));
   }
 
-  @RequirePermissions("tenant.model.read")
+  @RequirePermissions("platform.tenant.read_all")
   @Get("tenant-model-prices")
   tenantModelPrices(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.list("tenantModelPrices", query, req.user);
   }
 
-  @RequirePermissions("tenant.model.write")
+  @RequirePermissions("platform.tenant.write_all")
   @Post("tenant-model-prices")
   createTenantModelPrice(@Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.create("tenantModelPrices", body, req.user, actor(req));
   }
 
-  @RequirePermissions("tenant.model.write")
+  @RequirePermissions("platform.tenant.write_all")
   @Patch("tenant-model-prices/:id")
   updateTenantModelPrice(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    this.admin.assertPlatformAdmin(req.user);
     return this.admin.update("tenantModelPrices", id, body, req.user, actor(req));
   }
 

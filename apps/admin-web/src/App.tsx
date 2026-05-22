@@ -214,6 +214,7 @@ const enableSaasBilling = import.meta.env.VITE_ENABLE_SAAS_BILLING === "true";
 const enableRiskCenter = import.meta.env.VITE_ENABLE_RISK_CENTER === "true";
 const enableInternalTenantObjects = import.meta.env.VITE_ENABLE_INTERNAL_TENANT_OBJECTS === "true";
 const enableAdvancedModelRouting = import.meta.env.VITE_ENABLE_ADVANCED_MODEL_ROUTING === "true";
+const enableTenantModelOverrides = import.meta.env.VITE_ENABLE_TENANT_MODEL_OVERRIDES === "true";
 
 const menuSections = [
   {
@@ -262,8 +263,10 @@ const menuSections = [
       { key: "/models", icon: <ApiOutlined />, label: "模型目录", permission: "model.read", accountTypes: adminOnly },
       { key: "/model-prices", icon: <BankOutlined />, label: "平台价格", permission: "price.read", accountTypes: adminOnly },
       ...(enableAdvancedModelRouting ? ([{ key: "/model-routes", icon: <DeploymentUnitOutlined />, label: "模型路由", permission: "route.read", accountTypes: adminOnly }] satisfies MenuItem[]) : []),
-      { key: "/tenant-model-authorizations", icon: <ApiOutlined />, label: "租户模型设置", permission: "tenant.model.read", accountTypes: adminAndTenant },
-      { key: "/tenant-model-prices", icon: <BankOutlined />, label: "租户价格覆盖", permission: "tenant.model.read", accountTypes: adminAndTenant }
+      ...(enableTenantModelOverrides ? ([
+        { key: "/tenant-model-authorizations", icon: <ApiOutlined />, label: "租户模型覆盖", permission: "platform.tenant.read_all", accountTypes: adminOnly },
+        { key: "/tenant-model-prices", icon: <BankOutlined />, label: "租户价格覆盖", permission: "platform.tenant.read_all", accountTypes: adminOnly }
+      ] satisfies MenuItem[]) : [])
     ]
   },
   {
@@ -651,95 +654,94 @@ function Shell({
                 />
               )}
             />
-            <Route
-              path="/tenant-model-authorizations"
-              element={page(
-                "tenant.model.read",
-                adminAndTenant,
-                <ResourcePage
-                  title="租户模型设置"
-                  description="所有租户默认可使用全部已上架、已定价、有上下文的模型；这里只配置某个租户的上下文上限、预算和状态覆盖，不需要逐个授权模型。"
-                  endpoint="/api/admin/tenant-model-authorizations"
-                  rowKey="id"
-                  columns={[
-                    ["tenant_name", "租户"],
-                    ["public_model_code", "模型"],
-                    ["model_display_name", "展示名"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["max_context_tokens", "上下文上限"],
-                    ["monthly_budget", "月预算（元）", "money"]
-                  ]}
-                  editableFields={[
-                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认租户无需配置；业务租户不配置时使用平台默认模型上下文和价格。" },
-                    {
-                      key: "model_id",
-                      label: "模型",
-                      kind: "select",
-                      optionsResource: "models",
-                      remoteSearch: true,
-                      required: true,
-                      autofillFromOption: { max_context_tokens: "max_context_tokens" },
-                      help: "选择模型后会自动带出模型目录中的默认上下文上限；这里只在需要对该租户改小时配置。"
-                    },
-                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
-                    {
-                      key: "max_context_tokens",
-                      label: "上下文上限",
-                      kind: "number",
-                      help: "默认来自模型目录。可改小用于控制该租户单次请求上下文；留空表示不额外限制。"
-                    },
-                    { key: "daily_budget", label: "日预算（元）", kind: "money", help: "可选。不设置表示不做日额度限制，只按钱包余额扣费。" },
-                    { key: "monthly_budget", label: "月预算（元）", kind: "money", help: "可选。不设置表示不做月额度限制，一直用到钱包余额不足为止。" }
-                  ]}
-                  canCreate={can("tenant.model.write")}
-                  canEdit={can("tenant.model.write")}
+            {enableTenantModelOverrides ? (
+              <>
+                <Route
+                  path="/tenant-model-authorizations"
+                  element={page(
+                    "platform.tenant.read_all",
+                    adminOnly,
+                    <ResourcePage
+                      title="租户模型覆盖"
+                      description="所有租户默认可使用全部已上架、已定价、有上下文的模型；只有需要对某个业务租户改小上下文或预算时才在这里配置覆盖。"
+                      endpoint="/api/admin/tenant-model-authorizations"
+                      rowKey="id"
+                      columns={[
+                        ["tenant_name", "租户"],
+                        ["public_model_code", "模型"],
+                        ["model_display_name", "展示名"],
+                        ["status", "状态", "select", undefined, undefined, statusOptions],
+                        ["max_context_tokens", "上下文上限"],
+                        ["monthly_budget", "月预算（元）", "money"]
+                      ]}
+                      editableFields={[
+                        { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认租户无需配置；业务租户不配置时使用平台默认模型上下文和价格。" },
+                        {
+                          key: "model_id",
+                          label: "模型",
+                          kind: "select",
+                          optionsResource: "models",
+                          remoteSearch: true,
+                          required: true,
+                          autofillFromOption: { max_context_tokens: "max_context_tokens" },
+                          help: "选择模型后会自动带出模型目录中的默认上下文上限；这里只在需要对该租户改小时配置。"
+                        },
+                        { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
+                        { key: "max_context_tokens", label: "上下文上限", kind: "number", help: "默认来自模型目录。可改小用于控制该租户单次请求上下文；留空表示不额外限制。" },
+                        { key: "daily_budget", label: "日预算（元）", kind: "money", help: "可选。不设置表示不做日额度限制，只按钱包余额扣费。" },
+                        { key: "monthly_budget", label: "月预算（元）", kind: "money", help: "可选。不设置表示不做月额度限制，一直用到钱包余额不足为止。" }
+                      ]}
+                      canCreate={can("platform.tenant.write_all")}
+                      canEdit={can("platform.tenant.write_all")}
+                    />
+                  )}
                 />
-              )}
-            />
-            <Route
-              path="/tenant-model-prices"
-              element={page(
-                "tenant.model.read",
-                adminAndTenant,
-                <ResourcePage
-                  title="租户价格覆盖"
-                  description="只有租户需要独立售价时才在这里覆盖。未配置覆盖时，Web/App/API 自动使用平台全局模型价格。"
-                  endpoint="/api/admin/tenant-model-prices"
-                  rowKey="id"
-                  columns={[
-                    ["tenant_name", "租户"],
-                    ["public_model_code", "模型"],
-                    ["model_display_name", "展示名"],
-                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
-                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions]
-                  ]}
-                  editableFields={[
-                    { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户使用全局模型价格，不在这里配置价格覆盖。" },
-                    {
-                      key: "model_id",
-                      label: "模型",
-                      kind: "select",
-                      optionsResource: "models",
-                      remoteSearch: true,
-                      required: true,
-                      autofillFromOption: {
-                        price_version: "price_version",
-                        currency: "currency",
-                        input_price_per_1k_yuan: "input_price_per_1k_yuan",
-                        output_price_per_1k_yuan: "output_price_per_1k_yuan"
-                      },
-                      help: "选择模型后会自动带出平台全局价格，管理员可以基于默认价格做租户覆盖。"
-                    },
-                    { key: "input_price_per_1k_yuan", payloadKey: "input_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输入/1K tokens（元）", kind: "token_price", required: true },
-                    { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
-                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
-                  ]}
-                  canCreate={can("tenant.model.write")}
-                  canEdit={can("tenant.model.write")}
+                <Route
+                  path="/tenant-model-prices"
+                  element={page(
+                    "platform.tenant.read_all",
+                    adminOnly,
+                    <ResourcePage
+                      title="租户价格覆盖"
+                      description="只有业务租户需要独立售价时才在这里覆盖。未配置覆盖时，Web/App/API 自动使用平台全局模型价格。"
+                      endpoint="/api/admin/tenant-model-prices"
+                      rowKey="id"
+                      columns={[
+                        ["tenant_name", "租户"],
+                        ["public_model_code", "模型"],
+                        ["model_display_name", "展示名"],
+                        ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                        ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                        ["status", "状态", "select", undefined, undefined, statusOptions]
+                      ]}
+                      editableFields={[
+                        { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户使用全局模型价格，不在这里配置价格覆盖。" },
+                        {
+                          key: "model_id",
+                          label: "模型",
+                          kind: "select",
+                          optionsResource: "models",
+                          remoteSearch: true,
+                          required: true,
+                          autofillFromOption: {
+                            price_version: "price_version",
+                            currency: "currency",
+                            input_price_per_1k_yuan: "input_price_per_1k_yuan",
+                            output_price_per_1k_yuan: "output_price_per_1k_yuan"
+                          },
+                          help: "选择模型后会自动带出平台全局价格，管理员可以基于默认价格做租户覆盖。"
+                        },
+                        { key: "input_price_per_1k_yuan", payloadKey: "input_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输入/1K tokens（元）", kind: "token_price", required: true },
+                        { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
+                        { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
+                      ]}
+                      canCreate={can("platform.tenant.write_all")}
+                      canEdit={can("platform.tenant.write_all")}
+                    />
+                  )}
                 />
-              )}
-            />
+              </>
+            ) : null}
             <Route
               path="/tenant-usage-aggregates"
               element={page(

@@ -3,7 +3,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { KeyRound, Plus, RefreshCw, Save } from "lucide-react";
-import { ApiList, apiFetch, toQuery } from "../api";
+import { ApiList, apiFetch, getSessionUser, toQuery } from "../api";
 
 type Option = { label: string; value: string };
 
@@ -31,6 +31,8 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
   const [customers, setCustomers] = useState<Option[]>([]);
   const [form] = Form.useForm();
   const latestLoadRef = useRef(0);
+  const user = getSessionUser();
+  const isTenantAccount = user?.accountType === "tenant";
 
   async function load(page = 1, pageSize = 20, searchOverride?: string) {
     const loadId = latestLoadRef.current + 1;
@@ -68,9 +70,13 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
       apiFetch<ApiList>("/api/admin/tenant-projects?pageSize=100"),
       apiFetch<ApiList>("/api/admin/tenant-customers?pageSize=100")
     ]);
-    setTenants(tenantRes.data.map((item) => ({ value: item.id, label: item.name ?? item.tenant_code ?? item.id })));
+    const tenantOptions = tenantRes.data.map((item) => ({ value: item.id, label: item.name ?? item.tenant_code ?? item.id }));
+    setTenants(tenantOptions);
     setProjects(projectRes.data.map((item) => ({ value: item.id, label: `${item.name ?? item.project_code} / ${item.platform}` })));
     setCustomers(customerRes.data.map((item) => ({ value: item.user_id, label: item.customer_email ?? item.customer_code ?? item.user_id })));
+    if (isTenantAccount && tenantOptions.length === 1) {
+      form.setFieldsValue({ tenant_id: tenantOptions[0].value });
+    }
   }
 
   useEffect(() => {
@@ -132,7 +138,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
 
   const columns = useMemo<ColumnsType<any>>(() => [
     { title: "名称", dataIndex: "name", ellipsis: true },
-    { title: "租户", dataIndex: "tenant_id", ellipsis: true, render: (value) => tenants.find((item) => item.value === value)?.label ?? value },
+    ...(isTenantAccount ? [] : [{ title: "租户", dataIndex: "tenant_id", ellipsis: true, render: (value: string) => tenants.find((item) => item.value === value)?.label ?? value }]),
     { title: "项目", dataIndex: "project_id", ellipsis: true, render: (value) => projects.find((item) => item.value === value)?.label ?? value },
     { title: "客户账号", dataIndex: "user_id", ellipsis: true, render: (value) => customers.find((item) => item.value === value)?.label ?? value },
     { title: "Key 前缀", dataIndex: "key_prefix" },
@@ -150,7 +156,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
         </Space>
       )
     }
-  ], [customers, projects, tenants]);
+  ], [customers, isTenantAccount, projects, tenants]);
 
   return (
     <div>
@@ -173,6 +179,9 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
           <Button icon={<RefreshCw size={16} />} onClick={() => load()} />
           {canWrite && <Button type="primary" icon={<Plus size={16} />} onClick={() => {
             setCreatedKey("");
+            if (isTenantAccount && tenants.length === 1) {
+              form.setFieldsValue({ tenant_id: tenants[0].value });
+            }
             setOpen(true);
           }}>新增</Button>}
         </Space>
@@ -196,9 +205,15 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
           />
         )}
         <Form form={form} layout="vertical" onFinish={submit}>
-          <Form.Item label="租户" name="tenant_id" rules={[{ required: true }]}>
-            <Select showSearch optionFilterProp="label" options={tenants} />
-          </Form.Item>
+          {isTenantAccount ? (
+            <Form.Item name="tenant_id" hidden rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+          ) : (
+            <Form.Item label="租户" name="tenant_id" rules={[{ required: true }]}>
+              <Select showSearch optionFilterProp="label" options={tenants} />
+            </Form.Item>
+          )}
           <Form.Item label="项目" name="project_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={projects} />
           </Form.Item>
@@ -213,7 +228,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
             type="info"
             showIcon
             message="模型权限"
-            description="API Key 默认可调用当前租户已授权的全部模型，不在单个 Key 上重复勾选模型。不同模型按各自价格扣费。"
+            description="API Key 默认可调用全部已上架、已定价、有上下文的模型，不在单个 Key 上重复勾选模型。不同模型按各自价格扣费。"
           />
           <Form.Item label="IP 白名单" name="ip_whitelist">
             <Input.TextArea rows={3} placeholder="多个 IP 用逗号或换行分隔" />
@@ -228,13 +243,15 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
         {detail && (
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="名称">{detail.name}</Descriptions.Item>
-            <Descriptions.Item label="租户">{tenants.find((item) => item.value === detail.tenant_id)?.label ?? detail.tenant_id}</Descriptions.Item>
+            {!isTenantAccount && (
+              <Descriptions.Item label="租户">{tenants.find((item) => item.value === detail.tenant_id)?.label ?? detail.tenant_id}</Descriptions.Item>
+            )}
             <Descriptions.Item label="项目">{projects.find((item) => item.value === detail.project_id)?.label ?? detail.project_id}</Descriptions.Item>
             <Descriptions.Item label="客户账号">{customers.find((item) => item.value === detail.user_id)?.label ?? detail.user_id}</Descriptions.Item>
             <Descriptions.Item label="Key 前缀">{detail.key_prefix}</Descriptions.Item>
             <Descriptions.Item label="Key 后缀">{detail.key_suffix}</Descriptions.Item>
             <Descriptions.Item label="状态">{detail.status}</Descriptions.Item>
-            <Descriptions.Item label="模型权限">当前租户全部已授权模型</Descriptions.Item>
+            <Descriptions.Item label="模型权限">全部已上架、已定价、有上下文的模型</Descriptions.Item>
             <Descriptions.Item label="IP 白名单">{renderArray(detail.ip_whitelist)}</Descriptions.Item>
             <Descriptions.Item label="过期时间">{formatTime(detail.expires_at)}</Descriptions.Item>
             <Descriptions.Item label="最后使用">{formatTime(detail.last_used_at)}</Descriptions.Item>
