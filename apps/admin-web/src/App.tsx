@@ -1238,7 +1238,7 @@ function Shell({
                   columns={[
                     ["route_code", "路由编码"],
                     ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
-                    ["provider_id", "Provider", "select", "/api/admin/providers", "name"],
+                    ["provider_id", "Provider", "select", "/api/admin/options/providers", "label"],
                     ["provider_model_code", "上游模型"],
                     ["weight", "权重"],
                     ["priority", "优先级"],
@@ -1247,7 +1247,7 @@ function Shell({
                   editableFields={[
                     ["route_code", "路由编码"],
                     ["model_id", "模型", "select", "/api/admin/models", "public_model_code"],
-                    ["provider_id", "Provider", "select", "/api/admin/providers", "name"],
+                    ["provider_id", "Provider", "select", "/api/admin/options/providers", "label"],
                     ["credential_id", "密钥", "select", "/api/admin/provider-credentials", "name"],
                     ["provider_model_code", "上游模型"],
                     ["weight", "权重"],
@@ -1320,7 +1320,7 @@ function Shell({
                     ["tenant_id", "租户", "select", "/api/admin/tenants", "name"],
                     ["project_id", "项目", "select", "/api/admin/tenant-projects", "name"],
                     ["request_log_id", "请求日志"],
-                    ["provider_id", "Provider", "select", "/api/admin/providers", "name"],
+                    ["provider_id", "Provider", "select", "/api/admin/options/providers", "label"],
                     ["route_id", "路由"],
                     ["provider_model_code", "上游模型"],
                     ["attempt_no", "尝试次数"],

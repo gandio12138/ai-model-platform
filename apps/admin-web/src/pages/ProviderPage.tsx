@@ -61,12 +61,15 @@ export default function ProviderPage({
 
   function loadOptions() {
     Promise.all([
-      apiFetch<ApiList>("/api/admin/providers?pageSize=100"),
+      apiFetch<ApiList>("/api/admin/options/providers?pageSize=100"),
       apiFetch<ApiList>("/api/admin/provider-credentials?pageSize=100")
     ])
       .then(([providers, credentials]) => {
         setProviderOptions(
-          providers.data.map((provider) => ({ value: provider.id, label: provider.name ?? provider.code }))
+          providers.data.map((provider) => ({
+            value: String(provider.value ?? provider.id),
+            label: String(provider.label ?? provider.name ?? provider.code ?? provider.id)
+          }))
         );
         setCredentialOptions(
           credentials.data.map((credential) => ({
@@ -194,7 +197,7 @@ export default function ProviderPage({
         endpoint="/api/admin/provider-credentials"
         rowKey="id"
         columns={[
-          ["provider_id", "Provider", "select", "/api/admin/providers", "name"],
+          ["provider_id", "Provider", "select", "/api/admin/options/providers", "label"],
           ["name", "名称"],
           ["credential_type", "密钥类型", "select", undefined, undefined, credentialTypeOptions],
           ["auth_method", "认证方式"],
