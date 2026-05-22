@@ -4222,7 +4222,7 @@ export class AdminService {
         labelSql: "concat(p.name, ' / ', p.code)",
         descriptionSql: "concat('状态：', p.status, ' · 健康：', coalesce(p.health_status, '-'))",
         disabledSql: "p.status <> 'active'",
-        metaSql: "jsonb_build_object('code', p.code, 'health_status', p.health_status)",
+        metaSql: "jsonb_build_object('code', p.code, 'provider_type', p.provider_type, 'region', p.region, 'health_status', p.health_status)",
         search: ["p.name", "p.code", "p.status", "p.health_status"],
         orderBy: "p.created_at desc"
       },

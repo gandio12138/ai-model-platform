@@ -82,7 +82,7 @@ export default function ProviderPage({
   const [open, setOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [testOpen, setTestOpen] = useState(false);
-  const [providerOptions, setProviderOptions] = useState<{ label: string; value: string }[]>([]);
+  const [providerOptions, setProviderOptions] = useState<{ label: string; value: string; meta?: Record<string, unknown> }[]>([]);
   const [credentialOptions, setCredentialOptions] = useState<{ label: string; value: string }[]>([]);
   const [credentialRefreshKey, setCredentialRefreshKey] = useState(0);
   const [credentialForm] = Form.useForm();
@@ -90,9 +90,17 @@ export default function ProviderPage({
   const [testForm] = Form.useForm();
   const credentialType = Form.useWatch("credential_type", credentialForm);
   const authMethod = Form.useWatch("auth_method", credentialForm);
+  const syncProviderId = Form.useWatch("provider_id", syncForm);
+  const testProviderId = Form.useWatch("provider_id", testForm);
   const usesIamRole = credentialType === "iam_role" || authMethod === "iam_role";
   const usesIamAccessKey = credentialType === "iam_access_key" || authMethod === "iam_access_key";
   const usesAssumeRole = credentialType === "assume_role" || authMethod === "assume_role";
+  const syncProvider = providerOptions.find((provider) => provider.value === syncProviderId);
+  const testProvider = providerOptions.find((provider) => provider.value === testProviderId);
+  const syncProviderType = String(syncProvider?.meta?.provider_type ?? "");
+  const testProviderType = String(testProvider?.meta?.provider_type ?? "");
+  const isSyncAwsBedrock = syncProviderType === "aws_bedrock";
+  const isSyncGoogleVertex = syncProviderType === "google_vertex_ai" || syncProviderType === "vertex_ai";
 
   function loadOptions() {
     return Promise.all([
@@ -103,7 +111,8 @@ export default function ProviderPage({
         setProviderOptions(
           providers.data.map((provider) => ({
             value: String(provider.value ?? provider.id),
-            label: String(provider.label ?? provider.name ?? provider.code ?? provider.id)
+            label: String(provider.label ?? provider.name ?? provider.code ?? provider.id),
+            meta: provider.meta ?? {}
           }))
         );
         setCredentialOptions(
@@ -165,10 +174,38 @@ export default function ProviderPage({
       }
       setTestOpen(false);
       testForm.resetFields();
-      loadOptions();
+      await loadOptions();
     } catch (error) {
       message.error((error as Error).message);
     }
+  }
+
+  function handleSyncProviderChange(providerId: string) {
+    const provider = providerOptions.find((item) => item.value === providerId);
+    const providerType = String(provider?.meta?.provider_type ?? "");
+    const region = String(provider?.meta?.region ?? "");
+    syncForm.setFieldsValue({
+      aws_region: providerType === "aws_bedrock" ? region || "us-east-1" : undefined,
+      gcp_project_id: undefined,
+      vertex_regions: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? region || "global,us-central1,us-east5" : undefined,
+      publishers: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? "google,anthropic,mistralai,xai,meta" : undefined
+    });
+  }
+
+  function handleTestProviderChange(providerId: string) {
+    const provider = providerOptions.find((item) => item.value === providerId);
+    const providerType = String(provider?.meta?.provider_type ?? "");
+    testForm.setFieldsValue({ model_id: recommendedTestModelId(providerType) });
+  }
+
+  function recommendedTestModelId(providerType: string) {
+    if (providerType === "aws_bedrock") return "amazon.nova-lite-v1:0";
+    if (providerType === "google_vertex_ai" || providerType === "vertex_ai") return "gemini-2.5-flash";
+    if (providerType === "openai_compatible") return "gpt-4o-mini";
+    if (providerType === "anthropic") return "claude-3-5-haiku-20241022";
+    if (providerType === "gemini") return "gemini-2.5-flash";
+    if (providerType === "azure_openai") return "";
+    return "";
   }
 
   return (
@@ -306,23 +343,29 @@ export default function ProviderPage({
       <Modal title="同步模型目录" open={syncOpen} onCancel={() => setSyncOpen(false)} footer={null} destroyOnClose>
         <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ aws_region: "us-east-1" }}>
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
-            <Select showSearch optionFilterProp="label" options={providerOptions} />
+            <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleSyncProviderChange} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra="AWS IAM Role / GCP 本地 ADC 可留空；生产环境建议使用运行环境身份或加密保存的 Service Account JSON。">
+          <Form.Item label="使用的密钥" name="credential_id" extra={isSyncAwsBedrock ? "AWS IAM Role 可留空。" : isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON 或临时 Access Token。" : "选择该 Provider 对应密钥。"}>
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
-          <Form.Item label="AWS 区域，可选" name="aws_region">
-            <Input placeholder="us-east-1" />
-          </Form.Item>
-          <Form.Item label="GCP Project ID，可选" name="gcp_project_id" extra="Google Vertex AI Provider 同步时使用；留空读取 Provider 元数据或环境变量 GCP_PROJECT_ID。">
-            <Input placeholder="your-gcp-project-id" />
-          </Form.Item>
-          <Form.Item label="Vertex 区域，可选" name="vertex_regions" extra="多个区域用逗号分隔；留空默认扫描 global、us-central1、us-east5。">
-            <Input placeholder="global,us-central1,us-east5" />
-          </Form.Item>
-          <Form.Item label="Vertex Publisher，可选" name="publishers" extra="多个 Publisher 用逗号分隔；留空默认扫描 google、anthropic、mistralai、xai、meta。">
-            <Input placeholder="google,anthropic,mistralai" />
-          </Form.Item>
+          {isSyncAwsBedrock && (
+            <Form.Item label="AWS 区域" name="aws_region" extra="默认使用 Provider 配置里的区域。">
+              <Select options={providerRegionOptions.filter((item) => item.value.startsWith("us-"))} />
+            </Form.Item>
+          )}
+          {isSyncGoogleVertex && (
+            <>
+              <Form.Item label="GCP Project ID，可选" name="gcp_project_id" extra="留空读取服务端环境变量 GCP_PROJECT_ID。">
+                <Input placeholder="praxis-healer-dj5zp" />
+              </Form.Item>
+              <Form.Item label="Vertex 区域" name="vertex_regions" extra="多个区域用逗号分隔；global 可用于 publisher model catalog。">
+                <Input placeholder="global,us-central1,us-east5" />
+              </Form.Item>
+              <Form.Item label="Vertex Publisher" name="publishers" extra="多个 Publisher 用逗号分隔。">
+                <Input placeholder="google,anthropic,mistralai,xai,meta" />
+              </Form.Item>
+            </>
+          )}
           <Form.Item label="操作原因" name="reason">
             <Input.TextArea rows={3} />
           </Form.Item>
@@ -334,17 +377,17 @@ export default function ProviderPage({
       <Modal title="测试 Provider 连接" open={testOpen} onCancel={() => setTestOpen(false)} footer={null} destroyOnClose>
         <Form form={testForm} layout="vertical" onFinish={testProviderConnection}>
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
-            <Select showSearch optionFilterProp="label" options={providerOptions} />
+            <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleTestProviderChange} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra="使用 IAM Role 时可留空。填写测试模型 ID 会产生一次真实 Bedrock 调用。">
+          <Form.Item label="使用的密钥" name="credential_id" extra={testProviderType === "aws_bedrock" ? "使用 IAM Role 时可留空。填写测试模型 ID 会产生一次真实 Bedrock 调用。" : "选择该 Provider 对应密钥；填写测试模型 ID 会产生一次真实调用。"}>
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
           <Form.Item
             label="测试模型 ID"
             name="model_id"
-            extra="建议填写后台路由里的 provider_model_code，例如 us.anthropic.claude-3-5-haiku-20241022-v1:0。留空只校验凭证格式。"
+            extra={`推荐：${recommendedTestModelId(testProviderType) || "按该 Provider 的部署名填写"}。留空只校验凭证格式。`}
           >
-            <Input placeholder="us.anthropic.claude-3-5-haiku-20241022-v1:0" />
+            <Input placeholder={recommendedTestModelId(testProviderType) || "provider model id"} />
           </Form.Item>
           <Form.Item label="操作原因" name="reason">
             <Input.TextArea rows={3} />
