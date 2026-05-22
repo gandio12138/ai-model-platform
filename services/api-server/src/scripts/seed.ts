@@ -113,6 +113,7 @@ async function main() {
     "tenant.customer.read",
     "tenant.customer.write",
     "tenant.billing.read",
+    "model.read",
     "api_key.read",
     "api_key.write",
     "api_key.revoke",

@@ -1130,7 +1130,32 @@ export class AdminService {
 
     const where = filters.length ? `where ${filters.join(" and ")}` : "";
     const countSql = `select count(*)::int as total from ${config.table} ${where}`;
-    const dataSql = `select * from ${config.table} ${where} order by created_at desc limit $${params.length + 1} offset $${params.length + 2}`;
+    const dataSql = resource === "models"
+      ? `select models.*,
+                mp.price_version,
+                mp.currency,
+                round(coalesce(mp.input_price_per_1m, mp.input_price_per_1k * 1000)::numeric / 100000, 6) as input_price_per_1k_yuan,
+                round(coalesce(mp.output_price_per_1m, mp.output_price_per_1k * 1000)::numeric / 100000, 6) as output_price_per_1k_yuan
+           from models
+           left join lateral (
+             select price_version,
+                    currency,
+                    input_price_per_1m,
+                    output_price_per_1m,
+                    input_price_per_1k,
+                    output_price_per_1k
+               from model_prices
+              where model_id = models.id
+                and status = 'active'
+                and effective_from <= now()
+                and (effective_to is null or effective_to > now())
+              order by effective_from desc, created_at desc
+              limit 1
+           ) mp on true
+          ${where}
+          order by models.created_at desc
+          limit $${params.length + 1} offset $${params.length + 2}`
+      : `select * from ${config.table} ${where} order by created_at desc limit $${params.length + 1} offset $${params.length + 2}`;
     const [countResult, dataResult] = await Promise.all([
       this.db.query<{ total: number }>(countSql, params),
       this.db.query(dataSql, [...params, pageSize, offset])

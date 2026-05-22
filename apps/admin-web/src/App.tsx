@@ -260,7 +260,7 @@ const menuSections = [
     label: "模型供给",
     children: [
       { key: "/providers", icon: <DeploymentUnitOutlined />, label: "Provider", permission: "provider.read", accountTypes: adminOnly },
-      { key: "/models", icon: <ApiOutlined />, label: "模型目录", permission: "model.read", accountTypes: adminOnly },
+      { key: "/models", icon: <ApiOutlined />, label: "模型目录", permission: "model.read", accountTypes: adminAndTenant },
       { key: "/model-prices", icon: <BankOutlined />, label: "平台价格", permission: "price.read", accountTypes: adminOnly },
       ...(enableAdvancedModelRouting ? ([{ key: "/model-routes", icon: <DeploymentUnitOutlined />, label: "模型路由", permission: "route.read", accountTypes: adminOnly }] satisfies MenuItem[]) : []),
       ...(enableTenantModelOverrides ? ([
@@ -344,7 +344,18 @@ function Shell({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const user = getSessionUser() as AdminSessionUser | null;
+  const [user, setUser] = useState<AdminSessionUser | null>(() => getSessionUser() as AdminSessionUser | null);
+  useEffect(() => {
+    if (!getToken()) return;
+    apiFetch<{ user: AdminSessionUser }>("/api/admin/auth/me")
+      .then((result) => {
+        localStorage.setItem("admin_user", JSON.stringify(result.user));
+        setUser(result.user);
+      })
+      .catch(() => {
+        // apiFetch already clears the session for 401. Keep the last local user for transient network errors.
+      });
+  }, []);
   const visibleMenuSections = menuSections
     .map((section) => ({
       ...section,
@@ -1130,7 +1141,7 @@ function Shell({
               path="/models"
               element={page(
                 "model.read",
-                adminOnly,
+                adminAndTenant,
                 <ResourcePage
                   title="模型目录"
                   endpoint="/api/admin/models"
@@ -1141,8 +1152,27 @@ function Shell({
                     ["model_company", "模型公司"],
                     ["provider_source", "接入来源"],
                     ["max_context_tokens", "上下文"],
+                    ["currency", "币种"],
+                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["supports_stream", "Stream"],
                     ["supports_tools", "Tools"],
+                    ["status", "状态"]
+                  ]}
+                  detailFields={[
+                    ["public_model_code", "公开模型名"],
+                    ["display_name", "展示名"],
+                    ["model_company", "模型公司"],
+                    ["provider_source", "接入来源"],
+                    ["model_family", "模型族"],
+                    ["max_context_tokens", "上下文"],
+                    ["default_max_output_tokens", "默认输出"],
+                    ["currency", "币种"],
+                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                    ["supports_stream", "支持 Stream"],
+                    ["supports_tools", "支持 Tools"],
+                    ["supports_json_mode", "支持 JSON"],
                     ["status", "状态"]
                   ]}
                   editableFields={[
