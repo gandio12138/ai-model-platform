@@ -52,6 +52,7 @@ export type FieldSpec =
       autofillFromOption?: Record<string, string>;
       payloadKey?: string;
       submitTransform?: "yuan_per_1k_to_cents_per_1m";
+      defaultValue?: unknown;
     };
 
 type NormalizedFieldSpec = {
@@ -76,6 +77,7 @@ type NormalizedFieldSpec = {
   autofillFromOption?: Record<string, string>;
   payloadKey?: string;
   submitTransform?: "yuan_per_1k_to_cents_per_1m";
+  defaultValue?: unknown;
 };
 
 interface ResourcePageProps {
@@ -94,6 +96,7 @@ interface ResourcePageProps {
   deleteConfirmDescription?: string;
   deleteReason?: string;
   rowActions?: (row: any, reload: () => void) => ReactNode;
+  onAfterSave?: () => void;
 }
 
 const fieldLabels: Record<string, string> = {
@@ -518,7 +521,10 @@ function normalizeField(field: FieldSpec): NormalizedFieldSpec {
 
 function shouldShowField(field: NormalizedFieldSpec, values: Record<string, unknown>) {
   if (!field.visibleWhen) return true;
-  return Object.entries(field.visibleWhen).every(([key, expected]) => values[key] === expected);
+  return Object.entries(field.visibleWhen).every(([key, expected]) => {
+    const actual = values[key];
+    return Array.isArray(expected) ? expected.includes(actual) : actual === expected;
+  });
 }
 
 function safeJsonParse(value: unknown, fieldLabel: string) {
@@ -789,7 +795,13 @@ export default function ResourcePage(props: ResourcePageProps) {
 
   function startEdit(row?: any) {
     setEditing(row ?? null);
-    const values = row ? { ...row } : {};
+    const values = row
+      ? { ...row }
+      : Object.fromEntries(
+          editable
+            .filter((field) => field.defaultValue !== undefined)
+            .map((field) => [field.key, field.defaultValue])
+        );
     form.resetFields();
     for (const { key, kind, sensitive } of editable) {
       if (sensitive) {
@@ -824,6 +836,7 @@ export default function ResourcePage(props: ResourcePageProps) {
           });
           message.success("已删除");
           await load();
+          props.onAfterSave?.();
         } catch (error) {
           message.error((error as Error).message);
           throw error;
@@ -848,7 +861,8 @@ export default function ResourcePage(props: ResourcePageProps) {
       }
       message.success("已保存");
       setOpen(false);
-      load();
+      await load();
+      props.onAfterSave?.();
     } catch (error) {
       message.error((error as Error).message);
     }

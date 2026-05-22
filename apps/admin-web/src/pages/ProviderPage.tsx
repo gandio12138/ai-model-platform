@@ -36,6 +36,40 @@ const authMethodOptions = [
   { value: "api_key", label: "通用 API Key / Bearer Token" }
 ];
 
+const providerRegionOptions = [
+  { value: "global", label: "Global" },
+  { value: "us-east-1", label: "AWS us-east-1" },
+  { value: "us-west-2", label: "AWS us-west-2" },
+  { value: "us-central1", label: "Vertex us-central1" },
+  { value: "us-east5", label: "Vertex us-east5" },
+  { value: "europe-west4", label: "Vertex europe-west4" },
+  { value: "asia-northeast1", label: "Vertex asia-northeast1" },
+  { value: "asia-southeast1", label: "Vertex asia-southeast1" }
+];
+
+const legalScopeOptions = [
+  { value: "global", label: "Global" },
+  { value: "us", label: "美国" },
+  { value: "eu", label: "欧盟" },
+  { value: "asia", label: "亚洲" },
+  { value: "cn", label: "中国大陆" }
+];
+
+const statusOptions = [
+  { value: "active", label: "启用" },
+  { value: "suspended", label: "停用" },
+  { value: "archived", label: "归档" },
+  { value: "draft", label: "草稿" }
+];
+
+const currencyOptions = [
+  { value: "USD", label: "USD" },
+  { value: "CNY", label: "CNY" },
+  { value: "EUR", label: "EUR" },
+  { value: "JPY", label: "JPY" },
+  { value: "GBP", label: "GBP" }
+];
+
 export default function ProviderPage({
   canWrite,
   canWriteCredential,
@@ -172,25 +206,27 @@ export default function ProviderPage({
           ["monthly_budget", "月预算"]
         ]}
         editableFields={[
-          ["code", "Provider 编码"],
-          ["name", "名称"],
-          ["provider_type", "类型", "select", undefined, undefined, providerTypeOptions],
-          ["base_url", "API Endpoint"],
-          ["region", "区域"],
-          ["legal_scope", "合规范围"],
-          ["status", "状态"],
-          ["cost_currency", "成本币种"],
-          ["monthly_budget", "月预算分", "number"],
-          ["rpm_limit", "RPM", "number"],
-          ["tpm_limit", "TPM", "number"],
-          ["timeout_ms", "超时 ms", "number"],
-          ["retry_count", "重试次数", "number"],
-          ["health_status", "健康状态"],
-          ["health_score", "健康分", "number"],
-          ["metadata", "元数据 JSON", "json"]
+          { key: "code", label: "Provider 编码", required: true, placeholder: "google-vertex-main" },
+          { key: "name", label: "名称", required: true, placeholder: "Google Vertex AI 主线路" },
+          { key: "provider_type", label: "类型", kind: "select", options: providerTypeOptions, required: true },
+          {
+            key: "base_url",
+            label: "API Endpoint",
+            kind: "url",
+            visibleWhen: { provider_type: ["openai_compatible", "azure_openai"] },
+            placeholder: "https://api.example.com/v1",
+            help: "仅 OpenAI-Compatible / Azure OpenAI 需要填写；AWS Bedrock 和 Google Vertex AI 留空。"
+          },
+          { key: "region", label: "区域", kind: "select", options: providerRegionOptions, defaultValue: "global", required: true },
+          { key: "legal_scope", label: "合规范围", kind: "select", options: legalScopeOptions, defaultValue: "global" },
+          { key: "status", label: "状态", kind: "select", options: statusOptions, defaultValue: "active", required: true },
+          { key: "cost_currency", label: "成本币种", kind: "select", options: currencyOptions, defaultValue: "USD", required: true },
+          { key: "timeout_ms", label: "超时 ms", kind: "number", defaultValue: 60000 },
+          { key: "retry_count", label: "重试次数", kind: "number", defaultValue: 2 }
         ]}
         canCreate={canWrite}
         canEdit={canWrite}
+        onAfterSave={loadOptions}
       />
       <ResourcePage
         title="Provider 密钥"
