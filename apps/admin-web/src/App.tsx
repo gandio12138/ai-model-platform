@@ -717,8 +717,8 @@ function Shell({
                     ["model_display_name", "展示名"],
                     ["price_version", "价格版本"],
                     ["pricing_mode", "计价模式", "select", undefined, undefined, pricingModeOptions],
-                    ["input_price_per_1m", "输入/1M（元）", "money"],
-                    ["output_price_per_1m", "输出/1M（元）", "money"],
+                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
@@ -733,16 +733,16 @@ function Shell({
                       autofillFromOption: {
                         price_version: "price_version",
                         currency: "currency",
-                        input_price_per_1m: "input_price_per_1m_yuan",
-                        output_price_per_1m: "output_price_per_1m_yuan"
+                        input_price_per_1k_yuan: "input_price_per_1k_yuan",
+                        output_price_per_1k_yuan: "output_price_per_1k_yuan"
                       },
                       help: "选择模型后会自动带出平台全局价格，管理员可以基于默认价格做租户覆盖。"
                     },
                     { key: "price_version", label: "价格版本", required: true },
                     { key: "currency", label: "币种", required: true },
                     { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
-                    { key: "input_price_per_1m", label: "输入/1M tokens（元）", kind: "money", required: true, help: "使用 1M tokens 单位，避免低价模型按 1K tokens 计价时精度不足。" },
-                    { key: "output_price_per_1m", label: "输出/1M tokens（元）", kind: "money", required: true },
+                    { key: "input_price_per_1k_yuan", payloadKey: "input_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输入/1K tokens（元）", kind: "token_price", required: true },
+                    { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}
                   canCreate={can("tenant.model.write")}
@@ -1190,10 +1190,27 @@ function Shell({
                     ["public_model_code", "模型 ID"],
                     ["price_version", "版本"],
                     ["currency", "币种"],
-                    ["input_price_per_1m", "输入/1M（元）", "money"],
-                    ["output_price_per_1m", "输出/1M（元）", "money"],
+                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["reserve_multiplier", "预留倍率"],
                     ["status", "状态"]
+                  ]}
+                  detailFields={[
+                    ["id", "记录 ID"],
+                    ["model_display_name", "模型名称"],
+                    ["public_model_code", "模型 ID"],
+                    ["price_version", "价格版本"],
+                    ["currency", "币种"],
+                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                    ["cache_read_price_per_1k_yuan", "缓存读取/1K tokens", "token_price"],
+                    ["cache_write_price_per_1k_yuan", "缓存写入/1K tokens", "token_price"],
+                    ["reserve_multiplier", "预留倍率"],
+                    ["effective_from", "生效开始"],
+                    ["effective_to", "生效结束"],
+                    ["status", "状态"],
+                    ["created_at", "创建时间"],
+                    ["updated_at", "更新时间"]
                   ]}
                   editableFields={[
                     {
@@ -1206,17 +1223,17 @@ function Shell({
                       autofillFromOption: {
                         price_version: "price_version",
                         currency: "currency",
-                        input_price_per_1m: "input_price_per_1m_yuan",
-                        output_price_per_1m: "output_price_per_1m_yuan"
+                        input_price_per_1k_yuan: "input_price_per_1k_yuan",
+                        output_price_per_1k_yuan: "output_price_per_1k_yuan"
                       },
                       help: "已有平台价格会自动带出，保存后可作为新的全局价格版本覆盖展示。"
                     },
                     { key: "price_version", label: "版本", required: true },
                     { key: "currency", label: "币种", required: true },
-                    { key: "input_price_per_1m", label: "输入/1M tokens（元）", kind: "money", required: true, help: "推荐按真实供应商价格换算到 1M tokens，避免 1K tokens 低价模型精度丢失。" },
-                    { key: "output_price_per_1m", label: "输出/1M tokens（元）", kind: "money", required: true },
-                    { key: "cache_read_price_per_1m", label: "缓存读取/1M tokens（元）", kind: "money" },
-                    { key: "cache_write_price_per_1m", label: "缓存写入/1M tokens（元）", kind: "money" },
+                    { key: "input_price_per_1k_yuan", payloadKey: "input_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输入/1K tokens（元）", kind: "token_price", required: true },
+                    { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
+                    { key: "cache_read_price_per_1k_yuan", payloadKey: "cache_read_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "缓存读取/1K tokens（元）", kind: "token_price" },
+                    { key: "cache_write_price_per_1k_yuan", payloadKey: "cache_write_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "缓存写入/1K tokens（元）", kind: "token_price" },
                     { key: "reserve_multiplier", label: "预留倍率", kind: "number" },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}

@@ -1393,7 +1393,9 @@ export class AdminService {
                 tenant.tenant_code,
                 m.public_model_code,
                 m.display_name as model_display_name,
-                m.model_family
+                m.model_family,
+                round(coalesce(tmp.input_price_per_1m, tmp.input_price_per_1k * 1000)::numeric / 100000, 6) as input_price_per_1k_yuan,
+                round(coalesce(tmp.output_price_per_1m, tmp.output_price_per_1k * 1000)::numeric / 100000, 6) as output_price_per_1k_yuan
            from tenant_model_prices tmp
            join tenants tenant on tenant.id = tmp.tenant_id
            join models m on m.id = tmp.model_id
@@ -1448,7 +1450,11 @@ export class AdminService {
                 m.public_model_code,
                 m.display_name as model_display_name,
                 m.model_family,
-                m.max_context_tokens
+                m.max_context_tokens,
+                round(coalesce(mp.input_price_per_1m, mp.input_price_per_1k * 1000)::numeric / 100000, 6) as input_price_per_1k_yuan,
+                round(coalesce(mp.output_price_per_1m, mp.output_price_per_1k * 1000)::numeric / 100000, 6) as output_price_per_1k_yuan,
+                round(coalesce(mp.cache_read_price_per_1m, mp.cache_read_price_per_1k * 1000, 0)::numeric / 100000, 6) as cache_read_price_per_1k_yuan,
+                round(coalesce(mp.cache_write_price_per_1m, mp.cache_write_price_per_1k * 1000, 0)::numeric / 100000, 6) as cache_write_price_per_1k_yuan
            from model_prices mp
            join models m on m.id = mp.model_id
           ${where}
@@ -4123,7 +4129,7 @@ export class AdminService {
         disabledSql: "m.status <> 'active'",
         fixedWhere: "m.status = 'active'",
         metaSql:
-          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens, 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1m_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100, 2), 'output_price_per_1m_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100, 2))",
+          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens, 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1k_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100000, 6), 'output_price_per_1k_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100000, 6))",
         search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],
         orderBy: "m.created_at desc"
       },

@@ -10,6 +10,7 @@ type FieldKind =
   | "text"
   | "number"
   | "money"
+  | "token_price"
   | "boolean"
   | "json"
   | "select"
@@ -49,6 +50,8 @@ export type FieldSpec =
       copyable?: boolean;
       jsonSchemaKey?: string;
       autofillFromOption?: Record<string, string>;
+      payloadKey?: string;
+      submitTransform?: "yuan_per_1k_to_cents_per_1m";
     };
 
 type NormalizedFieldSpec = {
@@ -71,6 +74,8 @@ type NormalizedFieldSpec = {
   copyable?: boolean;
   jsonSchemaKey?: string;
   autofillFromOption?: Record<string, string>;
+  payloadKey?: string;
+  submitTransform?: "yuan_per_1k_to_cents_per_1m";
 };
 
 interface ResourcePageProps {
@@ -332,6 +337,14 @@ const moneyFieldKeys = new Set([
   "total_amount"
 ]);
 
+const numericTrimFieldKeys = new Set([
+  "reserve_multiplier",
+  "min_margin_multiplier",
+  "cost_plus_markup_rate",
+  "revenue_share_rate",
+  "payment_service_fee_rate"
+]);
+
 const valueLabels: Record<string, Record<string, string>> = {
   platform: {
     ios: "iOS App",
@@ -537,6 +550,12 @@ const hiddenAutoDetailKeys = new Set([
 ]);
 
 function renderValue(value: unknown, key?: string, kind?: FieldKind, options?: FieldOption[]) {
+  if (kind === "token_price") {
+    return <Typography.Text strong>{formatTokenPrice(value)}</Typography.Text>;
+  }
+  if (key && numericTrimFieldKeys.has(key) && value !== null && value !== undefined) {
+    return trimNumericText(value);
+  }
   if (key === "visible_platforms" && typeof value === "string") {
     return value
       .split(",")
@@ -574,21 +593,37 @@ function buildPayload(values: Record<string, unknown>, fields: NormalizedFieldSp
     const { key, kind } = field;
     if (field.readonly) continue;
     const value = values[key];
+    const payloadKey = field.payloadKey ?? key;
     if (field.sensitive && (value === undefined || value === null || value === "")) continue;
     if (kind === "json") {
-      payload[key] = safeJsonParse(value, field.label);
+      payload[payloadKey] = safeJsonParse(value, field.label);
     } else if (kind === "money") {
-      payload[key] = value === undefined || value === null || value === "" ? null : Math.round(Number(value) * 100);
+      payload[payloadKey] = value === undefined || value === null || value === "" ? null : Math.round(Number(value) * 100);
+    } else if (field.submitTransform === "yuan_per_1k_to_cents_per_1m") {
+      payload[payloadKey] = value === undefined || value === null || value === "" ? null : Math.round(Number(value) * 100000);
     } else if (kind === "multi_select") {
-      payload[key] = Array.isArray(value) ? value : [];
+      payload[payloadKey] = Array.isArray(value) ? value : [];
     } else {
-      payload[key] = value;
+      payload[payloadKey] = value;
     }
   }
   if (values.reason) {
     payload.reason = values.reason;
   }
   return payload;
+}
+
+function formatTokenPrice(value: unknown) {
+  if (value === undefined || value === null || value === "") return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return `¥${number.toFixed(6).replace(/\.?0+$/, "")}`;
+}
+
+function trimNumericText(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return number.toFixed(6).replace(/\.?0+$/, "");
 }
 
 export default function ResourcePage(props: ResourcePageProps) {
@@ -947,6 +982,8 @@ export default function ResourcePage(props: ResourcePageProps) {
                   >
                     {field.kind === "number" ? (
                       <InputNumber className="full-width" disabled={field.readonly} />
+                    ) : field.kind === "token_price" ? (
+                      <InputNumber className="full-width" disabled={field.readonly} min={0} precision={6} step={0.000001} addonAfter="元/1K" />
                     ) : field.kind === "money" ? (
                       <InputNumber className="full-width" disabled={field.readonly} min={0} precision={2} step={1} addonAfter="元" />
                     ) : field.kind === "boolean" ? (
