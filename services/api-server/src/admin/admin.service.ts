@@ -1624,6 +1624,7 @@ export class AdminService {
     if (resource === "tenants") {
       this.prepareTenantPayload(payload, true);
     }
+    this.prepareOperationalDefaults(resource, payload, true);
     if (resource === "appReleases") {
       await this.validateAppRelease(payload);
     }
@@ -1684,6 +1685,7 @@ export class AdminService {
       }
       this.prepareTenantPayload(payload, false);
     }
+    this.prepareOperationalDefaults(resource, payload, false);
     if (resource === "appReleases") {
       await this.validateAppRelease({ ...before, ...payload });
     }
@@ -3523,6 +3525,41 @@ export class AdminService {
     }
   }
 
+  private prepareOperationalDefaults(resource: ResourceKey, payload: Record<string, unknown>, creating: boolean) {
+    if (resource === "tenantPlans") {
+      if (creating && !payload.plan_code) {
+        payload.plan_code = this.generateBusinessCode("plan", payload.name);
+      }
+      if (creating && !payload.currency) payload.currency = "CNY";
+      if (creating && !payload.billing_cycle) payload.billing_cycle = "monthly";
+      if (creating && !payload.status) payload.status = "active";
+      return;
+    }
+    if (resource === "paymentProducts") {
+      if (creating && !payload.product_code) {
+        payload.product_code = this.generateBusinessCode("product", payload.name);
+      }
+      if (creating && !payload.currency) payload.currency = "CNY";
+      if (creating && !payload.status) payload.status = "active";
+      return;
+    }
+    if (resource === "tenantModelAuthorizations") {
+      if (creating && !payload.status) payload.status = "active";
+      return;
+    }
+    if (resource === "tenantModelPrices") {
+      if (creating && !payload.price_version) payload.price_version = "default";
+      if (creating && !payload.currency) payload.currency = "CNY";
+      if (creating && !payload.pricing_mode) payload.pricing_mode = "contract_price";
+      if (creating && !payload.status) payload.status = "active";
+      return;
+    }
+    if (resource === "paymentProductVisibility") {
+      if (creating && payload.enabled === undefined) payload.enabled = true;
+      if (creating && payload.sort_order === undefined) payload.sort_order = 100;
+    }
+  }
+
   private generateTenantCode(name: unknown) {
     const base = String(name ?? "tenant")
       .trim()
@@ -3531,6 +3568,16 @@ export class AdminService {
       .replace(/^_+|_+$/g, "")
       .slice(0, 24) || "tenant";
     return `${base}_${crypto.randomBytes(3).toString("hex")}`;
+  }
+
+  private generateBusinessCode(prefix: string, source: unknown) {
+    const base = String(source ?? prefix)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 28) || prefix;
+    return `${prefix}_${base}_${crypto.randomBytes(3).toString("hex")}`;
   }
 
   private asOptionalArray(value: unknown) {

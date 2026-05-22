@@ -517,6 +517,14 @@ function formatMoney(value: unknown) {
 }
 
 const REMOTE_OPTION_PAGE_SIZE = 500;
+const hiddenAutoDetailKeys = new Set([
+  "metadata",
+  "settings",
+  "payment_policy",
+  "config",
+  "draft_value",
+  "published_value"
+]);
 
 function renderValue(value: unknown, key?: string, kind?: FieldKind, options?: FieldOption[]) {
   if (key === "visible_platforms" && typeof value === "string") {
@@ -724,6 +732,7 @@ export default function ResourcePage(props: ResourcePageProps) {
   function startEdit(row?: any) {
     setEditing(row ?? null);
     const values = row ? { ...row } : {};
+    form.resetFields();
     for (const { key, kind, sensitive } of editable) {
       if (sensitive) {
         values[key] = "";
@@ -825,8 +834,7 @@ export default function ResourcePage(props: ResourcePageProps) {
   function handleValuesChange(changed: Record<string, unknown>) {
     const changedKeys = Object.keys(changed);
     const dependentFields = editable.filter((field) =>
-      field.dependsOn?.some((key) => changedKeys.includes(key)) ||
-      (field.optionsResource && changedKeys.some((key) => ["tenant_id", "project_id", "platform"].includes(key)))
+      !changedKeys.includes(field.key) && field.dependsOn?.some((key) => changedKeys.includes(key))
     );
     if (!dependentFields.length) return;
     const resetValues = Object.fromEntries(dependentFields.map((field) => [field.key, undefined]));
@@ -875,7 +883,14 @@ export default function ResourcePage(props: ResourcePageProps) {
         onClose={() => setOpen(false)}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" onFinish={submit} onValuesChange={handleValuesChange}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={submit}
+          onFinishFailed={() => message.warning("请先补全表单中的必填项")}
+          onValuesChange={handleValuesChange}
+          scrollToFirstError
+        >
           {editable.map((field) => (
             <Form.Item noStyle shouldUpdate key={field.key}>
               {({ getFieldsValue }) => {
@@ -950,7 +965,7 @@ export default function ResourcePage(props: ResourcePageProps) {
           <Descriptions column={1} bordered size="small">
             {(detailFields.length
               ? detailFields.map((field) => [field.key, detail[field.key]] as const)
-              : Object.entries(detail)
+              : Object.entries(detail).filter(([key]) => !hiddenAutoDetailKeys.has(key))
             ).map(([key, value]) => (
               <Descriptions.Item key={key} label={getFieldLabel(key, labelMap)}>
                 {fieldMap.get(key)?.sensitive

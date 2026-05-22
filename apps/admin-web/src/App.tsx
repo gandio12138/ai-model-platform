@@ -443,22 +443,17 @@ function Shell({
                   endpoint="/api/admin/tenants"
                   rowKey="id"
                   columns={[
-                    ["tenant_code", "租户编码"],
                     ["name", "租户名称"],
                     ["tenant_type", "租户类型"],
                     ["billing_mode", "计费模式", "select", undefined, undefined, billingModeOptions],
-                    ["current_plan_code", "当前套餐"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
                     ["created_at", "创建时间"]
                   ]}
                   editableFields={[
-                    ["tenant_code", "租户编码（留空自动生成）"],
                     ["name", "租户名称"],
                     ["tenant_type", "租户类型", "select", undefined, undefined, tenantTypeOptions],
                     ["billing_mode", "计费模式", "select", undefined, undefined, billingModeOptions],
-                    ["current_plan_code", "当前套餐编码"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["settings", "租户设置 JSON", "json"]
+                    ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   canCreate={can("platform.tenant.write_all")}
                   canEdit={can("platform.tenant.write_all")}
@@ -500,9 +495,7 @@ function Shell({
                     ["bundle_id", "iOS Bundle ID"],
                     ["package_name", "Android Package Name"],
                     ["web_domain", "Web 域名"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["payment_policy", "支付策略 JSON", "json"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   canCreate={can("tenant.project.write")}
                   canEdit={can("tenant.project.write")}
@@ -532,8 +525,7 @@ function Shell({
                     ["source_project_id", "来源项目", "select", "/api/admin/tenant-projects", "name"],
                     ["user_id", "客户账号", "select", "/api/admin/users?account_type=customer", "email"],
                     ["customer_code", "客户编码"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   canCreate={can("tenant.customer.write")}
                   canEdit={can("tenant.customer.write")}
@@ -552,7 +544,6 @@ function Shell({
                   endpoint="/api/admin/tenant-plans"
                   rowKey="id"
                   columns={[
-                    ["plan_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["billing_cycle", "计费周期", "select", undefined, undefined, billingCycleOptions],
                     ["base_fee_amount", "基础服务费（元）", "money"],
@@ -562,11 +553,9 @@ function Shell({
                     ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   editableFields={[
-                    ["plan_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["billing_cycle", "计费周期", "select", undefined, undefined, billingCycleOptions],
                     ["base_fee_amount", "基础服务费（元）", "money"],
-                    ["currency", "币种"],
                     ["included_credit", "包含抵扣额度（元）", "money"],
                     ["included_token_budget", "包含 Token 预算", "number"],
                     ["max_projects", "项目数上限", "number"],
@@ -574,8 +563,7 @@ function Shell({
                     ["max_members", "成员数上限", "number"],
                     ["log_retention_days", "日志保留天数", "number"],
                     ["support_level", "支持等级"],
-                    ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["status", "状态", "select", undefined, undefined, statusOptions]
                   ]}
                   canCreate={can("tenant.billing.write")}
                   canEdit={can("tenant.billing.write")}
@@ -613,8 +601,7 @@ function Shell({
                     ["cancel_at", "取消时间 ISO"],
                     ["seat_count", "席位数", "number"],
                     ["base_fee_amount", "基础服务费（元）", "money"],
-                    ["included_credit", "包含抵扣额度（元）", "money"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["included_credit", "包含抵扣额度（元）", "money"]
                   ]}
                   canCreate={can("tenant.billing.write")}
                   canEdit={can("tenant.billing.write")}
@@ -658,8 +645,7 @@ function Shell({
                     ["revenue_share_base", "收入分成基准"],
                     ["payment_service_fee_rate", "支付服务费率"],
                     ["effective_from", "生效开始 ISO"],
-                    ["effective_to", "生效结束 ISO"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["effective_to", "生效结束 ISO"]
                   ]}
                   canCreate={can("tenant.billing.write")}
                   canEdit={can("tenant.billing.write")}
@@ -693,8 +679,7 @@ function Shell({
                     { key: "rpm_limit", label: "RPM", kind: "number" },
                     { key: "tpm_limit", label: "TPM", kind: "number" },
                     { key: "daily_budget", label: "日预算（元）", kind: "money" },
-                    { key: "monthly_budget", label: "月预算（元）", kind: "money" },
-                    { key: "metadata", label: "扩展信息 JSON", kind: "json" }
+                    { key: "monthly_budget", label: "月预算（元）", kind: "money" }
                   ]}
                   canCreate={can("tenant.model.write")}
                   canEdit={can("tenant.model.write")}
@@ -723,17 +708,10 @@ function Shell({
                   editableFields={[
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
                     { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
-                    { key: "price_version", label: "价格版本", required: true },
-                    { key: "currency", label: "币种", placeholder: "CNY" },
                     { key: "pricing_mode", label: "计价模式", kind: "select", options: pricingModeOptions, required: true },
                     { key: "input_price_per_1k", label: "输入/1K（元）", kind: "money", required: true },
                     { key: "output_price_per_1k", label: "输出/1K（元）", kind: "money", required: true },
-                    { key: "min_margin_multiplier", label: "最低毛利倍率" },
-                    { key: "cost_plus_markup_rate", label: "成本加价率" },
-                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
-                    { key: "effective_from", label: "生效开始 ISO", kind: "datetime" },
-                    { key: "effective_to", label: "生效结束 ISO", kind: "datetime" },
-                    { key: "metadata", label: "扩展信息 JSON", kind: "json" }
+                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}
                   canCreate={can("tenant.model.write")}
                   canEdit={can("tenant.model.write")}
@@ -786,8 +764,7 @@ function Shell({
                   editableFields={[
                     ["status", "状态", "select", undefined, undefined, revenueShareStatusOptions],
                     ["settled_at", "结算时间 ISO"],
-                    ["reversed_at", "冲正时间 ISO"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["reversed_at", "冲正时间 ISO"]
                   ]}
                   canEdit={can("tenant.billing.write")}
                 />
@@ -814,8 +791,7 @@ function Shell({
                     ["created_at", "创建时间"]
                   ]}
                   editableFields={[
-                    ["status", "状态"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["status", "状态"]
                   ]}
                   canEdit={can("commission.approve")}
                 />
@@ -842,8 +818,7 @@ function Shell({
                   ]}
                   editableFields={[
                     ["status", "状态"],
-                    ["reviewed_at", "审核时间 ISO"],
-                    ["metadata", "审核信息 JSON", "json"]
+                    ["reviewed_at", "审核时间 ISO"]
                   ]}
                   canEdit={can("commission.approve")}
                 />
@@ -952,7 +927,6 @@ function Shell({
                   rowKey="id"
                   columns={[
                     ["tenant_name", "租户"],
-                    ["product_code", "套餐编码"],
                     ["name", "套餐名称"],
                     ["product_type", "套餐类型", "select", undefined, undefined, paymentProductTypeOptions],
                     ["face_value_amount", "到账额度（元）", "money"],
@@ -964,16 +938,13 @@ function Shell({
                   editableFields={[
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenants", remoteSearch: true, required: true },
                     { key: "project_id", label: "项目", kind: "select", optionsResource: "tenant-projects", dependsOn: ["tenant_id"], remoteSearch: true },
-                    { key: "product_code", label: "套餐编码", required: true, help: "用于 Web/App/API 下单和展示规则关联，保存后不建议随意修改。" },
                     { key: "name", label: "套餐名称", required: true },
                     { key: "product_type", label: "套餐类型", kind: "select", options: paymentProductTypeOptions, required: true },
                     { key: "face_value_amount", label: "到账额度（元）", kind: "money", required: true },
                     { key: "bonus_amount", label: "赠送额度（元）", kind: "money" },
                     { key: "sale_amount", label: "售价（元）", kind: "money", required: true },
-                    { key: "currency", label: "币种", placeholder: "CNY" },
                     { key: "ios_product_id", label: "App Store 商品 ID", visibleWhen: { product_type: "recharge_credit" } },
-                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
-                    { key: "metadata", label: "展示权益 JSON", kind: "json", help: "features、badge、valid_days 等端侧展示属性。" }
+                    { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}
                   canCreate={can("payment.reconcile")}
                   canEdit={can("payment.reconcile")}
@@ -1008,8 +979,7 @@ function Shell({
                     { key: "display_description", label: "展示说明", kind: "textarea" },
                     { key: "badge", label: "角标" },
                     { key: "sort_order", label: "排序", kind: "number" },
-                    { key: "enabled", label: "启用", kind: "boolean" },
-                    { key: "metadata", label: "端侧配置 JSON", kind: "json" }
+                    { key: "enabled", label: "启用", kind: "boolean" }
                   ]}
                   canCreate={can("payment.reconcile")}
                   canEdit={can("payment.reconcile")}
@@ -1114,8 +1084,7 @@ function Shell({
                   ]}
                   editableFields={[
                     ["status", "状态"],
-                    ["resolved_note", "处理备注"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["resolved_note", "处理备注"]
                   ]}
                   canEdit={can("payment.reconcile")}
                 />
@@ -1367,8 +1336,7 @@ function Shell({
                     { key: "changelog", label: "更新说明", kind: "textarea" },
                     { key: "file_size_bytes", label: "文件大小 Bytes", kind: "number" },
                     { key: "checksum_sha256", label: "SHA-256" },
-                    { key: "published_at", label: "发布时间 ISO", kind: "datetime" },
-                    { key: "metadata", label: "扩展信息 JSON", kind: "json" }
+                    { key: "published_at", label: "发布时间 ISO", kind: "datetime" }
                   ]}
                   canCreate={can("config.write")}
                   canEdit={can("config.write")}
@@ -1400,8 +1368,7 @@ function Shell({
                     ["content", "正文"],
                     ["status", "状态"],
                     ["version", "版本号", "number"],
-                    ["effective_at", "生效时间 ISO"],
-                    ["metadata", "扩展信息 JSON", "json"]
+                    ["effective_at", "生效时间 ISO"]
                   ]}
                   canCreate={can("config.write")}
                   canEdit={can("config.write")}
@@ -1428,8 +1395,7 @@ function Shell({
                     ["created_at", "创建时间"]
                   ]}
                   editableFields={[
-                    ["status", "状态"],
-                    ["metadata", "处理信息 JSON", "json"]
+                    ["status", "状态"]
                   ]}
                   canEdit={can("audit.read")}
                 />
@@ -1456,8 +1422,7 @@ function Shell({
                   ]}
                   editableFields={[
                     ["status", "状态"],
-                    ["balance_policy", "余额处理规则"],
-                    ["metadata", "处理信息 JSON", "json"]
+                    ["balance_policy", "余额处理规则"]
                   ]}
                   canEdit={can("audit.read")}
                 />
