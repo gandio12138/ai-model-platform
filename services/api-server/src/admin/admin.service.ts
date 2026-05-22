@@ -3582,7 +3582,8 @@ export class AdminService {
               default_max_output_tokens = coalesce(excluded.default_max_output_tokens, models.default_max_output_tokens),
               supports_stream = excluded.supports_stream,
               supports_tools = excluded.supports_tools,
-              metadata = coalesce(models.metadata, '{}'::jsonb) || excluded.metadata,
+              status = 'active',
+              metadata = (coalesce(models.metadata, '{}'::jsonb) - 'archived_reason' - 'archived_at') || excluded.metadata,
               updated_at = now()
        returning *`,
       [
