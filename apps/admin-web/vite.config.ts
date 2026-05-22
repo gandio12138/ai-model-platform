@@ -39,7 +39,7 @@ function nodeModulePackageName(id: string) {
 }
 
 export default defineConfig({
-  base: process.env.VITE_ADMIN_BASE || "/",
+  base: process.env.VITE_ADMIN_BASE || (process.env.NODE_ENV === "production" ? "/admin/" : "/"),
   plugins: [react()],
   build: {
     rollupOptions: {
