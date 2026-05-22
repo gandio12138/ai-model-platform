@@ -189,6 +189,33 @@ export function resolveAwsBedrockModelContext(input: {
   return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
 }
 
+export function canonicalAwsBedrockModelKey(input: { providerName: string; displayName: string; modelId: string }) {
+  const modelId = String(input.modelId ?? "").trim();
+  const provider = String(input.providerName ?? "").trim().toLowerCase();
+  const idWithoutScope = modelId
+    .replace(/^(us|global)\./i, "")
+    .replace(/:[0-9]+$/g, "");
+  const idWithoutProvider = idWithoutScope.replace(/^[a-z0-9-]+\./i, "");
+  const baseFromId = idWithoutProvider
+    .replace(/-\d{8}-v\d+$/i, "")
+    .replace(/-v\d+$/i, "")
+    .replace(/-\d{6,8}$/i, "");
+  const raw = baseFromId || input.displayName || modelId;
+  const normalized = raw
+    .toLowerCase()
+    .replace(/\+/g, " plus ")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/^(amazon|anthropic|cohere|mistral(?: ai)?|meta(?: llama)?|ai21(?: labs)?|writer|deepseek|openai|z ai)\s+/i, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-+/g, "-");
+  if (!normalized) return modelId || String(input.displayName ?? "").trim();
+  if (provider.includes("anthropic") || normalized.startsWith("claude-")) {
+    return normalized.replace(/-20\d{6}(?:-v\d+)?$/i, "");
+  }
+  return normalized;
+}
+
 function readUsdPer1k(onDemandTerm: unknown, attributes: Record<string, unknown>) {
   if (!onDemandTerm || typeof onDemandTerm !== "object") return null;
   const usageType = String(attributes.usagetype ?? "").toLowerCase();

@@ -23,6 +23,7 @@ import { ProviderAdapterRegistry } from "../ai/providers/provider-adapter.regist
 import { ProviderConfig } from "../ai/providers/types.js";
 import {
   BedrockResolvedPricing,
+  canonicalAwsBedrockModelKey,
   fetchAwsBedrockPriceCatalog,
   resolveAwsBedrockModelContext,
   resolveAwsBedrockPricing
@@ -2699,18 +2700,25 @@ export class AdminService {
     const providerModelCode = usesProfile ? String(profile.inferenceProfileId) : modelId;
     const inputModalities = this.asStringList(summary.inputModalities);
     const outputModalities = this.asStringList(summary.outputModalities);
+    const displayName = String(summary.modelName ?? modelId);
+    const providerName = String(summary.providerName ?? "AWS Bedrock");
+    const canonicalModelKey = canonicalAwsBedrockModelKey({
+      providerName,
+      displayName,
+      modelId
+    });
     const context = resolveAwsBedrockModelContext({
-      providerName: String(summary.providerName ?? "AWS Bedrock"),
-      displayName: String(summary.modelName ?? modelId),
+      providerName,
+      displayName,
       modelId,
       outputModalities
     });
     return {
       publicModelCode: modelId,
       providerModelCode,
-      displayName: String(summary.modelName ?? modelId),
-      providerName: String(summary.providerName ?? "AWS Bedrock"),
-      modelFamily: String(summary.providerName ?? "AWS Bedrock"),
+      displayName,
+      providerName,
+      modelFamily: providerName,
       inputModalities,
       outputModalities,
       inferenceTypesSupported: inferenceTypes,
@@ -2725,6 +2733,7 @@ export class AdminService {
       raw: {
         source: "aws_bedrock",
         source_model_id: modelId,
+        canonical_model_key: canonicalModelKey,
         model_arn: summary.modelArn,
         provider_name: summary.providerName,
         input_modalities: inputModalities,

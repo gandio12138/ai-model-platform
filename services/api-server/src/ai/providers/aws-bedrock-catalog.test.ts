@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildAwsBedrockPriceCatalogFromOfferPayloads,
+  canonicalAwsBedrockModelKey,
   resolveAwsBedrockModelContext,
   resolveAwsBedrockPricing
 } from "./aws-bedrock-catalog.js";
@@ -197,5 +198,24 @@ describe("AWS Bedrock price catalog parsing", () => {
     assert.equal(context.maxContextTokens, null);
     assert.equal(context.defaultMaxOutputTokens, null);
     assert.equal(context.contextSource, "admin_required");
+  });
+
+  it("normalizes AWS and Vertex Anthropic model ids to the same canonical key", () => {
+    assert.equal(
+      canonicalAwsBedrockModelKey({
+        providerName: "Anthropic",
+        displayName: "Claude Opus 4.7",
+        modelId: "anthropic.claude-opus-4-7"
+      }),
+      "claude-opus-4-7"
+    );
+    assert.equal(
+      canonicalAwsBedrockModelKey({
+        providerName: "Anthropic",
+        displayName: "Claude Opus 4.5",
+        modelId: "anthropic.claude-opus-4-5-20251101-v1:0"
+      }),
+      "claude-opus-4-5"
+    );
   });
 });
