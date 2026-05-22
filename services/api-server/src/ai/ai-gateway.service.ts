@@ -187,6 +187,25 @@ export class AiGatewayService {
             or tenant.tenant_code = 'platform_default_tenant'
             or tma.id is not null
           )
+          and (
+            exists (
+              select 1
+                from model_prices mp
+               where mp.model_id = m.id
+                 and mp.status = 'active'
+                 and mp.effective_from <= now()
+                 and (mp.effective_to is null or mp.effective_to > now())
+            )
+            or exists (
+              select 1
+                from tenant_model_prices tmp
+               where tmp.tenant_id = tenant.id
+                 and tmp.model_id = m.id
+                 and tmp.status = 'active'
+                 and tmp.effective_from <= now()
+                 and (tmp.effective_to is null or tmp.effective_to > now())
+            )
+          )
         order by m.model_family nulls last, m.display_name asc`,
       [tenantId]
     );

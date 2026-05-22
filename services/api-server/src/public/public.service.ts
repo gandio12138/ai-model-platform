@@ -437,6 +437,7 @@ export class PublicService {
             limit 1
          ) mp on true
         where m.status = 'active'
+          and coalesce(tmp.price_version, mp.price_version) is not null
         order by m.model_family nulls last, m.display_name asc`,
       [context.tenant.id]
     );

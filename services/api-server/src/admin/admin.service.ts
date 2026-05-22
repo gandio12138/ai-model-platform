@@ -1644,6 +1644,9 @@ export class AdminService {
     if (resource === "tenantModelAuthorizations" || resource === "tenantModelPrices") {
       await this.assertExplicitModelPolicyTenant(String(payload.tenant_id ?? ""));
     }
+    if (resource === "tenantModelAuthorizations") {
+      await this.applyTenantModelAuthorizationDefaults(payload);
+    }
     if (resource === "tenants") {
       this.prepareTenantPayload(payload, true);
     }
@@ -1704,6 +1707,9 @@ export class AdminService {
     }
     if (resource === "tenantModelAuthorizations" || resource === "tenantModelPrices") {
       await this.assertExplicitModelPolicyTenant(String(payload.tenant_id ?? before.tenant_id ?? ""));
+    }
+    if (resource === "tenantModelAuthorizations") {
+      await this.applyTenantModelAuthorizationDefaults(payload);
     }
     if (resource === "tenants") {
       if (payload.tenant_type === "platform_default" && before.tenant_type !== "platform_default") {
@@ -2170,7 +2176,13 @@ export class AdminService {
     const synced: any[] = [];
     let pricingSynced = 0;
     let pricingMissing = 0;
+    const unpricedSourceModelIds: string[] = [];
     for (const item of syncItems) {
+      if (providerType === "aws_bedrock" && !item.pricing) {
+        pricingMissing += 1;
+        unpricedSourceModelIds.push(item.sourceModelId);
+        continue;
+      }
       const model = await this.upsertSyncedModel(item);
       if (item.pricing) {
         await this.upsertSyncedModelPrice(model.id, item.pricing);
@@ -2195,6 +2207,10 @@ export class AdminService {
         route_id: route.id
       });
     }
+    const archivedUnpricedCount =
+      providerType === "aws_bedrock"
+        ? await this.archiveUnpricedAwsBedrockModels(provider.id, unpricedSourceModelIds)
+        : 0;
 
     const region = String(body.aws_region ?? providerConfig.credential?.awsRegion ?? providerConfig.region ?? "us-east-1");
     const authMode = this.resolveProviderAuthMode(providerConfig);
@@ -2210,6 +2226,7 @@ export class AdminService {
           last_model_sync_count: synced.length,
           last_model_sync_price_count: pricingSynced,
           last_model_sync_price_missing_count: pricingMissing,
+          last_model_sync_archived_unpriced_count: archivedUnpricedCount,
           last_model_sync_region: region,
           last_model_sync_auth_mode: authMode,
           model_source: providerType === "aws_bedrock" ? "aws_bedrock_sdk" : providerType
@@ -2230,7 +2247,8 @@ export class AdminService {
         auth_mode: authMode,
         synced_count: synced.length,
         pricing_synced_count: pricingSynced,
-        pricing_missing_count: pricingMissing
+        pricing_missing_count: pricingMissing,
+        archived_unpriced_count: archivedUnpricedCount
       },
       reason: String(body.reason ?? "sync provider models")
     });
@@ -2242,6 +2260,7 @@ export class AdminService {
       synced_count: synced.length,
       pricing_synced_count: pricingSynced,
       pricing_missing_count: pricingMissing,
+      archived_unpriced_count: archivedUnpricedCount,
       models: synced
     };
   }
@@ -3392,6 +3411,55 @@ export class AdminService {
     return rows[0];
   }
 
+  private async archiveUnpricedAwsBedrockModels(providerId: string, sourceModelIds: string[]) {
+    const uniqueSourceModelIds = [...new Set(sourceModelIds.filter(Boolean))];
+    if (!uniqueSourceModelIds.length) return 0;
+    const archived = await this.db.query<{ id: string }>(
+      `with candidates as (
+         select distinct m.id
+           from models m
+           join model_routes mr on mr.model_id = m.id
+          where mr.provider_id = $1
+            and coalesce(m.metadata->>'source_model_id', m.public_model_code) = any($2::text[])
+            and coalesce(m.metadata->>'source', '') = 'aws_bedrock'
+            and not exists (
+              select 1
+                from model_prices mp
+               where mp.model_id = m.id
+                 and mp.status = 'active'
+                 and mp.effective_from <= now()
+                 and (mp.effective_to is null or mp.effective_to > now())
+            )
+       )
+       update models m
+          set status = 'archived',
+              metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object(
+                'archived_reason', 'aws_bedrock_price_missing',
+                'archived_at', now()
+              ),
+              updated_at = now()
+         from candidates c
+        where m.id = c.id
+        returning m.id`,
+      [providerId, uniqueSourceModelIds]
+    );
+    if (archived.rows.length) {
+      await this.db.query(
+        `update model_routes
+            set enabled = false,
+                metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                  'disabled_reason', 'aws_bedrock_price_missing',
+                  'disabled_at', now()
+                ),
+                updated_at = now()
+          where provider_id = $1
+            and model_id = any($2::uuid[])`,
+        [providerId, archived.rows.map((row) => row.id)]
+      );
+    }
+    return archived.rows.length;
+  }
+
   private async upsertSyncedModelPrice(modelId: string, pricing: BedrockResolvedPricing) {
     const inputPer1k = this.legacyPer1kCents(pricing.inputPricePer1mCents);
     const outputPer1k = this.legacyPer1kCents(pricing.outputPricePer1mCents);
@@ -3704,6 +3772,23 @@ export class AdminService {
     }
   }
 
+  private async applyTenantModelAuthorizationDefaults(payload: Record<string, unknown>) {
+    if (!payload.model_id) return;
+    if (payload.max_context_tokens !== undefined && payload.max_context_tokens !== null && payload.max_context_tokens !== "") {
+      return;
+    }
+    const { rows } = await this.db.query<{ max_context_tokens: string | null }>(
+      `select max_context_tokens::text
+         from models
+        where id = $1
+        limit 1`,
+      [payload.model_id]
+    );
+    if (rows[0]?.max_context_tokens) {
+      payload.max_context_tokens = Number(rows[0].max_context_tokens);
+    }
+  }
+
   private preparePreciseModelPricePayload(payload: Record<string, unknown>) {
     if (payload.input_price_per_1m !== undefined && payload.input_price_per_1k === undefined) {
       payload.input_price_per_1k = this.legacyPer1kCents(payload.input_price_per_1m);
@@ -3964,7 +4049,9 @@ export class AdminService {
         labelSql: "concat(m.display_name, ' / ', m.public_model_code)",
         descriptionSql: "concat(coalesce(m.model_family, '-'), ' · ', m.status)",
         disabledSql: "m.status <> 'active'",
-        metaSql: "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family)",
+        fixedWhere: "m.status = 'active'",
+        metaSql:
+          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens)",
         search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],
         orderBy: "m.created_at desc"
       },

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Save } from "lucide-react";
 import { ApiList, apiFetch, toQuery } from "../api";
 
-type FieldOption = { label: string; value: string; disabled?: boolean };
+type FieldOption = { label: string; value: string; disabled?: boolean; meta?: Record<string, unknown> };
 type FieldKind =
   | "text"
   | "number"
@@ -48,6 +48,7 @@ export type FieldSpec =
       sensitive?: boolean;
       copyable?: boolean;
       jsonSchemaKey?: string;
+      autofillFromOption?: Record<string, string>;
     };
 
 type NormalizedFieldSpec = {
@@ -69,6 +70,7 @@ type NormalizedFieldSpec = {
   sensitive?: boolean;
   copyable?: boolean;
   jsonSchemaKey?: string;
+  autofillFromOption?: Record<string, string>;
 };
 
 interface ResourcePageProps {
@@ -664,7 +666,7 @@ export default function ResourcePage(props: ResourcePageProps) {
           res.data.map((item) => ({
             value: String(item.value ?? item.id),
             disabled: Boolean(item.disabled),
-            label: String(
+      label: String(
               item.label ??
                 item[field.optionLabelKey ?? "name"] ??
                 item.email ??
@@ -834,9 +836,26 @@ export default function ResourcePage(props: ResourcePageProps) {
             item.code ??
             item.public_model_code ??
             item.id
-        )
+        ),
+        meta: item.meta ?? {}
       }))
     }));
+  }
+
+  function handleSelectChange(field: NormalizedFieldSpec, value: unknown) {
+    if (!field.autofillFromOption || Array.isArray(value)) return;
+    const selected = (options[field.key] ?? []).find((item) => item.value === String(value));
+    if (!selected?.meta) return;
+    const patch: Record<string, unknown> = {};
+    for (const [targetKey, metaKey] of Object.entries(field.autofillFromOption)) {
+      const nextValue = selected.meta[metaKey];
+      if (nextValue !== undefined && nextValue !== null && nextValue !== "") {
+        patch[targetKey] = nextValue;
+      }
+    }
+    if (Object.keys(patch).length) {
+      form.setFieldsValue(patch);
+    }
   }
 
   function handleValuesChange(changed: Record<string, unknown>) {
@@ -935,6 +954,7 @@ export default function ResourcePage(props: ResourcePageProps) {
                             ? (keyword) => loadRemoteOptions(field, keyword).catch((error) => message.error((error as Error).message))
                             : undefined
                         }
+                        onChange={(value) => handleSelectChange(field, value)}
                       />
                     ) : field.kind === "json" ? (
                       <Input.TextArea rows={8} disabled={field.readonly} placeholder={field.placeholder ?? "{ }"} />

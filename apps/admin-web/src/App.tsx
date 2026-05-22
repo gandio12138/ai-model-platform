@@ -671,25 +671,30 @@ function Shell({
                     ["public_model_code", "模型"],
                     ["model_display_name", "展示名"],
                     ["status", "状态", "select", undefined, undefined, statusOptions],
-                    ["max_context_tokens", "上下文上限（可选）"],
-                    ["rpm_limit", "RPM"],
-                    ["tpm_limit", "TPM"],
+                    ["max_context_tokens", "上下文上限"],
                     ["monthly_budget", "月预算（元）", "money"]
                   ]}
                   editableFields={[
                     { key: "tenant_id", label: "租户", kind: "select", optionsResource: "tenant-model-target-tenants", remoteSearch: true, required: true, help: "默认自营租户自动拥有全部模型，这里只展示需要单独授权的业务租户。" },
-                    { key: "model_id", label: "模型", kind: "select", optionsResource: "models", remoteSearch: true, required: true },
+                    {
+                      key: "model_id",
+                      label: "模型",
+                      kind: "select",
+                      optionsResource: "models",
+                      remoteSearch: true,
+                      required: true,
+                      autofillFromOption: { max_context_tokens: "max_context_tokens" },
+                      help: "选择模型后会自动带出模型目录中的默认上下文上限，可按租户实际需要改小。"
+                    },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true },
                     {
                       key: "max_context_tokens",
-                      label: "上下文上限（可选）",
+                      label: "上下文上限",
                       kind: "number",
-                      help: "留空表示不额外限制，按模型目录中的默认上下文能力生效。"
+                      help: "默认来自模型目录。可改小用于控制该租户单次请求上下文；留空表示不额外限制。"
                     },
-                    { key: "rpm_limit", label: "RPM", kind: "number" },
-                    { key: "tpm_limit", label: "TPM", kind: "number" },
-                    { key: "daily_budget", label: "日预算（元）", kind: "money" },
-                    { key: "monthly_budget", label: "月预算（元）", kind: "money" }
+                    { key: "daily_budget", label: "日预算（元）", kind: "money", help: "可选。不设置表示不做日额度限制，只按钱包余额扣费。" },
+                    { key: "monthly_budget", label: "月预算（元）", kind: "money", help: "可选。不设置表示不做月额度限制，一直用到钱包余额不足为止。" }
                   ]}
                   canCreate={can("tenant.model.write")}
                   canEdit={can("tenant.model.write")}
