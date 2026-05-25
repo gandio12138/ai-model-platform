@@ -14,6 +14,7 @@ import { PublicRequestUser } from "../public/public-auth.guard.js";
 import { PublicService } from "../public/public.service.js";
 import { ProviderAdapterRegistry } from "./providers/provider-adapter.registry.js";
 import { ProviderAdapter, ProviderCompletionResult, ProviderCompletionInput, ProviderConfig } from "./providers/types.js";
+import { enabledModelProviderTypes } from "./providers/provider-visibility.js";
 
 type ChatRole = "system" | "user" | "assistant";
 
@@ -153,6 +154,7 @@ export class AiGatewayService {
   }
 
   async listTenantModels(tenantId: string) {
+    const providerTypes = enabledModelProviderTypes();
     const { rows } = await this.db.query<{
       id: string;
       public_model_code: string;
@@ -209,6 +211,15 @@ export class AiGatewayService {
           where m.status = 'active'
             and m.max_context_tokens is not null
             and coalesce(tmp.price_version, mp.price_version) is not null
+            and exists (
+              select 1
+                from model_routes mr
+                join providers p on p.id = mr.provider_id
+               where mr.model_id = m.id
+                 and mr.enabled = true
+                 and p.status = 'active'
+                 and p.provider_type = any($2::text[])
+            )
        ),
        ranked as (
          select *,
@@ -234,7 +245,7 @@ export class AiGatewayService {
          from ranked
         where model_rank = 1
         order by model_family nulls last, display_name asc`,
-      [tenantId]
+      [tenantId, providerTypes]
     );
     return rows;
   }
@@ -797,6 +808,7 @@ export class AiGatewayService {
   }
 
   private async getPricing(tenantId: string, modelCode: string): Promise<ModelPricing> {
+    const providerTypes = enabledModelProviderTypes();
     const { rows } = await this.db.query<ModelPricing>(
       `select m.id as model_id,
               m.public_model_code,
@@ -845,8 +857,17 @@ export class AiGatewayService {
         where m.status = 'active'
           and m.max_context_tokens is not null
           and m.public_model_code = $2
+          and exists (
+            select 1
+              from model_routes mr
+              join providers p on p.id = mr.provider_id
+             where mr.model_id = m.id
+               and mr.enabled = true
+               and p.status = 'active'
+               and p.provider_type = any($3::text[])
+          )
         limit 1`,
-      [tenantId, modelCode]
+      [tenantId, modelCode, providerTypes]
     );
     const row = rows[0];
     if (!row) {
@@ -923,6 +944,7 @@ export class AiGatewayService {
   }
 
   private async selectRoute(modelId: string): Promise<ModelRouteConfig | null> {
+    const providerTypes = enabledModelProviderTypes();
     const { rows } = await this.db.query<ModelRouteConfig>(
       `select mr.id,
               mr.provider_id,
@@ -958,9 +980,10 @@ export class AiGatewayService {
         where mr.model_id = $1
           and mr.enabled = true
           and p.status = 'active'
+          and p.provider_type = any($2::text[])
         order by mr.priority asc, mr.weight desc, mr.created_at asc
         limit 1`,
-      [modelId]
+      [modelId, providerTypes]
     );
     return rows[0] ?? null;
   }

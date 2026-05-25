@@ -1,11 +1,10 @@
-import { Alert, Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, message } from "antd";
+import { Alert, Button, Form, Input, Modal, Select, Space, Switch, message } from "antd";
 import { KeyRound, RefreshCw, TestTube2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiList, apiFetch } from "../api";
 import ResourcePage from "./ResourcePage";
 
 const providerTypeOptions = [
-  { value: "aws_bedrock", label: "AWS Bedrock" },
   { value: "google_vertex_ai", label: "Google Vertex AI" },
   { value: "openai_compatible", label: "OpenAI-Compatible" },
   { value: "anthropic", label: "Anthropic" },
@@ -15,31 +14,20 @@ const providerTypeOptions = [
 ];
 
 const credentialTypeOptions = [
-  { value: "iam_role", label: "EC2 / ECS IAM Role" },
-  { value: "bedrock_api_key", label: "AWS Bedrock API Key" },
-  { value: "iam_access_key", label: "AWS IAM Access Key" },
-  { value: "assume_role", label: "AWS Assume Role（预留）" },
   { value: "azure_openai_api_key", label: "Azure OpenAI API Key" },
   { value: "vertex_service_account", label: "Vertex AI Service Account JSON" },
-  { value: "vertex_access_token", label: "Vertex AI Access Token（临时调试）" },
   { value: "openai_compatible_api_key", label: "OpenAI-Compatible API Key" },
   { value: "anthropic_api_key", label: "Anthropic API Key" },
   { value: "gemini_api_key", label: "Gemini API Key" }
 ];
 
 const authMethodOptions = [
-  { value: "iam_role", label: "EC2 / ECS IAM Role" },
-  { value: "bedrock_api_key", label: "Bedrock API Key" },
-  { value: "iam_access_key", label: "IAM Access Key" },
-  { value: "assume_role", label: "Assume Role（预留）" },
   { value: "service_account_json", label: "GCP Service Account JSON" },
   { value: "api_key", label: "通用 API Key / Bearer Token" }
 ];
 
 const providerRegionOptions = [
   { value: "global", label: "Global" },
-  { value: "us-east-1", label: "AWS us-east-1" },
-  { value: "us-west-2", label: "AWS us-west-2" },
   { value: "us-central1", label: "Vertex us-central1" },
   { value: "us-east5", label: "Vertex us-east5" },
   { value: "europe-west4", label: "Vertex europe-west4" },
@@ -92,14 +80,11 @@ export default function ProviderPage({
   const authMethod = Form.useWatch("auth_method", credentialForm);
   const syncProviderId = Form.useWatch("provider_id", syncForm);
   const testProviderId = Form.useWatch("provider_id", testForm);
-  const usesIamRole = credentialType === "iam_role" || authMethod === "iam_role";
-  const usesIamAccessKey = credentialType === "iam_access_key" || authMethod === "iam_access_key";
-  const usesAssumeRole = credentialType === "assume_role" || authMethod === "assume_role";
+  const isVertexServiceAccount = credentialType === "vertex_service_account" || authMethod === "service_account_json";
   const syncProvider = providerOptions.find((provider) => provider.value === syncProviderId);
   const testProvider = providerOptions.find((provider) => provider.value === testProviderId);
   const syncProviderType = String(syncProvider?.meta?.provider_type ?? "");
   const testProviderType = String(testProvider?.meta?.provider_type ?? "");
-  const isSyncAwsBedrock = syncProviderType === "aws_bedrock";
   const isSyncGoogleVertex = syncProviderType === "google_vertex_ai" || syncProviderType === "vertex_ai";
 
   function loadOptions() {
@@ -185,7 +170,6 @@ export default function ProviderPage({
     const providerType = String(provider?.meta?.provider_type ?? "");
     const region = String(provider?.meta?.region ?? "");
     syncForm.setFieldsValue({
-      aws_region: providerType === "aws_bedrock" ? region || "us-east-1" : undefined,
       gcp_project_id: undefined,
       vertex_regions: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? region || "global,us-central1,us-east5" : undefined,
       publishers: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? "google,anthropic,mistralai,xai,meta" : undefined
@@ -199,7 +183,6 @@ export default function ProviderPage({
   }
 
   function recommendedTestModelId(providerType: string) {
-    if (providerType === "aws_bedrock") return "amazon.nova-lite-v1:0";
     if (providerType === "google_vertex_ai" || providerType === "vertex_ai") return "gemini-2.5-flash";
     if (providerType === "openai_compatible") return "gpt-4o-mini";
     if (providerType === "anthropic") return "claude-3-5-haiku-20241022";
@@ -253,7 +236,7 @@ export default function ProviderPage({
             kind: "url",
             visibleWhen: { provider_type: ["openai_compatible", "azure_openai"] },
             placeholder: "https://api.example.com/v1",
-            help: "仅 OpenAI-Compatible / Azure OpenAI 需要填写；AWS Bedrock 和 Google Vertex AI 留空。"
+            help: "仅 OpenAI-Compatible / Azure OpenAI 需要填写；Google Vertex AI 留空。"
           },
           { key: "region", label: "区域", kind: "select", options: providerRegionOptions, defaultValue: "global", required: true },
           { key: "legal_scope", label: "合规范围", kind: "select", options: legalScopeOptions, defaultValue: "global" },
@@ -288,7 +271,7 @@ export default function ProviderPage({
           form={credentialForm}
           layout="vertical"
           onFinish={submitCredential}
-          initialValues={{ credential_type: "vertex_access_token", auth_method: "api_key" }}
+          initialValues={{ credential_type: "vertex_service_account", auth_method: "service_account_json" }}
         >
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} />
@@ -302,43 +285,14 @@ export default function ProviderPage({
           <Form.Item label="认证方式" name="auth_method" rules={[{ required: true }]}>
             <Select options={authMethodOptions} />
           </Form.Item>
-          {usesIamRole ? (
-            <Form.Item
-              label="凭证来源"
-              extra="使用服务端运行环境的默认 AWS Credential Chain，例如 EC2 Instance Profile / ECS Task Role。不会保存任何密钥。"
-            >
-              <Input disabled value="IAM Role（无密钥入库）" />
-            </Form.Item>
-          ) : usesIamAccessKey ? (
-            <>
-              <Form.Item label="AWS Access Key ID" name="aws_access_key_id" rules={[{ required: true }]}>
-                <Input autoComplete="off" />
-              </Form.Item>
-              <Form.Item label="AWS Secret Access Key" name="aws_secret_access_key" rules={[{ required: true }]}>
-                <Input.Password autoComplete="new-password" />
-              </Form.Item>
-            </>
-          ) : usesAssumeRole ? (
-            <Form.Item label="Assume Role ARN" name="role_arn" extra="后端已预留 assume_role 类型，正式 STS 接入在第二阶段启用。">
-              <Input disabled placeholder="arn:aws:iam::123456789012:role/OneTokenBedrockRole" />
-            </Form.Item>
-          ) : (
-            <Form.Item label="API Key / Bearer Token / Service Account JSON" name="secret" rules={[{ required: true }]}>
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-          )}
-          <Row gutter={12}>
-            <Col xs={24} sm={12}>
-              <Form.Item label="RPM" name="rpm_limit">
-                <InputNumber className="full-width" min={0} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="TPM" name="tpm_limit">
-                <InputNumber className="full-width" min={0} />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            label={isVertexServiceAccount ? "Service Account JSON" : "API Key / Bearer Token"}
+            name="secret"
+            rules={[{ required: true }]}
+            extra={isVertexServiceAccount ? "请粘贴完整 GCP Service Account JSON。密钥加密保存，保存后不会回显。" : "密钥加密保存，保存后不会回显。"}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>
               加密保存
@@ -347,18 +301,13 @@ export default function ProviderPage({
         </Form>
       </Modal>
       <Modal title="同步模型目录" open={syncOpen} onCancel={() => setSyncOpen(false)} footer={null} destroyOnClose>
-        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ aws_region: "us-east-1" }}>
+        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ vertex_regions: "global,us-central1,us-east5" }}>
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleSyncProviderChange} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra={isSyncAwsBedrock ? "AWS IAM Role 可留空。" : isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON 或临时 Access Token。" : "选择该 Provider 对应密钥。"}>
+          <Form.Item label="使用的密钥" name="credential_id" extra={isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON。" : "选择该 Provider 对应密钥。"}>
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
-          {isSyncAwsBedrock && (
-            <Form.Item label="AWS 区域" name="aws_region" extra="默认使用 Provider 配置里的区域。">
-              <Select options={providerRegionOptions.filter((item) => item.value.startsWith("us-"))} />
-            </Form.Item>
-          )}
           {isSyncGoogleVertex && (
             <>
               <Alert
@@ -407,7 +356,7 @@ export default function ProviderPage({
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleTestProviderChange} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra={testProviderType === "aws_bedrock" ? "使用 IAM Role 时可留空。填写测试模型 ID 会产生一次真实 Bedrock 调用。" : "选择该 Provider 对应密钥；填写测试模型 ID 会产生一次真实调用。"}>
+          <Form.Item label="使用的密钥" name="credential_id" extra="选择该 Provider 对应密钥；填写测试模型 ID 会产生一次真实调用。">
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
           <Form.Item

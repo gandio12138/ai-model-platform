@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { parsePagination } from "../common/http.js";
 import { DatabaseService } from "../database/database.service.js";
+import { enabledModelProviderTypes } from "../ai/providers/provider-visibility.js";
 import { CustomerSessionService } from "./customer-session.service.js";
 import { PublicRequestUser } from "./public-auth.guard.js";
 
@@ -371,6 +372,7 @@ export class PublicService {
 
   async models(query: Record<string, unknown>) {
     const context = await this.resolveCheckoutContext(query);
+    const providerTypes = enabledModelProviderTypes();
     const { rows } = await this.db.query(
       `with model_rows as (
          select m.id,
@@ -443,6 +445,15 @@ export class PublicService {
           where m.status = 'active'
             and m.max_context_tokens is not null
             and coalesce(tmp.price_version, mp.price_version) is not null
+            and exists (
+              select 1
+                from model_routes mr
+                join providers p on p.id = mr.provider_id
+               where mr.model_id = m.id
+                 and mr.enabled = true
+                 and p.status = 'active'
+                 and p.provider_type = any($2::text[])
+            )
        ),
        ranked as (
          select *,
@@ -460,7 +471,7 @@ export class PublicService {
          from ranked
         where model_rank = 1
         order by model_family nulls last, display_name asc`,
-      [context.tenant.id]
+      [context.tenant.id, providerTypes]
     );
     return {
       tenant: context.tenant,

@@ -1125,7 +1125,7 @@ async function main() {
         legal: {},
         copy: {
           api_base_url_label: "API Base URL",
-          public_api_base_url: process.env.PUBLIC_TOKEN_API_BASE ?? "https://api.onetoken.one/v1",
+          public_api_base_url: process.env.PUBLIC_TOKEN_API_BASE ?? "/v1",
           wallet_balance_label: "可用余额",
           cash_balance_label: "现金余额",
           gift_balance_label: "赠送额度",

@@ -1,4 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { enabledModelProviderTypes } from "../ai/providers/provider-visibility.js";
 import { DatabaseService } from "../database/database.service.js";
 import { AdminService } from "./admin.service.js";
 
@@ -61,10 +62,11 @@ export class ProviderModelSyncScheduler implements OnModuleInit, OnModuleDestroy
                 and status = 'active'
               order by created_at desc
               limit 1
-           ) pc on true
+          ) pc on true
           where p.status = 'active'
-            and p.provider_type in ('aws_bedrock', 'google_vertex_ai', 'vertex_ai', 'google_vertex')
-          order by p.created_at asc`
+            and p.provider_type = any($1::text[])
+          order by p.created_at asc`,
+        [enabledModelProviderTypes()]
       );
       for (const provider of rows) {
         try {

@@ -169,9 +169,6 @@ function shouldShowAppDownload(
 function configuredApiBase(siteConfig: SiteConfigPayload | null) {
   const configured = siteConfig?.site_config.copy?.public_api_base_url;
   if (configured) return configured;
-  if (isProductionBuild && /localhost|127\.0\.0\.1/i.test(tokenApiBase)) {
-    return "https://api.onetoken.one/v1";
-  }
   return tokenApiBase;
 }
 
@@ -219,7 +216,7 @@ BASE_URL=${apiBase}
 API_KEY=你的 OneToken API Key
 MODEL=${model.model_code}
 
-curl ${apiBase}/chat/completions \\
+curl "$BASE_URL/chat/completions" \\
   -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -1525,7 +1522,6 @@ function Dashboard({
         <section className="panel api-info">
           <PanelTitle icon={<Server size={17} />} title="API 信息" />
           <ApiEndpoint label={siteConfig?.site_config.copy?.api_base_url_label ?? "API Base URL"} note="OpenAI 兼容接口" url={apiBase} copyText={copyText} />
-          <ApiEndpoint label="日本优化线路" note="适合长任务" url="https://api.onetoken.one" copyText={copyText} />
           <div className="mini-summary">
             <div>
               <strong>{models.length}</strong>
@@ -2250,6 +2246,7 @@ function DocsPage({ copyText, models, siteConfig }: { copyText: (text: string) =
   const [activeDoc, setActiveDoc] = useState("quickstart");
   const modelCode = models[0]?.model_code ?? "gpt-4o-mini";
   const apiBase = configuredApiBase(siteConfig);
+  const chatEndpoint = `${apiBase}/chat/completions`;
   const navItems = [
     ["quickstart", "快速开始"],
     ["auth", "认证方式"],
@@ -2260,7 +2257,10 @@ function DocsPage({ copyText, models, siteConfig }: { copyText: (text: string) =
   const examples = [
     {
       title: "cURL",
-      code: `curl ${apiBase}/chat/completions \\
+      code: `export ONE_TOKEN_BASE_URL="${apiBase}"
+export AI_TOKEN_API_KEY="你的 OneToken API Key"
+
+curl "$ONE_TOKEN_BASE_URL/chat/completions" \\
   -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -2284,10 +2284,11 @@ const result = await client.chat.completions.create({
     },
     {
       title: "Python",
-      code: `from openai import OpenAI
+      code: `import os
+from openai import OpenAI
 
 client = OpenAI(
-    api_key="AI_TOKEN_API_KEY",
+    api_key=os.environ["AI_TOKEN_API_KEY"],
     base_url="${apiBase}"
 )
 
@@ -2330,12 +2331,17 @@ resp = client.chat.completions.create(
                 <PanelTitle icon={<Server size={17} />} title="基础信息" />
                 <div className="docs-tip">
                   <strong>接入提示</strong>
-                  <span>服务端只需要替换 Base URL，并在请求头中携带当前客户 API Key。</span>
+                  <span>服务端只需要替换 Base URL，并在请求头中携带当前客户 API Key。API Key 消耗同一个客户钱包，余额不足时请求会在调用上游模型前被拒绝。</span>
                 </div>
                 <div className="docs-kv">
                   <span>Base URL</span>
                   <strong>{apiBase}</strong>
                   <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(apiBase)}>复制</Button>
+                </div>
+                <div className="docs-kv">
+                  <span>Chat Completions</span>
+                  <strong>{chatEndpoint}</strong>
+                  <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(chatEndpoint)}>复制</Button>
                 </div>
                 <div className="docs-kv">
                   <span>认证头</span>

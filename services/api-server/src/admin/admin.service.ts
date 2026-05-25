@@ -21,6 +21,7 @@ import { ConfigResolutionService } from "../config-resolution/config-resolution.
 import { PaymentService } from "../payment/payment.service.js";
 import { ProviderAdapterRegistry } from "../ai/providers/provider-adapter.registry.js";
 import { ProviderConfig } from "../ai/providers/types.js";
+import { enabledModelProviderTypes, isModelProviderTypeEnabled } from "../ai/providers/provider-visibility.js";
 import {
   BedrockResolvedPricing,
   canonicalAwsBedrockModelKey,
@@ -746,6 +747,28 @@ export class AdminService {
     if (optionConfig.fixedWhere) {
       filters.push(optionConfig.fixedWhere);
     }
+    if (resource === "providers") {
+      params.push(enabledModelProviderTypes());
+      filters.push(`${optionConfig.alias}.provider_type = any($${params.length}::text[])`);
+    }
+    if (resource === "models") {
+      params.push(enabledModelProviderTypes());
+      filters.push(
+        `exists (
+          select 1
+            from model_routes mr
+            join providers p on p.id = mr.provider_id
+           where mr.model_id = ${optionConfig.alias}.id
+             and mr.enabled = true
+             and p.status = 'active'
+             and p.provider_type = any($${params.length}::text[])
+        )`
+      );
+    }
+    if (resource === "model-routes") {
+      params.push(enabledModelProviderTypes());
+      filters.push(`p.provider_type = any($${params.length}::text[])`);
+    }
     if (optionConfig.tenantColumn) {
       if (query.tenant_id) {
         params.push(query.tenant_id);
@@ -1068,6 +1091,11 @@ export class AdminService {
       filters.push("status <> 'archived'");
     }
 
+    if (resource === "providers") {
+      params.push(enabledModelProviderTypes());
+      filters.push(`provider_type = any($${params.length}::text[])`);
+    }
+
     if (resource === "models") {
       filters.push("max_context_tokens is not null");
       filters.push(
@@ -1078,6 +1106,18 @@ export class AdminService {
              and mp.status = 'active'
              and mp.effective_from <= now()
              and (mp.effective_to is null or mp.effective_to > now())
+        )`
+      );
+      params.push(enabledModelProviderTypes());
+      filters.push(
+        `exists (
+          select 1
+            from model_routes mr
+            join providers p on p.id = mr.provider_id
+           where mr.model_id = models.id
+             and mr.enabled = true
+             and p.status = 'active'
+             and p.provider_type = any($${params.length}::text[])
         )`
       );
       if (!query.status) {
@@ -1506,6 +1546,18 @@ export class AdminService {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
     const filters: string[] = ["m.max_context_tokens is not null"];
+    params.push(enabledModelProviderTypes());
+    filters.push(
+      `exists (
+        select 1
+          from model_routes mr
+          join providers p on p.id = mr.provider_id
+         where mr.model_id = m.id
+           and mr.enabled = true
+           and p.status = 'active'
+           and p.provider_type = any($${params.length}::text[])
+      )`
+    );
     if (query.search) {
       params.push(`%${String(query.search)}%`);
       filters.push(
@@ -1579,6 +1631,18 @@ export class AdminService {
       "m.max_context_tokens is not null",
       "coalesce(tmp.price_version, mp.price_version) is not null"
     ];
+    params.push(enabledModelProviderTypes());
+    filters.push(
+      `exists (
+        select 1
+          from model_routes mr
+          join providers p on p.id = mr.provider_id
+         where mr.model_id = m.id
+           and mr.enabled = true
+           and p.status = 'active'
+           and p.provider_type = any($${params.length}::text[])
+      )`
+    );
     if (query.search) {
       params.push(`%${String(query.search)}%`);
       filters.push(
@@ -2459,6 +2523,9 @@ export class AdminService {
       ? await this.resolveProviderCredential(providerId, String(body.credential_id))
       : null;
     const providerType = this.normalizeProviderType(String(provider.provider_type));
+    if (!isModelProviderTypeEnabled(providerType)) {
+      throw new BadRequestException(`Provider type ${providerType} is disabled for model sync`);
+    }
     const providerConfig = this.buildAdminProviderConfig(provider, credential);
     const syncItems = await this.fetchProviderModelSyncItems(providerConfig, body);
     const synced: any[] = [];

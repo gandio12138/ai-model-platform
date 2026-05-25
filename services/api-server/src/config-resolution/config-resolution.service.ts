@@ -552,9 +552,13 @@ export class ConfigResolutionService {
   }
 
   private resolveCopyConfig(config: Record<string, any>) {
+    const publicApiBaseUrl =
+      stringOrNull(config.public_api_base_url ?? process.env.PUBLIC_TOKEN_API_BASE) ??
+      this.tokenApiBaseFromPublicOrigin(process.env.PUBLIC_API_BASE_URL) ??
+      "/v1";
     return {
       api_base_url_label: String(config.api_base_url_label ?? "API Base URL"),
-      public_api_base_url: stringOrNull(config.public_api_base_url ?? process.env.PUBLIC_TOKEN_API_BASE) ?? "https://api.onetoken.one/v1",
+      public_api_base_url: publicApiBaseUrl,
       wallet_balance_label: String(config.wallet_balance_label ?? "可用余额"),
       cash_balance_label: String(config.cash_balance_label ?? "现金余额"),
       gift_balance_label: String(config.gift_balance_label ?? "赠送额度"),
@@ -564,6 +568,12 @@ export class ConfigResolutionService {
       ai_disclaimer: String(config.ai_disclaimer ?? "AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。"),
       model_catalog_intro: String(config.model_catalog_intro ?? "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。")
     };
+  }
+
+  private tokenApiBaseFromPublicOrigin(value: unknown) {
+    const origin = stringOrNull(value);
+    if (!origin) return null;
+    return origin.replace(/\/+$/, "").replace(/\/api$/i, "") + "/v1";
   }
 
   private resolveAppDownloadConfig(config: Record<string, any>, releases: AppDownloadRelease[]) {
