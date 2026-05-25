@@ -1136,9 +1136,9 @@ function Shell({
                     ["model_company", "模型公司"],
                     ["provider_source", "接入来源"],
                     ["max_context_tokens", "上下文"],
-                    ["currency", "币种"],
-                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
-                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                    ["source_currency", "原始币种"],
+                    ["source_input_price_per_1k_yuan", "原始输入/1K tokens", "token_price"],
+                    ["source_output_price_per_1k_yuan", "原始输出/1K tokens", "token_price"],
                     ["supports_stream", "Stream"],
                     ["supports_tools", "Tools"],
                     ["status", "状态"]
@@ -1151,27 +1151,16 @@ function Shell({
                     ["model_family", "模型族"],
                     ["max_context_tokens", "上下文"],
                     ["default_max_output_tokens", "默认输出"],
-                    ["currency", "币种"],
-                    ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
-                    ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                    ["source_currency", "原始币种"],
+                    ["source_input_price_per_1k_yuan", "原始输入/1K tokens", "token_price"],
+                    ["source_output_price_per_1k_yuan", "原始输出/1K tokens", "token_price"],
                     ["supports_stream", "支持 Stream"],
                     ["supports_tools", "支持 Tools"],
                     ["supports_json_mode", "支持 JSON"],
                     ["status", "状态"]
                   ]}
-                  editableFields={[
-                    ["public_model_code", "公开模型名"],
-                    ["display_name", "展示名"],
-                    ["model_family", "模型族"],
-                    ["max_context_tokens", "上下文"],
-                    ["default_max_output_tokens", "默认输出"],
-                    ["supports_stream", "支持 Stream"],
-                    ["supports_tools", "支持 Tools"],
-                    ["supports_json_mode", "支持 JSON"],
-                    ["status", "状态"]
-                  ]}
-                  canCreate={can("model.write")}
-                  canEdit={can("model.write")}
+                  canCreate={false}
+                  canEdit={false}
                 />
               )}
             />
@@ -1182,17 +1171,17 @@ function Shell({
                 adminOnly,
                 <ResourcePage
                   title="模型价格"
-                  description="平台全局模型价格。AWS Bedrock 同步会按官方 Price List、汇率和加价倍率写入，页面统一按元/1K tokens 展示，最多保留 6 位小数。"
+                  description="平台对外生效的全局模型价格和上下文窗口。模型目录保留供应商原始同步数据；这里修改后会同步影响 Web、App 和 API 调用计费展示。"
                   endpoint="/api/admin/model-prices"
                   rowKey="id"
                   columns={[
                     ["model_display_name", "模型名称"],
                     ["public_model_code", "模型 ID"],
-                    ["price_version", "版本"],
                     ["currency", "币种"],
+                    ["source_max_context_tokens", "原始上下文"],
+                    ["effective_max_context_tokens", "对外上下文"],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
-                    ["reserve_multiplier", "预留倍率"],
                     ["status", "状态"]
                   ]}
                   detailFields={[
@@ -1200,6 +1189,9 @@ function Shell({
                     ["public_model_code", "模型 ID"],
                     ["price_version", "价格版本"],
                     ["currency", "币种"],
+                    ["source_max_context_tokens", "原始上下文"],
+                    ["max_context_tokens", "对外上下文"],
+                    ["default_max_output_tokens", "默认输出"],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["reserve_multiplier", "预留倍率"],
@@ -1216,13 +1208,17 @@ function Shell({
                       autofillFromOption: {
                         price_version: "price_version",
                         currency: "currency",
+                        max_context_tokens: "max_context_tokens",
+                        default_max_output_tokens: "default_max_output_tokens",
                         input_price_per_1k_yuan: "input_price_per_1k_yuan",
                         output_price_per_1k_yuan: "output_price_per_1k_yuan"
                       },
-                      help: "已有平台价格会自动带出，保存后可作为新的全局价格版本覆盖展示。"
+                      help: "已有平台价格和上下文会自动带出；不改上下文时默认使用供应商同步的原始上下文。"
                     },
                     { key: "price_version", label: "版本", required: true },
                     { key: "currency", label: "币种", required: true },
+                    { key: "max_context_tokens", label: "对外上下文窗口", kind: "number", help: "为空时使用模型目录里的原始上下文；填写后 Web、App 和 API 按这里展示与限制。" },
+                    { key: "default_max_output_tokens", label: "默认输出上限", kind: "number" },
                     { key: "input_price_per_1k_yuan", payloadKey: "input_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输入/1K tokens（元）", kind: "token_price", required: true },
                     { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
                     { key: "cache_read_price_per_1k_yuan", payloadKey: "cache_read_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "缓存读取/1K tokens（元）", kind: "token_price" },

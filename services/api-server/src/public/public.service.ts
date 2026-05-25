@@ -378,8 +378,8 @@ export class PublicService {
                 m.display_name,
                 m.model_family,
                 m.modality,
-                coalesce(tma.max_context_tokens, m.max_context_tokens) as max_context_tokens,
-                m.default_max_output_tokens,
+                coalesce(tma.max_context_tokens, mp.max_context_tokens, m.max_context_tokens) as max_context_tokens,
+                coalesce(mp.default_max_output_tokens, m.default_max_output_tokens) as default_max_output_tokens,
                 m.supports_stream,
                 m.supports_tools,
                 m.supports_json_mode,
@@ -429,7 +429,9 @@ export class PublicService {
                     input_price_per_1k,
                     output_price_per_1k,
                     input_price_per_1m,
-                    output_price_per_1m
+                    output_price_per_1m,
+                    max_context_tokens,
+                    default_max_output_tokens
                from model_prices
               where model_id = m.id
                 and status = 'active'

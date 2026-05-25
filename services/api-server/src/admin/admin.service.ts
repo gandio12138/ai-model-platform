@@ -410,6 +410,8 @@ const resourceMap: Record<string, ResourceConfig> = {
       "model_id",
       "price_version",
       "currency",
+      "max_context_tokens",
+      "default_max_output_tokens",
       "input_price_per_1k",
       "output_price_per_1k",
       "cache_read_price_per_1k",
@@ -1133,13 +1135,28 @@ export class AdminService {
     const dataSql = resource === "models"
       ? `select models.*,
                 mp.price_version,
-                mp.currency,
-                round(coalesce(mp.input_price_per_1m, mp.input_price_per_1k * 1000)::numeric / 100000, 6) as input_price_per_1k_yuan,
-                round(coalesce(mp.output_price_per_1m, mp.output_price_per_1k * 1000)::numeric / 100000, 6) as output_price_per_1k_yuan
+                coalesce(models.metadata #>> '{source_pricing,currency}', mp.currency) as source_currency,
+                round(
+                  coalesce(
+                    nullif(models.metadata #>> '{source_pricing,input_price_per_1m_cents}', '')::numeric / 100000,
+                    nullif(mp.metadata->>'input_usd_per_1k', '')::numeric * nullif(mp.metadata->>'usd_to_target_rate', '')::numeric,
+                    coalesce(mp.input_price_per_1m, mp.input_price_per_1k * 1000)::numeric / 100000
+                  ),
+                  6
+                ) as source_input_price_per_1k_yuan,
+                round(
+                  coalesce(
+                    nullif(models.metadata #>> '{source_pricing,output_price_per_1m_cents}', '')::numeric / 100000,
+                    nullif(mp.metadata->>'output_usd_per_1k', '')::numeric * nullif(mp.metadata->>'usd_to_target_rate', '')::numeric,
+                    coalesce(mp.output_price_per_1m, mp.output_price_per_1k * 1000)::numeric / 100000
+                  ),
+                  6
+                ) as source_output_price_per_1k_yuan
            from models
            left join lateral (
              select price_version,
                     currency,
+                    metadata,
                     input_price_per_1m,
                     output_price_per_1m,
                     input_price_per_1k,
@@ -1519,7 +1536,10 @@ export class AdminService {
                 m.public_model_code,
                 m.display_name as model_display_name,
                 m.model_family,
-                m.max_context_tokens,
+                m.max_context_tokens as source_max_context_tokens,
+                mp.max_context_tokens,
+                coalesce(mp.max_context_tokens, m.max_context_tokens) as effective_max_context_tokens,
+                mp.default_max_output_tokens,
                 round(coalesce(mp.input_price_per_1m, mp.input_price_per_1k * 1000)::numeric / 100000, 6) as input_price_per_1k_yuan,
                 round(coalesce(mp.output_price_per_1m, mp.output_price_per_1k * 1000)::numeric / 100000, 6) as output_price_per_1k_yuan,
                 round(coalesce(mp.cache_read_price_per_1m, mp.cache_read_price_per_1k * 1000, 0)::numeric / 100000, 6) as cache_read_price_per_1k_yuan,
@@ -1779,6 +1799,9 @@ export class AdminService {
     if (resource === "tenantModelAuthorizations") {
       await this.applyTenantModelAuthorizationDefaults(payload);
     }
+    if (resource === "modelPrices") {
+      await this.applyModelPriceDefaults(payload);
+    }
     if (resource === "tenants") {
       this.prepareTenantPayload(payload, true);
     }
@@ -1801,6 +1824,10 @@ export class AdminService {
        returning *`,
       values
     );
+    if (resource === "modelPrices") {
+      await this.markModelPriceAdminOverride(rows[0].id);
+      rows[0] = await this.findById(config, rows[0].id);
+    }
     await this.audit.record({
       actor,
       action: `${resource}.create`,
@@ -1843,6 +1870,9 @@ export class AdminService {
     if (resource === "tenantModelAuthorizations") {
       await this.applyTenantModelAuthorizationDefaults(payload);
     }
+    if (resource === "modelPrices") {
+      await this.applyModelPriceDefaults(payload, before);
+    }
     if (resource === "tenants") {
       if (payload.tenant_type === "platform_default" && before.tenant_type !== "platform_default") {
         throw new BadRequestException("Only the initialized default tenant can use platform_default type");
@@ -1869,6 +1899,10 @@ export class AdminService {
         returning *`,
       [...values, id]
     );
+    if (resource === "modelPrices") {
+      await this.markModelPriceAdminOverride(id);
+      rows[0] = await this.findById(config, id);
+    }
     await this.audit.record({
       actor,
       action: `${resource}.update`,
@@ -2329,7 +2363,12 @@ export class AdminService {
       }
       const model = await this.upsertSyncedModel(item);
       if (item.pricing) {
-        await this.upsertSyncedModelPrice(model.id, item.pricing);
+        await this.upsertSyncedModelPrice(
+          model.id,
+          item.pricing,
+          item.maxContextTokens ?? null,
+          item.defaultMaxOutputTokens ?? null
+        );
         pricingSynced += 1;
       } else {
         pricingMissing += 1;
@@ -3485,7 +3524,7 @@ export class AdminService {
         where old_wallet.tenant_id = $1
        on conflict (tenant_id, user_id, currency) do update
           set tenant_customer_id = coalesce(wallets.tenant_customer_id, excluded.tenant_customer_id),
-              status = 'active',
+              status = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.status else 'active' end,
               updated_at = now()`,
       [fromTenantId, toTenantId]
     );
@@ -3666,7 +3705,10 @@ export class AdminService {
       ...summary.raw,
       provider_model_code: summary.providerModelCode,
       source_model_id: summary.sourceModelId,
-      invocation_type: summary.invocationType
+      invocation_type: summary.invocationType,
+      source_max_context_tokens: summary.maxContextTokens ?? null,
+      source_default_max_output_tokens: summary.defaultMaxOutputTokens ?? null,
+      source_pricing: summary.pricing ? this.toSourcePricingMetadata(summary.pricing) : null
     };
     const modality = Array.isArray(summary.outputModalities) && summary.outputModalities.length
       ? summary.outputModalities.map((item) => String(item).toLowerCase())
@@ -3800,7 +3842,44 @@ export class AdminService {
     return modelIds.length;
   }
 
-  private async upsertSyncedModelPrice(modelId: string, pricing: ResolvedProviderPricing) {
+  private toSourcePricingMetadata(pricing: ResolvedProviderPricing) {
+    const sourceInputPer1m = this.sourceUsdPer1kToTargetCentsPer1m(pricing.inputUsdPer1k, pricing);
+    const sourceOutputPer1m = this.sourceUsdPer1kToTargetCentsPer1m(pricing.outputUsdPer1k, pricing);
+    const sourceCacheReadPer1m = this.sourceUsdPer1kToTargetCentsPer1m(pricing.cacheReadUsdPer1k, pricing);
+    const sourceCacheWritePer1m = this.sourceUsdPer1kToTargetCentsPer1m(pricing.cacheWriteUsdPer1k, pricing);
+    return {
+      currency: pricing.currency,
+      source_currency: pricing.sourceCurrency,
+      source_region: pricing.sourceRegion,
+      source_publication_date: pricing.publicationDate,
+      source_provider_name: pricing.sourceProviderName,
+      source_model_name: pricing.sourceModelName,
+      input_price_per_1m_cents: sourceInputPer1m,
+      output_price_per_1m_cents: sourceOutputPer1m,
+      cache_read_price_per_1m_cents: sourceCacheReadPer1m,
+      cache_write_price_per_1m_cents: sourceCacheWritePer1m,
+      input_usd_per_1k: pricing.inputUsdPer1k,
+      output_usd_per_1k: pricing.outputUsdPer1k,
+      cache_read_usd_per_1k: pricing.cacheReadUsdPer1k,
+      cache_write_usd_per_1k: pricing.cacheWriteUsdPer1k,
+      usd_to_target_rate: pricing.usdToTargetRate,
+      fx_rate_source: pricing.fxRateSource,
+      fx_rate_fetched_at: pricing.fxRateFetchedAt
+    };
+  }
+
+  private sourceUsdPer1kToTargetCentsPer1m(value: unknown, pricing: ResolvedProviderPricing) {
+    const number = Number(value ?? 0);
+    if (!Number.isFinite(number) || number <= 0) return 0;
+    return Math.ceil(number * 1000 * pricing.usdToTargetRate * 100);
+  }
+
+  private async upsertSyncedModelPrice(
+    modelId: string,
+    pricing: ResolvedProviderPricing,
+    maxContextTokens: number | null,
+    defaultMaxOutputTokens: number | null
+  ) {
     const inputPer1k = this.legacyPer1kCents(pricing.inputPricePer1mCents);
     const outputPer1k = this.legacyPer1kCents(pricing.outputPricePer1mCents);
     const cacheReadPer1k = this.legacyPer1kCents(pricing.cacheReadPricePer1mCents);
@@ -3810,25 +3889,27 @@ export class AdminService {
         (model_id, price_version, currency, input_price_per_1k, output_price_per_1k,
          cache_read_price_per_1k, cache_write_price_per_1k, input_price_per_1m,
          output_price_per_1m, cache_read_price_per_1m, cache_write_price_per_1m,
-         reserve_multiplier, effective_from, status, metadata)
+         reserve_multiplier, max_context_tokens, default_max_output_tokens, effective_from, status, metadata)
        values
         ($1, $2, $3, $4, $5,
          $6, $7, $8,
          $9, $10, $11,
-         $12, now(), 'active', $13::jsonb)
+         $12, $13, $14, now(), 'active', $15::jsonb)
        on conflict (model_id, price_version) do update
-          set currency = excluded.currency,
-              input_price_per_1k = excluded.input_price_per_1k,
-              output_price_per_1k = excluded.output_price_per_1k,
-              cache_read_price_per_1k = excluded.cache_read_price_per_1k,
-              cache_write_price_per_1k = excluded.cache_write_price_per_1k,
-              input_price_per_1m = excluded.input_price_per_1m,
-              output_price_per_1m = excluded.output_price_per_1m,
-              cache_read_price_per_1m = excluded.cache_read_price_per_1m,
-              cache_write_price_per_1m = excluded.cache_write_price_per_1m,
-              reserve_multiplier = excluded.reserve_multiplier,
+          set currency = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.currency else excluded.currency end,
+              input_price_per_1k = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.input_price_per_1k else excluded.input_price_per_1k end,
+              output_price_per_1k = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.output_price_per_1k else excluded.output_price_per_1k end,
+              cache_read_price_per_1k = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.cache_read_price_per_1k else excluded.cache_read_price_per_1k end,
+              cache_write_price_per_1k = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.cache_write_price_per_1k else excluded.cache_write_price_per_1k end,
+              input_price_per_1m = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.input_price_per_1m else excluded.input_price_per_1m end,
+              output_price_per_1m = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.output_price_per_1m else excluded.output_price_per_1m end,
+              cache_read_price_per_1m = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.cache_read_price_per_1m else excluded.cache_read_price_per_1m end,
+              cache_write_price_per_1m = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.cache_write_price_per_1m else excluded.cache_write_price_per_1m end,
+              max_context_tokens = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.max_context_tokens else excluded.max_context_tokens end,
+              default_max_output_tokens = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.default_max_output_tokens else excluded.default_max_output_tokens end,
+              reserve_multiplier = case when model_prices.metadata->>'admin_override' = 'true' then model_prices.reserve_multiplier else excluded.reserve_multiplier end,
               status = 'active',
-              metadata = excluded.metadata,
+              metadata = coalesce(model_prices.metadata, '{}'::jsonb) || excluded.metadata,
               updated_at = now()`,
       [
         modelId,
@@ -3843,6 +3924,8 @@ export class AdminService {
         pricing.cacheReadPricePer1mCents,
         pricing.cacheWritePricePer1mCents,
         pricing.markupMultiplier,
+        maxContextTokens,
+        defaultMaxOutputTokens,
         JSON.stringify({
           source: pricing.priceVersion.startsWith("google-vertex") ? "google_vertex_price_catalog" : "aws_bedrock_price_list",
           source_region: pricing.sourceRegion,
@@ -4132,6 +4215,68 @@ export class AdminService {
     }
   }
 
+  private async applyModelPriceDefaults(payload: Record<string, unknown>, before?: Record<string, unknown>) {
+    const modelId = payload.model_id ?? before?.model_id;
+    if (!modelId) return;
+    const hasContextInPayload =
+      payload.max_context_tokens !== undefined &&
+      payload.max_context_tokens !== null &&
+      payload.max_context_tokens !== "";
+    const modelChanged =
+      payload.model_id !== undefined &&
+      before?.model_id !== undefined &&
+      String(payload.model_id) !== String(before.model_id);
+    const keepExistingContext =
+      !hasContextInPayload &&
+      !modelChanged &&
+      before?.max_context_tokens !== undefined &&
+      before?.max_context_tokens !== null &&
+      before?.max_context_tokens !== "";
+    const keepExistingDefaultOutput =
+      payload.default_max_output_tokens === undefined &&
+      !modelChanged &&
+      before?.default_max_output_tokens !== undefined &&
+      before?.default_max_output_tokens !== null &&
+      before?.default_max_output_tokens !== "";
+    if (hasContextInPayload && payload.default_max_output_tokens !== undefined) {
+      return;
+    }
+    const { rows } = await this.db.query<{
+      max_context_tokens: string | null;
+      default_max_output_tokens: string | null;
+    }>(
+      `select max_context_tokens::text,
+              default_max_output_tokens::text
+         from models
+        where id = $1
+        limit 1`,
+      [modelId]
+    );
+    if (!hasContextInPayload && !keepExistingContext && rows[0]?.max_context_tokens) {
+      payload.max_context_tokens = Number(rows[0].max_context_tokens);
+    }
+    if (
+      payload.default_max_output_tokens === undefined &&
+      !keepExistingDefaultOutput &&
+      rows[0]?.default_max_output_tokens
+    ) {
+      payload.default_max_output_tokens = Number(rows[0].default_max_output_tokens);
+    }
+  }
+
+  private async markModelPriceAdminOverride(id: string) {
+    await this.db.query(
+      `update model_prices
+          set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                'admin_override', true,
+                'admin_override_at', now()
+              ),
+              updated_at = now()
+        where id = $1`,
+      [id]
+    );
+  }
+
   private preparePreciseModelPricePayload(payload: Record<string, unknown>) {
     if (payload.input_price_per_1m !== undefined && payload.input_price_per_1k === undefined) {
       payload.input_price_per_1k = this.legacyPer1kCents(payload.input_price_per_1m);
@@ -4403,7 +4548,9 @@ export class AdminService {
                    input_price_per_1m,
                    output_price_per_1m,
                    cache_read_price_per_1m,
-                   cache_write_price_per_1m
+                   cache_write_price_per_1m,
+                   max_context_tokens,
+                   default_max_output_tokens
               from model_prices
              where model_id = m.id
                and status = 'active'
@@ -4414,11 +4561,11 @@ export class AdminService {
           ) mp on true`,
         valueSql: "m.id",
         labelSql: "concat(m.display_name, ' / ', m.public_model_code)",
-        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · 上下文 ', coalesce(m.max_context_tokens::text, '-'), case when mp.price_version is null then ' · 未配置价格' else concat(' · ', mp.price_version) end)",
+        descriptionSql: "concat(coalesce(m.model_family, '-'), ' · 对外上下文 ', coalesce(coalesce(mp.max_context_tokens, m.max_context_tokens)::text, '-'), case when mp.price_version is null then ' · 未配置价格' else concat(' · ', mp.price_version) end)",
         disabledSql: "m.status <> 'active'",
         fixedWhere: "m.status = 'active' and m.max_context_tokens is not null and mp.price_version is not null",
         metaSql:
-          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'max_context_tokens', m.max_context_tokens, 'default_max_output_tokens', m.default_max_output_tokens, 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1k_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100000, 6), 'output_price_per_1k_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100000, 6))",
+          "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'source_max_context_tokens', m.max_context_tokens, 'max_context_tokens', coalesce(mp.max_context_tokens, m.max_context_tokens), 'default_max_output_tokens', coalesce(mp.default_max_output_tokens, m.default_max_output_tokens), 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1k_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100000, 6), 'output_price_per_1k_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100000, 6))",
         search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],
         orderBy: "m.created_at desc"
       },

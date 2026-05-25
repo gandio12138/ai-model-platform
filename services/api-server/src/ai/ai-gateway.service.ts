@@ -169,8 +169,8 @@ export class AiGatewayService {
                 m.public_model_code,
                 m.display_name,
                 m.model_family,
-                coalesce(tma.max_context_tokens, m.max_context_tokens) as max_context_tokens,
-                m.default_max_output_tokens,
+                coalesce(tma.max_context_tokens, mp.max_context_tokens, m.max_context_tokens) as max_context_tokens,
+                coalesce(mp.default_max_output_tokens, m.default_max_output_tokens) as default_max_output_tokens,
                 m.supports_stream,
                 m.supports_tools,
                 m.supports_json_mode,
@@ -801,7 +801,7 @@ export class AiGatewayService {
       `select m.id as model_id,
               m.public_model_code,
               m.display_name,
-              m.default_max_output_tokens,
+              coalesce(mp.default_max_output_tokens, m.default_max_output_tokens) as default_max_output_tokens,
               coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
               coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
               coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
@@ -832,7 +832,8 @@ export class AiGatewayService {
                   input_price_per_1m,
                   output_price_per_1m,
                   price_version,
-                  currency
+                  currency,
+                  default_max_output_tokens
              from model_prices
             where model_id = m.id
               and status = 'active'
