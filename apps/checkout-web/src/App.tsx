@@ -212,6 +212,24 @@ function simplifiedModelCategory(model: ModelInfo) {
   return "其他模型";
 }
 
+function modelIntegrationExample(model: ModelInfo, siteConfig: SiteConfigPayload | null) {
+  const apiBase = configuredApiBase(siteConfig);
+  return `# OneToken OpenAI-compatible configuration
+BASE_URL=${apiBase}
+API_KEY=你的 OneToken API Key
+MODEL=${model.model_code}
+
+curl ${apiBase}/chat/completions \\
+  -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${model.model_code}",
+    "messages": [
+      { "role": "user", "content": "你好，介绍一下你的能力" }
+    ]
+  }'`;
+}
+
 function anonymizedSource(email?: string | null) {
   if (!email) return "来源客户";
   const [name, domain] = email.split("@");
@@ -1654,6 +1672,7 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
   const [category, setCategory] = useState("全部模型");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [exampleModel, setExampleModel] = useState<ModelInfo | null>(null);
   const companies = useMemo(() => {
     const visibleCompanies = ["Claude", "OpenAI", "Gemini"] as const;
     return [
@@ -1686,100 +1705,128 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
   const toggleFavorite = (modelCode: string) => {
     setFavorites((items) => (items.includes(modelCode) ? items.filter((item) => item !== modelCode) : [...items, modelCode]));
   };
-  const copyExample = (modelCode: string) => {
-    copyText(`curl ${configuredApiBase(siteConfig)}/chat/completions \\
-  -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model":"${modelCode}","messages":[{"role":"user","content":"你好"}]}'`);
-  };
+  const exampleText = exampleModel ? modelIntegrationExample(exampleModel, siteConfig) : "";
   return (
-    <div className="market-layout">
-      <aside className="filter-panel">
-        <div className="filter-title">
-          <strong>筛选</strong>
-          <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setKeyword(""); }}>重置</Button>
-        </div>
-        <FilterGroup title="模型公司" items={companies} active={company} setActive={setCompany} />
-        <FilterGroup title="模型类型" items={categories} active={category} setActive={setCategory} />
-      </aside>
-      <section className="market-main">
-        <div className="market-hero">
-          <div>
-            <span className="market-kicker">Model Catalog</span>
-            <h2>模型目录</h2>
-            <p>{siteConfig?.site_config.copy?.model_catalog_intro ?? "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。"}</p>
-            <div className="market-hero-stats">
-              <span>筛选结果 {filtered.length} 个</span>
-              <span>全部 {models.length} 个模型</span>
-              <span>{companies.length - 1} 个模型公司</span>
-              <span>按官方价格同步</span>
-            </div>
+    <>
+      <div className="market-layout">
+        <aside className="filter-panel">
+          <div className="filter-title">
+            <strong>筛选</strong>
+            <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setKeyword(""); }}>重置</Button>
           </div>
-          <span className="hero-orbit">AI</span>
-        </div>
-        <div className="market-toolbar">
-          <Input allowClear prefix={<Search size={16} />} placeholder="模糊搜索模型名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          <Button icon={<Copy size={16} />} onClick={() => copyText(filtered.map((model) => model.model_code).join("\n"))}>
-            复制可调用模型名
+          <FilterGroup title="模型公司" items={companies} active={company} setActive={setCompany} />
+          <FilterGroup title="模型类型" items={categories} active={category} setActive={setCategory} />
+        </aside>
+        <section className="market-main">
+          <div className="market-hero">
+            <div>
+              <span className="market-kicker">Model Catalog</span>
+              <h2>模型目录</h2>
+              <p>{siteConfig?.site_config.copy?.model_catalog_intro ?? "按模型类型和模型公司浏览后台同步的真实供应商模型，价格、权限和上下文以后台配置为准。"}</p>
+              <div className="market-hero-stats">
+                <span>筛选结果 {filtered.length} 个</span>
+                <span>全部 {models.length} 个模型</span>
+                <span>{companies.length - 1} 个模型公司</span>
+                <span>按官方价格同步</span>
+              </div>
+            </div>
+            <span className="hero-orbit">AI</span>
+          </div>
+          <div className="market-toolbar">
+            <Input allowClear prefix={<Search size={16} />} placeholder="模糊搜索模型名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <Button icon={<Copy size={16} />} onClick={() => copyText(filtered.map((model) => model.model_code).join("\n"))}>
+              复制可调用模型名
+            </Button>
+          </div>
+          <div className="model-card-grid">
+            {filtered.length ? (
+              filtered.map((model) => (
+                <article className="model-card" key={model.id}>
+                  <div className="model-icon">{model.display_name.slice(0, 1).toUpperCase()}</div>
+                  <div>
+                    <div className="model-card-head">
+                      <div>
+                        <h3>{modelPublicName(model)}</h3>
+                        <code>{model.model_code}</code>
+                        <span className="model-company-label">{modelCompany(model)}</span>
+                      </div>
+                      <div>
+                        <Button aria-label="复制可调用模型名" size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)} />
+                      </div>
+                    </div>
+                    <dl className="model-price-grid">
+                      <div>
+                        <dt>输入</dt>
+                        <dd>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)}</dd>
+                      </div>
+                      <div>
+                        <dt>补全</dt>
+                        <dd>{modelPriceText(model.price?.output_per_1m, model.price?.output_per_1k)}</dd>
+                      </div>
+                      <div>
+                        <dt>上下文</dt>
+                        <dd>{numberText(model.max_context_tokens)}</dd>
+                      </div>
+                    </dl>
+                    <div className="tag-row">
+                      <Tag color="purple">按量计费</Tag>
+                      <Tag color="blue">{simplifiedModelCategory(model)}</Tag>
+                      {model.capabilities.stream ? <Tag>流式</Tag> : null}
+                      {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
+                      <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "待配置价格"}</Tag>
+                    </div>
+                    <div className="model-card-actions">
+                      <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)}>
+                        复制可调用模型名
+                      </Button>
+                      <Button size="small" icon={<Code2 size={14} />} onClick={() => setExampleModel(model)}>
+                        查看接入示例
+                      </Button>
+                      <Button size="small" type={favorites.includes(model.model_code) ? "primary" : "default"} onClick={() => toggleFavorite(model.model_code)}>
+                        {favorites.includes(model.model_code) ? "已常用" : "加入常用"}
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <Empty description="暂无模型" />
+            )}
+          </div>
+        </section>
+      </div>
+      <Modal
+        title={exampleModel ? `${modelPublicName(exampleModel)} 接入示例` : "接入示例"}
+        open={Boolean(exampleModel)}
+        onCancel={() => setExampleModel(null)}
+        footer={[
+          <Button key="model" icon={<Copy size={14} />} onClick={() => exampleModel && copyText(exampleModel.model_code)}>
+            复制模型名
+          </Button>,
+          <Button key="example" type="primary" icon={<Copy size={14} />} onClick={() => copyText(exampleText)}>
+            复制完整示例
           </Button>
-        </div>
-        <div className="model-card-grid">
-          {filtered.length ? (
-            filtered.map((model) => (
-              <article className="model-card" key={model.id}>
-                <div className="model-icon">{model.display_name.slice(0, 1).toUpperCase()}</div>
-                <div>
-                  <div className="model-card-head">
-                    <div>
-                      <h3>{modelPublicName(model)}</h3>
-                      <code>{model.model_code}</code>
-                      <span className="model-company-label">{modelCompany(model)}</span>
-                    </div>
-                    <div>
-                      <Button aria-label="复制可调用模型名" size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)} />
-                    </div>
-                  </div>
-                  <dl className="model-price-grid">
-                    <div>
-                      <dt>输入</dt>
-                      <dd>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)}</dd>
-                    </div>
-                    <div>
-                      <dt>补全</dt>
-                      <dd>{modelPriceText(model.price?.output_per_1m, model.price?.output_per_1k)}</dd>
-                    </div>
-                    <div>
-                      <dt>上下文</dt>
-                      <dd>{numberText(model.max_context_tokens)}</dd>
-                    </div>
-                  </dl>
-                  <div className="tag-row">
-                    <Tag color="purple">按量计费</Tag>
-                    <Tag color="blue">{simplifiedModelCategory(model)}</Tag>
-                    {model.capabilities.stream ? <Tag>流式</Tag> : null}
-                    {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
-                    <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "待配置价格"}</Tag>
-                  </div>
-                  <div className="model-card-actions">
-                    <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)}>
-                      复制可调用模型名
-                    </Button>
-                    <Button size="small" icon={<Code2 size={14} />} onClick={() => copyExample(model.model_code)}>
-                      查看接入示例
-                    </Button>
-                    <Button size="small" type={favorites.includes(model.model_code) ? "primary" : "default"} onClick={() => toggleFavorite(model.model_code)}>
-                      {favorites.includes(model.model_code) ? "已常用" : "加入常用"}
-                    </Button>
-                  </div>
-                </div>
-              </article>
-            ))
-          ) : (
-            <Empty description="暂无模型" />
-          )}
-        </div>
-      </section>
-    </div>
+        ]}
+        width={760}
+      >
+        {exampleModel ? (
+          <div className="integration-example-modal">
+            <div className="integration-example-meta">
+              <span>Base URL：<code>{configuredApiBase(siteConfig)}</code></span>
+              <span>Model：<code>{exampleModel.model_code}</code></span>
+              <span>类型：{simplifiedModelCategory(exampleModel)}</span>
+            </div>
+            <Alert
+              type="info"
+              showIcon
+              message="使用客户 API Key 调用"
+              description="API Key 在控制台创建后只展示一次。不同模型按后台配置的价格和实际 tokens 计费。"
+            />
+            <pre>{exampleText}</pre>
+          </div>
+        ) : null}
+      </Modal>
+    </>
   );
 }
 

@@ -21,7 +21,7 @@ class DesignSystemPreviewPage extends StatelessWidget {
       maxContextTokens: 128000,
       supportsStream: true,
       supportsTools: true,
-      category: '文本对话模型',
+      category: '文本模型',
       toolsStatus: '支持',
     );
     const product = PaymentProduct(

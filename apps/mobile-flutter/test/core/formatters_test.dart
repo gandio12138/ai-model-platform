@@ -12,8 +12,39 @@ void main() {
   });
 
   test('formats model token price per 1k without trailing zeros', () {
-    expect(modelTokenPricePer1k(centsPer1m: 4818, centsPer1k: 5), '¥0.04818/1K');
+    expect(
+      modelTokenPricePer1k(centsPer1m: 4818, centsPer1k: 5),
+      '¥0.04818/1K',
+    );
     expect(modelTokenPricePer1k(centsPer1m: null, centsPer1k: 2), '¥0.02/1K');
+  });
+
+  test('parses public model company and simplified categories', () {
+    final geminiImage = ModelInfo.fromJson({
+      'model_code': 'gemini-2.5-flash-image',
+      'display_name': 'Gemini 2.5 Flash Image',
+      'model_company': 'Google',
+      'model_category': 'image',
+      'model_category_label': '图像模型',
+      'price': {'input_per_1k': 1, 'output_per_1k': 2},
+      'max_context_tokens': 1048576,
+      'capabilities': {'stream': false, 'tools': false},
+    });
+    final claude = ModelInfo.fromJson({
+      'model_code': 'claude-opus-4-7',
+      'display_name': 'Claude Opus 4.7',
+      'model_company': 'Anthropic',
+      'model_category': 'text_chat',
+      'model_category_label': '文本对话模型',
+      'price': {'input_per_1k': 5, 'output_per_1k': 25},
+      'max_context_tokens': 200000,
+      'capabilities': {'stream': true, 'tools': false},
+    });
+
+    expect(geminiImage.providerName, 'Gemini');
+    expect(geminiImage.category, '图片模型');
+    expect(claude.providerName, 'Claude');
+    expect(claude.category, '文本模型');
   });
 
   test('parses app config payment switches', () {

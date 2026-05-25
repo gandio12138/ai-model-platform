@@ -1939,13 +1939,12 @@ export class PublicService {
     if (/\b(rerank|reranker|rank)\b/.test(searchable)) {
       return "rerank";
     }
-    if (this.hasModality(inputModalities, "VIDEO") || this.hasModality(outputModalities, "VIDEO") || /\b(video|reel)\b/.test(searchable)) {
+    if (this.hasModality(outputModalities, "VIDEO") || /\b(veo|video-generation|video generation|reel)\b/.test(searchable)) {
       return "video";
     }
     if (
-      this.hasModality(inputModalities, "IMAGE") ||
       this.hasModality(outputModalities, "IMAGE") ||
-      /\b(image|canvas|stable|diffusion|upscale|titan-image|nova-canvas)\b/.test(searchable)
+      /\b(imagen|image-generation|image generation|canvas|stable|diffusion|upscale|titan-image|nova-canvas|virtual-try-on)\b/.test(searchable)
     ) {
       return "image";
     }
@@ -1986,8 +1985,8 @@ export class PublicService {
     const raw = `${family ?? ""} ${modelCode ?? ""} ${displayName ?? ""}`.toLowerCase();
     if (raw.includes("deepseek")) return "DeepSeek";
     if (raw.includes("openai") || raw.includes("gpt-")) return "OpenAI";
-    if (raw.includes("anthropic") || raw.includes("claude")) return "Anthropic";
-    if (raw.includes("gemini") || raw.includes("google")) return "Google";
+    if (raw.includes("anthropic") || raw.includes("claude")) return "Claude";
+    if (raw.includes("gemini") || raw.includes("google")) return "Gemini";
     if (raw.includes("qwen") || raw.includes("alibaba") || raw.includes("阿里")) return "阿里巴巴";
     if (raw.includes("midjourney")) return "Midjourney";
     if (raw.includes("grok") || raw.includes("xai")) return "xAI";

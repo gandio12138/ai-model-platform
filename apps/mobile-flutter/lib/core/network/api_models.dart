@@ -247,7 +247,7 @@ class ModelInfo {
     required this.maxContextTokens,
     required this.supportsStream,
     required this.supportsTools,
-    this.category = '文本对话模型',
+    this.category = '文本模型',
     this.toolsStatus = '待验证',
   });
 
@@ -276,11 +276,13 @@ class ModelInfo {
         _string(json['display_name'] ?? json['name']),
         _string(json['model_company'] ?? json['family'] ?? ''),
       ),
-      providerName: _string(
-        json['model_company'] ??
-            json['family'] ??
-            json['provider_display_name'],
-        '其他',
+      providerName: _publicProviderName(
+        _string(
+          json['model_company'] ??
+              json['family'] ??
+              json['provider_display_name'],
+          '其他',
+        ),
       ),
       inputPer1k: _int(price['input_per_1k']),
       outputPer1k: _int(price['output_per_1k']),
@@ -293,7 +295,10 @@ class ModelInfo {
       maxContextTokens: _int(json['max_context_tokens']),
       supportsStream: _bool(capabilities['stream']),
       supportsTools: _bool(capabilities['tools']),
-      category: _string(json['model_category_label'], '文本对话模型'),
+      category: _publicModelCategory(
+        _string(json['model_category']),
+        _string(json['model_category_label'], '文本模型'),
+      ),
       toolsStatus: _string(
         json['tools_status_label'],
         _bool(capabilities['tools']) ? '支持' : '待验证',
@@ -305,7 +310,10 @@ class ModelInfo {
 String _publicModelName(String raw, String company) {
   var value = raw.trim();
   final companyText = company.trim();
+  final normalizedCompany = companyText.toLowerCase();
   if (companyText.isNotEmpty &&
+      normalizedCompany != 'claude' &&
+      normalizedCompany != 'gemini' &&
       value.toLowerCase().startsWith('${companyText.toLowerCase()} ')) {
     value = value.substring(companyText.length).trim();
   }
@@ -326,6 +334,32 @@ String _publicModelName(String raw, String company) {
         ),
         (match) => '${match.group(1)}.${match.group(2)}',
       );
+}
+
+String _publicProviderName(String raw) {
+  final value = raw.trim().toLowerCase();
+  if (value.contains('anthropic') || value.contains('claude')) return 'Claude';
+  if (value.contains('google') || value.contains('gemini')) return 'Gemini';
+  if (value.contains('openai') || value.contains('gpt')) return 'OpenAI';
+  return raw.trim().isEmpty ? '其他' : raw.trim();
+}
+
+String _publicModelCategory(String key, String label) {
+  final normalizedKey = key.trim().toLowerCase();
+  if (normalizedKey == 'image' ||
+      label.contains('图像') ||
+      label.contains('图片')) {
+    return '图片模型';
+  }
+  if (normalizedKey == 'video' || label.contains('视频')) {
+    return '视频模型';
+  }
+  if (normalizedKey == 'text_chat' ||
+      label.contains('文本') ||
+      label.contains('对话')) {
+    return '文本模型';
+  }
+  return label.trim().isEmpty ? '文本模型' : label.trim();
 }
 
 class PaymentProduct {

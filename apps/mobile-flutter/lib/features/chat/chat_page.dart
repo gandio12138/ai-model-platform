@@ -458,9 +458,7 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final query = _search.text.trim().toLowerCase();
-    final companies =
-        widget.models.map((model) => model.providerName).toSet().toList()
-          ..sort();
+    final companies = _modelCompanies(widget.models);
     final categories = _modelCategories(widget.models);
     final filtered = widget.models.where((model) {
       final companyOk = _company == 'all' || model.providerName == _company;
@@ -751,19 +749,12 @@ class ChatBubble extends StatelessWidget {
   }
 }
 
-List<String> _modelCategories(List<ModelInfo> models) {
-  const order = [
-    '文本对话模型',
-    'Embedding 模型',
-    '图像模型',
-    '视频模型',
-    'Rerank 模型',
-    'Legacy / Inference Profile 模型',
-  ];
-  final values = models.map((model) => model.category).toSet();
-  final ordered = order.where(values.contains).toList();
-  final rest = values.where((item) => !order.contains(item)).toList()..sort();
-  return [...ordered, ...rest];
+List<String> _modelCategories(List<ModelInfo> _) {
+  return const ['文本模型', '图片模型', '视频模型'];
+}
+
+List<String> _modelCompanies(List<ModelInfo> _) {
+  return const ['Claude', 'OpenAI', 'Gemini'];
 }
 
 class CostEstimateSheet extends StatelessWidget {

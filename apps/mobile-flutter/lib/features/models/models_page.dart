@@ -20,7 +20,6 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
   final _search = TextEditingController();
   String _company = 'all';
   String _category = 'all';
-  String _capability = 'all';
 
   @override
   void dispose() {
@@ -66,11 +65,7 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
                 _company == 'all' || model.providerName == _company;
             final categoryOk =
                 _category == 'all' || model.category == _category;
-            final capabilityOk = switch (_capability) {
-              'stream' => model.supportsStream,
-              _ => true,
-            };
-            return keywordOk && companyOk && categoryOk && capabilityOk;
+            return keywordOk && companyOk && categoryOk;
           }).toList();
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(
@@ -85,14 +80,11 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
               if (index == 0) {
                 return _ModelFilterBar(
                   controller: _search,
-                  capability: _capability,
                   companies: companies,
                   company: _company,
                   categories: categories,
                   category: _category,
                   total: filtered.length,
-                  onCapabilityChanged: (value) =>
-                      setState(() => _capability = value),
                   onCategoryChanged: (value) =>
                       setState(() => _category = value),
                   onCompanyChanged: (value) => setState(() => _company = value),
@@ -113,51 +105,34 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
     );
   }
 
-  List<String> _modelCompanies(List<ModelInfo> models) {
-    final companies = models.map((model) => model.providerName).toSet().toList()
-      ..sort();
-    return companies;
+  List<String> _modelCompanies(List<ModelInfo> _) {
+    return const ['Claude', 'OpenAI', 'Gemini'];
   }
 
-  List<String> _modelCategories(List<ModelInfo> models) {
-    const order = [
-      '文本对话模型',
-      'Embedding 模型',
-      '图像模型',
-      '视频模型',
-      'Rerank 模型',
-      'Legacy / Inference Profile 模型',
-    ];
-    final values = models.map((model) => model.category).toSet();
-    final ordered = order.where(values.contains).toList();
-    final rest = values.where((item) => !order.contains(item)).toList()..sort();
-    return [...ordered, ...rest];
+  List<String> _modelCategories(List<ModelInfo> _) {
+    return const ['文本模型', '图片模型', '视频模型'];
   }
 }
 
 class _ModelFilterBar extends StatelessWidget {
   const _ModelFilterBar({
     required this.controller,
-    required this.capability,
     required this.categories,
     required this.category,
     required this.companies,
     required this.company,
     required this.total,
-    required this.onCapabilityChanged,
     required this.onCategoryChanged,
     required this.onCompanyChanged,
     required this.onSearchChanged,
   });
 
   final TextEditingController controller;
-  final String capability;
   final List<String> categories;
   final String category;
   final List<String> companies;
   final String company;
   final int total;
-  final ValueChanged<String> onCapabilityChanged;
   final ValueChanged<String> onCategoryChanged;
   final ValueChanged<String> onCompanyChanged;
   final ValueChanged<String> onSearchChanged;
@@ -236,25 +211,6 @@ class _ModelFilterBar extends StatelessWidget {
                   active: category == item,
                   onTap: () => onCategoryChanged(item),
                 ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text('能力标签', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: AppSpacing.xs),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              _FilterChip(
-                label: '全部',
-                active: capability == 'all',
-                onTap: () => onCapabilityChanged('all'),
-              ),
-              _FilterChip(
-                label: '流式输出',
-                active: capability == 'stream',
-                onTap: () => onCapabilityChanged('stream'),
-              ),
             ],
           ),
         ],
