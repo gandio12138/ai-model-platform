@@ -31,7 +31,8 @@ import {
 import {
   VertexResolvedPricing,
   buildGoogleVertexCatalogSyncItems,
-  fetchGoogleVertexPublisherModels
+  fetchGoogleVertexPublisherModels,
+  validateGoogleVertexRuntimeModels
 } from "../ai/providers/google-vertex-catalog.js";
 import { resolveUsdPriceConversion } from "../ai/providers/fx-rate.js";
 
@@ -2566,6 +2567,62 @@ export class AdminService {
       conversion,
       priceVersion: String(body.price_version ?? "").trim() || undefined
     });
+    const shouldValidateRuntime = this.booleanFlag(
+      body.validate_runtime,
+      process.env.GOOGLE_VERTEX_SYNC_VALIDATE_RUNTIME === "true"
+    );
+    const includeUnverifiedRuntime = this.booleanFlag(
+      body.include_unverified_runtime,
+      process.env.GOOGLE_VERTEX_SYNC_INCLUDE_UNVERIFIED === "true"
+    );
+    let verifiedCount = 0;
+    let unavailableCount = 0;
+    const runtimeValidationErrors: Array<{ model: string; error: string | null }> = [];
+    const filteredItems = shouldValidateRuntime
+      ? await (async () => {
+          const validations = await validateGoogleVertexRuntimeModels({
+            projectId,
+            credential: provider.credential ?? null,
+            items,
+            maxModels: Number(body.runtime_validation_limit ?? items.length)
+          });
+          return items
+            .map((item) => {
+              const validation = validations.get(item.providerModelCode);
+              if (!validation) return item;
+              if (validation.status === "verified") verifiedCount += 1;
+              if (validation.status === "unavailable") {
+                unavailableCount += 1;
+                runtimeValidationErrors.push({
+                  model: item.providerModelCode,
+                  error: validation.errorMessage ?? null
+                });
+              }
+              return {
+                ...item,
+                raw: {
+                  ...item.raw,
+                  runtime_validation_status: validation.status,
+                  runtime_validation_http_status: validation.httpStatus ?? null,
+                  runtime_validation_total_tokens: validation.totalTokens ?? null,
+                  runtime_validation_error: validation.errorMessage ?? null,
+                  runtime_validated_at: validation.checkedAt
+                }
+              };
+            })
+            .filter((item) => {
+              if (includeUnverifiedRuntime) return true;
+              const status = String(item.raw.runtime_validation_status ?? "");
+              return status === "verified" || status === "not_checked";
+            });
+        })()
+      : items.map((item) => ({
+          ...item,
+          raw: {
+            ...item.raw,
+            runtime_validation_status: "not_checked"
+          }
+        }));
     await this.db.query(
       `update providers
           set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
@@ -2575,12 +2632,16 @@ export class AdminService {
         JSON.stringify({
           gcp_project_id: projectId,
           last_vertex_sync_token_source: catalog.tokenSource,
-          last_vertex_sync_errors: catalog.errors.slice(0, 20)
+          last_vertex_sync_errors: catalog.errors.slice(0, 20),
+          last_vertex_runtime_validation_enabled: shouldValidateRuntime,
+          last_vertex_runtime_verified_count: verifiedCount,
+          last_vertex_runtime_unavailable_count: unavailableCount,
+          last_vertex_runtime_validation_errors: runtimeValidationErrors.slice(0, 20)
         }),
         provider.id
       ]
     );
-    return items as ProviderModelSyncItem[];
+    return filteredItems as ProviderModelSyncItem[];
   }
 
   private async fetchAwsBedrockModelSyncItems(
@@ -4040,6 +4101,15 @@ export class AdminService {
   private positiveNumber(value: unknown, fallback: number) {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? number : fallback;
+  }
+
+  private booleanFlag(value: unknown, fallback = false) {
+    if (value === undefined || value === null || value === "") return fallback;
+    if (typeof value === "boolean") return value;
+    const normalized = String(value).trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+    return fallback;
   }
 
   private generateTenantCode(name: unknown) {

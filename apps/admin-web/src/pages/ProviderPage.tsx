@@ -1,4 +1,4 @@
-import { Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, message } from "antd";
+import { Alert, Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, message } from "antd";
 import { KeyRound, RefreshCw, TestTube2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiList, apiFetch } from "../api";
@@ -361,6 +361,12 @@ export default function ProviderPage({
           )}
           {isSyncGoogleVertex && (
             <>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Google Model Garden 会返回目录模型，其中一部分不是当前项目可直接运行的托管 API 模型。运行时验证使用 countTokens，不生成内容；验证失败的模型默认不会展示给客户。"
+              />
               <Form.Item label="GCP Project ID，可选" name="gcp_project_id" extra="留空读取服务端环境变量 GCP_PROJECT_ID。">
                 <Input placeholder="praxis-healer-dj5zp" />
               </Form.Item>
@@ -369,6 +375,22 @@ export default function ProviderPage({
               </Form.Item>
               <Form.Item label="Vertex Publisher" name="publishers" extra="多个 Publisher 用逗号分隔。">
                 <Input placeholder="google,anthropic,mistralai,xai,meta" />
+              </Form.Item>
+              <Form.Item
+                label="验证 Gemini 运行时"
+                name="validate_runtime"
+                valuePropName="checked"
+                extra="使用 Vertex countTokens 校验模型 ID 是否可在当前项目和区域运行，不生成回复内容。"
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                label="保留未验证/不可用模型"
+                name="include_unverified_runtime"
+                valuePropName="checked"
+                extra="关闭时，运行时验证失败的 Gemini 模型不会同步到客户可见目录。"
+              >
+                <Switch />
               </Form.Item>
             </>
           )}

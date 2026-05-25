@@ -61,6 +61,15 @@ export interface VertexCatalogSyncItem {
   raw: Record<string, unknown>;
 }
 
+export interface VertexRuntimeValidationResult {
+  providerModelCode: string;
+  status: "verified" | "unavailable" | "not_checked";
+  httpStatus?: number;
+  totalTokens?: number | null;
+  errorMessage?: string | null;
+  checkedAt: string;
+}
+
 interface VertexUsdPer1mPrice {
   inputUsdPer1m: number;
   outputUsdPer1m: number;
@@ -127,6 +136,64 @@ export async function fetchGoogleVertexPublisherModels(input: {
     }
   }
   return { rows, errors, tokenSource: token.source };
+}
+
+export async function validateGoogleVertexRuntimeModels(input: {
+  projectId: string;
+  credential?: ProviderCredentialConfig | null;
+  items: VertexCatalogSyncItem[];
+  maxModels?: number;
+}) {
+  const token = await resolveGoogleVertexAccessToken(input.credential ?? null);
+  const maxModels = Math.max(0, Number(input.maxModels ?? input.items.length));
+  const results = new Map<string, VertexRuntimeValidationResult>();
+  const checkedAt = new Date().toISOString();
+  for (const item of input.items.slice(0, maxModels)) {
+    const publisher = String(item.raw.publisher ?? "").toLowerCase();
+    const runtimeAdapter = String(item.raw.runtime_adapter ?? "");
+    if (publisher !== "google" || runtimeAdapter !== "gemini_generate_content") {
+      results.set(item.providerModelCode, {
+        providerModelCode: item.providerModelCode,
+        status: "not_checked",
+        checkedAt
+      });
+      continue;
+    }
+    const location = String(item.raw.preferred_region ?? "global");
+    const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
+    const url = `https://${host}/v1/projects/${encodeURIComponent(input.projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(item.providerModelCode)}:countTokens`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token.accessToken}`,
+          "x-goog-user-project": input.projectId,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "ok" }] }]
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
+      const json = (await response.json().catch(() => ({}))) as any;
+      results.set(item.providerModelCode, {
+        providerModelCode: item.providerModelCode,
+        status: response.ok && !json.error ? "verified" : "unavailable",
+        httpStatus: response.status,
+        totalTokens: json.totalTokens ?? null,
+        errorMessage: json.error?.message ? String(json.error.message).slice(0, 500) : null,
+        checkedAt
+      });
+    } catch (error) {
+      results.set(item.providerModelCode, {
+        providerModelCode: item.providerModelCode,
+        status: "unavailable",
+        errorMessage: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+        checkedAt
+      });
+    }
+  }
+  return results;
 }
 
 export function buildGoogleVertexCatalogSyncItems(
