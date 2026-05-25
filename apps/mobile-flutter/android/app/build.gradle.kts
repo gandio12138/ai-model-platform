@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.onetoken.app"
+    namespace = "com.otoken.app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.onetoken.app"
+        applicationId = "com.otoken.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -28,18 +28,18 @@ android {
         create("dev") {
             dimension = "env"
             applicationIdSuffix = ".dev"
-            resValue("string", "app_name", "OneToken Dev")
+            resValue("string", "app_name", "oToken Dev")
             manifestPlaceholders["distributionChannel"] = "dev_local"
         }
         create("staging") {
             dimension = "env"
             applicationIdSuffix = ".staging"
-            resValue("string", "app_name", "OneToken Staging")
+            resValue("string", "app_name", "oToken Staging")
             manifestPlaceholders["distributionChannel"] = "internal_test"
         }
         create("prod") {
             dimension = "env"
-            resValue("string", "app_name", "OneToken")
+            resValue("string", "app_name", "oToken")
             manifestPlaceholders["distributionChannel"] = "official_apk"
         }
     }

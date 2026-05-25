@@ -344,7 +344,7 @@ export class AwsBedrockProviderAdapter implements ProviderAdapter {
           role: "user",
           content: [
             {
-              text: "请调用 onetoken_tool_probe 工具返回 status=ok。不要直接回答文本。"
+              text: "请调用 otoken_tool_probe 工具返回 status=ok。不要直接回答文本。"
             }
           ]
         }
@@ -358,8 +358,8 @@ export class AwsBedrockProviderAdapter implements ProviderAdapter {
         tools: [
           {
             toolSpec: {
-              name: "onetoken_tool_probe",
-              description: "OneToken 管理后台用于验证模型是否支持 tool use 的轻量探针。",
+              name: "otoken_tool_probe",
+              description: "oToken 管理后台用于验证模型是否支持 tool use 的轻量探针。",
               inputSchema: {
                 json: {
                   type: "object",
@@ -377,7 +377,7 @@ export class AwsBedrockProviderAdapter implements ProviderAdapter {
         ],
         toolChoice: {
           tool: {
-            name: "onetoken_tool_probe"
+            name: "otoken_tool_probe"
           }
         }
       }

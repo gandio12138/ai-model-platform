@@ -32,7 +32,7 @@ export class AlipayQrAdapter implements PaymentAdapter {
     const response = await this.request("alipay.trade.precreate", {
       out_trade_no: input.order.order_no,
       total_amount: centsToYuan(Number(input.order.amount)),
-      subject: input.product?.display_name ?? input.product?.name ?? input.product?.product_name ?? "OneToken 充值",
+      subject: input.product?.display_name ?? input.product?.name ?? input.product?.product_name ?? "oToken 充值",
       timeout_express: `${this.config.alipay.qrExpireMinutes}m`
     });
     const payload = response.alipay_trade_precreate_response as Record<string, unknown> | undefined;

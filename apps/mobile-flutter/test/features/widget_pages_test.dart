@@ -18,14 +18,14 @@ import 'package:mobile_flutter/features/payment/payment_page.dart';
 
 void main() {
   late TokenStore tokenStore;
-  late OneTokenApi api;
+  late OTokenApi api;
   const env = AppEnv(
     flavor: AppFlavor.dev,
     apiBaseUrl: 'http://127.0.0.1:4000',
-    appName: 'OneToken Dev',
+    appName: 'oToken Dev',
     appVersion: '1.0.0',
-    packageName: 'com.onetoken.app.dev',
-    bundleId: 'com.onetoken.app.dev',
+    packageName: 'com.otoken.app.dev',
+    bundleId: 'com.otoken.app.dev',
     distributionChannel: 'test',
     region: 'CN',
     allowMockData: true,
@@ -34,7 +34,7 @@ void main() {
 
   setUp(() {
     tokenStore = MemoryTokenStore();
-    api = MockOneTokenApi(env: env, tokenStore: tokenStore);
+    api = _FastMockOTokenApi(env: env, tokenStore: tokenStore);
   });
 
   Widget wrap(Widget child) {
@@ -50,7 +50,7 @@ void main() {
 
   testWidgets('login page renders', (tester) async {
     await tester.pumpWidget(wrap(const AuthPage()));
-    expect(find.text('登录 OneToken'), findsOneWidget);
+    expect(find.text('登录 oToken'), findsOneWidget);
   });
 
   testWidgets('home page renders balance', (tester) async {
@@ -106,6 +106,38 @@ void main() {
     expect(find.text('确认发送'), findsOneWidget);
   });
 
+  testWidgets('chat page switches model and renders generated reply', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tokenStore.save(const TokenPair(accessToken: 'mock'));
+    await tester.pumpWidget(wrap(const ChatPage()));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(find.text('gpt-4o'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.expand_more_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('切换模型'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'Claude');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Claude 3.7 Sonnet'));
+    await tester.pumpAndSettle();
+    expect(find.text('claude-3-7-sonnet'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, '你好');
+    await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('确认发送'), findsOneWidget);
+    await tester.tap(find.text('确认发送'));
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('现在通过 claude-3-7-sonnet 生成回复'), findsOneWidget);
+    expect(find.textContaining('本次扣费'), findsOneWidget);
+  });
+
   testWidgets('payment product card renders', (tester) async {
     const product = PaymentProduct(
       id: 'p1',
@@ -158,4 +190,38 @@ void main() {
     expect(find.text('暂无数据'), findsOneWidget);
     expect(find.text('加载中'), findsOneWidget);
   });
+}
+
+class _FastMockOTokenApi extends MockOTokenApi {
+  _FastMockOTokenApi({required super.env, required super.tokenStore});
+
+  @override
+  Future<List<ModelInfo>> fetchModels() async {
+    return const [
+      ModelInfo(
+        code: 'gpt-4o',
+        name: 'GPT-4o',
+        providerName: 'OpenAI',
+        inputPer1k: 18,
+        outputPer1k: 72,
+        maxContextTokens: 128000,
+        supportsStream: true,
+        supportsTools: true,
+        category: '文本模型',
+        toolsStatus: '支持',
+      ),
+      ModelInfo(
+        code: 'claude-3-7-sonnet',
+        name: 'Claude 3.7 Sonnet',
+        providerName: 'Claude',
+        inputPer1k: 24,
+        outputPer1k: 120,
+        maxContextTokens: 200000,
+        supportsStream: true,
+        supportsTools: true,
+        category: '文本模型',
+        toolsStatus: '待验证',
+      ),
+    ];
+  }
 }

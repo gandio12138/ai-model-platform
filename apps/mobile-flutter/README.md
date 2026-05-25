@@ -1,6 +1,6 @@
-# OneToken Mobile Flutter
+# oToken Mobile Flutter
 
-OneToken iOS / Android App MVP. The app follows the platform design documents:
+oToken iOS / Android App MVP. The app follows the platform design documents:
 
 - `ai-token-platform-full-implementation-plan-v2.2-saas-billing.md`
 - `ai-token-platform-design-v1.2-unified-android-payment.md`
@@ -37,19 +37,19 @@ flutter run --flavor dev -t lib/main_dev.dart \
 
 flutter run --flavor staging -t lib/main_staging.dart \
   --dart-define=APP_FLAVOR=staging \
-  --dart-define=API_BASE_URL=https://staging-api.onetoken.one \
+  --dart-define=API_BASE_URL=https://xufongnian.xyz \
   --dart-define=USE_MOCKS=false
 
 flutter run --flavor prod -t lib/main_prod.dart \
   --dart-define=APP_FLAVOR=prod \
-  --dart-define=API_BASE_URL=https://api.onetoken.one
+  --dart-define=API_BASE_URL=https://xufongnian.xyz
 ```
 
 Android package names:
 
-- dev: `com.onetoken.app.dev`
-- staging: `com.onetoken.app.staging`
-- prod: `com.onetoken.app`
+- dev: `com.otoken.app.dev`
+- staging: `com.otoken.app.staging`
+- prod: `com.otoken.app`
 
 iOS bundle ids are documented in `ios/Flutter/*.xcconfig`. Full Xcode scheme/config wiring should be verified after full Xcode is installed.
 
@@ -108,9 +108,9 @@ flutter build ipa --flavor prod -t lib/main_prod.dart
 2. Open `ios/Runner.xcworkspace`.
 3. Set Apple Developer Team.
 4. Verify Bundle ID:
-   - `com.onetoken.app.dev`
-   - `com.onetoken.app.staging`
-   - `com.onetoken.app`
+   - `com.otoken.app.dev`
+   - `com.otoken.app.staging`
+   - `com.otoken.app`
 5. Configure signing.
 6. Run staging flavor on a device.
 7. Configure App Store Connect consumable IAP products.

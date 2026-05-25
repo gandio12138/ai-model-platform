@@ -184,7 +184,7 @@ export class ConfigResolutionService {
       announcement:
         policy?.metadata?.announcement ??
         site.announcements.find((item: any) => item.visible !== false)?.content ??
-        "OneToken 平台余额、API Key 和模型调用数据已在 Web 与 App 端共享。",
+        "oToken 平台余额、API Key 和模型调用数据已在 Web 与 App 端共享。",
       privacy_notice_variant: policy?.metadata?.privacy_notice_variant ?? "standard_cn",
       content_safety_notice:
         policy?.metadata?.content_safety_notice ??
@@ -468,8 +468,8 @@ export class ConfigResolutionService {
     const copy = this.resolveCopyConfig(asRecord(config.copy));
     return {
       branding: {
-        site_name: String(branding.site_name ?? "OneToken"),
-        short_name: String(branding.short_name ?? "OneToken"),
+        site_name: String(branding.site_name ?? "oToken"),
+        short_name: String(branding.short_name ?? "oToken"),
         logo_url: stringOrNull(branding.logo_url),
         slogan: String(branding.slogan ?? "企业级大模型服务平台"),
         hero_badge: String(branding.hero_badge ?? "AI API Gateway"),
@@ -480,7 +480,7 @@ export class ConfigResolutionService {
         ),
         primary_cta: String(branding.primary_cta ?? "立即接入"),
         secondary_cta: String(branding.secondary_cta ?? "查看文档"),
-        footer_text: String(branding.footer_text ?? "© 2026 OneToken. 版权所有"),
+        footer_text: String(branding.footer_text ?? "© 2026 oToken. 版权所有"),
         icp_text: stringOrNull(branding.icp_text)
       },
       navigation:
@@ -512,7 +512,7 @@ export class ConfigResolutionService {
             ],
       modules,
       support: {
-        email: stringOrNull(config.support?.email) ?? process.env.SUPPORT_EMAIL ?? "support@onetoken.one",
+        email: stringOrNull(config.support?.email) ?? process.env.SUPPORT_EMAIL ?? "support@xufongnian.xyz",
         work_time: stringOrNull(config.support?.work_time) ?? "工作日 09:00-18:00",
         help_center_url: stringOrNull(config.support?.help_center_url),
         telegram: stringOrNull(config.support?.telegram),
@@ -587,7 +587,7 @@ export class ConfigResolutionService {
       show_on_web_home: Boolean(config.show_on_web_home ?? enabled),
       show_on_console: Boolean(config.show_on_console ?? enabled),
       show_on_payment_success: Boolean(config.show_on_payment_success ?? enabled),
-      title: String(config.title ?? "移动端随时使用 OneToken"),
+      title: String(config.title ?? "移动端随时使用 oToken"),
       subtitle: String(config.subtitle ?? "App、Web 与 API 共用同一个客户账号和余额。"),
       ios: {
         enabled: Boolean(config.ios?.enabled ?? Boolean(iosPrimary)),

@@ -1,3 +1,3 @@
 #include "Release.xcconfig"
-APP_DISPLAY_NAME=OneToken Staging
-APP_BUNDLE_ID=com.onetoken.app.staging
+APP_DISPLAY_NAME=oToken Staging
+APP_BUNDLE_ID=com.otoken.app.staging

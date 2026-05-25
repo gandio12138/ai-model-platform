@@ -8,8 +8,8 @@ import '../storage/token_store.dart';
 import 'api_client.dart';
 import 'api_models.dart';
 
-class MockOneTokenApi implements OneTokenApi {
-  MockOneTokenApi({required this.env, required this.tokenStore});
+class MockOTokenApi implements OTokenApi {
+  MockOTokenApi({required this.env, required this.tokenStore});
 
   final AppEnv env;
   final TokenStore tokenStore;
@@ -38,16 +38,16 @@ class MockOneTokenApi implements OneTokenApi {
           ? const ['apple_iap']
           : const ['alipay_app_pay', 'wechat_app_pay', 'card_hosted_checkout'],
       showWebPaymentLink: !isIos,
-      webPaymentUrl: 'https://www.onetoken.one/checkout',
+      webPaymentUrl: 'https://xufongnian.xyz/checkout',
       reviewMode: false,
       legalApproved: true,
       modelListEnabled: true,
       referralEnabled: false,
       developerApiEnabled: true,
-      supportContact: 'support@onetoken.one',
+      supportContact: 'support@xufongnian.xyz',
       support: const {
-        'email': 'support@onetoken.one',
-        'help_center_url': 'https://www.onetoken.one/docs',
+        'email': 'support@xufongnian.xyz',
+        'help_center_url': 'https://xufongnian.xyz/docs',
       },
       announcement: 'Dev mock：当前使用本地模拟数据，不代表正式环境。',
       contentSafetyNotice: '请勿输入敏感个人信息，AI 生成内容仅供参考。',
@@ -65,7 +65,7 @@ class MockOneTokenApi implements OneTokenApi {
         'show_on_payment_success': true,
       },
       branding: const {
-        'site_name': 'OneToken',
+        'site_name': 'oToken',
         'hero_title': '一个 API Key，调用多家顶尖模型',
       },
       legal: const <String, dynamic>{},
@@ -164,7 +164,7 @@ class MockOneTokenApi implements OneTokenApi {
       bonusAmount: 500,
       paymentMethods: ['apple_iap', 'alipay_app_pay', 'wechat_app_pay'],
       badge: '推荐',
-      appleProductId: 'onetoken.credit.50',
+      appleProductId: 'otoken.credit.50',
     ),
     PaymentProduct(
       id: 'team_300',
@@ -180,7 +180,7 @@ class MockOneTokenApi implements OneTokenApi {
         'card_hosted_checkout',
       ],
       badge: '热销',
-      appleProductId: 'onetoken.credit.300',
+      appleProductId: 'otoken.credit.300',
     ),
   ];
 
@@ -297,7 +297,7 @@ class MockOneTokenApi implements OneTokenApi {
         ChatMessage(
           id: 'msg-1',
           role: ChatRole.assistant,
-          content: '你好，我是 OneToken AI 助手。发送消息前会展示预计消耗，确认后再开始生成。',
+          content: '你好，我是 oToken AI 助手。发送消息前会展示预计消耗，确认后再开始生成。',
           createdAt: DateTime.now().subtract(const Duration(minutes: 6)),
         ),
       ],

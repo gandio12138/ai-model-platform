@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DEVICE_NAME="${IOS_SIMULATOR_NAME:-iPhone 17 Pro}"
-BUNDLE_ID="${IOS_APP_BUNDLE_ID:-com.onetoken.app.dev}"
+BUNDLE_ID="${IOS_APP_BUNDLE_ID:-com.otoken.app.dev}"
 
 DEVICE_ID="$(
   xcrun simctl list devices \

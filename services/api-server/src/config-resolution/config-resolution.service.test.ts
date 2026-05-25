@@ -65,7 +65,7 @@ describe("ConfigResolutionService", () => {
       configs: {
         site_config: {
           branding: {
-            site_name: "OneToken",
+            site_name: "oToken",
             hero_title: "后台配置标题",
             hero_subtitle: "后台配置副标题"
           }

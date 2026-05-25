@@ -32,7 +32,7 @@ export class WechatNativeAdapter implements PaymentAdapter {
     const payload = {
       appid: this.config.wechat.appId,
       mchid: this.config.wechat.mchId,
-      description: input.product?.display_name ?? input.product?.name ?? input.product?.product_name ?? "OneToken 充值",
+      description: input.product?.display_name ?? input.product?.name ?? input.product?.product_name ?? "oToken 充值",
       out_trade_no: input.order.order_no,
       time_expire: expiresAt.toISOString(),
       notify_url: this.config.wechat.notifyUrl,
@@ -153,7 +153,7 @@ export class WechatNativeAdapter implements PaymentAdapter {
         authorization,
         accept: "application/json",
         "content-type": "application/json",
-        "user-agent": "OneTokenPayment/1.0"
+        "user-agent": "oTokenPayment/1.0"
       },
       body: bodyText || undefined
     });

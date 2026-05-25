@@ -17,7 +17,7 @@ final apiBaseUrlProvider = StateProvider<String>((ref) {
   return ref.watch(appEnvProvider).apiBaseUrl;
 });
 
-Future<void> runOneTokenApp(AppEnv env) async {
+Future<void> runOTokenApp(AppEnv env) async {
   WidgetsFlutterBinding.ensureInitialized();
   final initialApiBase = await SecureApiBaseStore().read();
   runApp(
@@ -26,7 +26,7 @@ Future<void> runOneTokenApp(AppEnv env) async {
         appEnvProvider.overrideWithValue(env),
         initialApiBaseProvider.overrideWithValue(initialApiBase),
       ],
-      child: const OneTokenApp(),
+      child: const OTokenApp(),
     ),
   );
 }

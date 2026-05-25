@@ -62,7 +62,7 @@ export class FakeProviderAdapter implements ProviderAdapter {
   private fakeCompletion(model: string, messages: ProviderCompletionInput["messages"]) {
     const last = messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
     return [
-      `这是 OneToken 开发/测试环境的模型回复，模型 ${model} 已收到你的请求。`,
+      `这是 oToken 开发/测试环境的模型回复，模型 ${model} 已收到你的请求。`,
       `问题摘要：${last.slice(0, 120) || "空消息"}`,
       "生产环境必须配置真实 Provider Adapter 和密钥后才能处理真实模型调用。"
     ].join("\n");

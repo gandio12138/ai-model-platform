@@ -29,9 +29,9 @@ final launchContextProvider = Provider<AppLaunchContext>((ref) {
   return AppLaunchContext.fromEnv(ref.watch(appEnvProvider));
 });
 
-final apiProvider = Provider<OneTokenApi>((ref) {
+final apiProvider = Provider<OTokenApi>((ref) {
   final env = ref.watch(appEnvProvider);
-  return createOneTokenApi(
+  return createOTokenApi(
     env: env.copyWith(apiBaseUrl: ref.watch(apiBaseUrlProvider)),
     tokenStore: ref.watch(tokenStoreProvider),
   );
@@ -130,7 +130,7 @@ class SplashPage extends ConsumerStatefulWidget {
 }
 
 class _SplashPageState extends ConsumerState<SplashPage> {
-  String _status = '正在连接 OneToken 服务';
+  String _status = '正在连接 oToken 服务';
 
   @override
   void initState() {
@@ -191,10 +191,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
                 ),
               ),
               const SizedBox(height: 18),
-              Text(
-                'OneToken',
-                style: Theme.of(context).textTheme.headlineLarge,
-              ),
+              Text('oToken', style: Theme.of(context).textTheme.headlineLarge),
               const SizedBox(height: 8),
               Text(_status, style: Theme.of(context).textTheme.bodySmall),
             ],

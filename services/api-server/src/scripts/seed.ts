@@ -1060,8 +1060,8 @@ async function main() {
       "site",
       {
         branding: {
-          site_name: "OneToken",
-          short_name: "OneToken",
+          site_name: "oToken",
+          short_name: "oToken",
           slogan: "企业级大模型服务平台",
           hero_badge: "AI API Gateway",
           hero_title: "一个 API Key，调用多家顶尖模型",
@@ -1069,7 +1069,7 @@ async function main() {
             "统一接入 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型。按量计费、余额共享、账单透明，Web 与 App 共用同一个账户体系。",
           primary_cta: "立即接入",
           secondary_cta: "查看文档",
-          footer_text: "© 2026 OneToken. 版权所有"
+          footer_text: "© 2026 oToken. 版权所有"
         },
         navigation: [
           { key: "home", label: "首页", visible: true },
@@ -1118,9 +1118,9 @@ async function main() {
           }
         ],
         support: {
-          email: process.env.SUPPORT_EMAIL ?? "support@onetoken.one",
+          email: process.env.SUPPORT_EMAIL ?? "support@xufongnian.xyz",
           work_time: "工作日 09:00-18:00",
-          help_center_url: "https://www.onetoken.one/docs"
+          help_center_url: "https://xufongnian.xyz/docs"
         },
         legal: {},
         copy: {
@@ -1145,7 +1145,7 @@ async function main() {
         show_on_web_home: true,
         show_on_console: true,
         show_on_payment_success: true,
-        title: "移动端随时使用 OneToken",
+        title: "移动端随时使用 oToken",
         subtitle: "App、Web 与 API 共用同一个客户账号和余额。",
         ios: { enabled: true },
         android: { enabled: true }

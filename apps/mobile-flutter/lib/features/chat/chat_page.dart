@@ -370,7 +370,7 @@ class _EmptyChat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const prompts = [
-      '帮我总结一下 OneToken 的 API 接入方式',
+      '帮我总结一下 oToken 的 API 接入方式',
       '用 gpt-4o 写一个 Node.js 调用示例',
       '对比 Claude、Gemini 和 Qwen 适合的使用场景',
     ];

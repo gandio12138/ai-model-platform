@@ -1,4 +1,4 @@
-package com.onetoken.app
+package com.otoken.app
 
 import io.flutter.embedding.android.FlutterActivity
 

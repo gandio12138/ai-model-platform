@@ -147,7 +147,7 @@ export class AiGatewayService {
         id: model.public_model_code,
         object: "model",
         created: 0,
-        owned_by: "onetoken",
+        owned_by: "otoken",
         permission: []
       }))
     };

@@ -7,8 +7,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('dev mock app can reach auth or home entry', (tester) async {
-    runOneTokenApp(AppEnv.dev());
+    runOTokenApp(AppEnv.dev());
     await tester.pumpAndSettle(const Duration(seconds: 2));
-    expect(find.textContaining('OneToken'), findsWidgets);
+    expect(find.textContaining('oToken'), findsWidgets);
   });
 }

@@ -4,5 +4,5 @@ class AppConstants {
   static const defaultAndroidProjectCode = 'android-app';
   static const defaultProjectCode = 'mobile-app';
   static const defaultRegion = 'CN';
-  static const supportEmail = 'support@onetoken.one';
+  static const supportEmail = 'support@xufongnian.xyz';
 }

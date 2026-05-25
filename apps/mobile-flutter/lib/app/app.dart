@@ -5,8 +5,8 @@ import 'bootstrap.dart';
 import 'router.dart';
 import 'theme.dart';
 
-class OneTokenApp extends ConsumerWidget {
-  const OneTokenApp({super.key});
+class OTokenApp extends ConsumerWidget {
+  const OTokenApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

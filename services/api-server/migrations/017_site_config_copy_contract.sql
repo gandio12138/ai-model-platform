@@ -1,6 +1,6 @@
 -- Backfill the public site/app copy contract without overwriting tenant custom copy.
 -- Existing deployments may already have a published site_config from earlier seeds;
--- this migration only replaces the previous OneToken default wording or fills
+-- this migration only replaces the previous oToken default wording or fills
 -- missing fields required by Web/App clients.
 
 update configs
@@ -12,7 +12,7 @@ update configs
                  jsonb_set(
                    published_value,
                    '{branding,short_name}',
-                   to_jsonb(coalesce(published_value #>> '{branding,short_name}', 'OneToken')),
+                   to_jsonb(coalesce(published_value #>> '{branding,short_name}', 'oToken')),
                    true
                  ),
                  '{branding,hero_badge}',
@@ -60,7 +60,7 @@ update configs
                    jsonb_set(
                      draft_value,
                      '{branding,short_name}',
-                     to_jsonb(coalesce(draft_value #>> '{branding,short_name}', 'OneToken')),
+                     to_jsonb(coalesce(draft_value #>> '{branding,short_name}', 'oToken')),
                      true
                    ),
                    '{branding,hero_badge}',
@@ -148,14 +148,14 @@ update configs
          jsonb_set(
            published_value,
            '{support}',
-           '{"email":"support@onetoken.one","work_time":"工作日 09:00-18:00","help_center_url":"https://www.onetoken.one/docs"}'::jsonb
+           '{"email":"support@xufongnian.xyz","work_time":"工作日 09:00-18:00","help_center_url":"https://xufongnian.xyz/docs"}'::jsonb
              || coalesce(published_value->'support', '{}'::jsonb),
            true
          ),
          '{copy}',
          '{
            "api_base_url_label": "API Base URL",
-           "public_api_base_url": "https://api.onetoken.one/v1",
+           "public_api_base_url": "https://xufongnian.xyz/v1",
            "wallet_balance_label": "可用余额",
            "cash_balance_label": "现金余额",
            "gift_balance_label": "赠送额度",
@@ -173,14 +173,14 @@ update configs
            jsonb_set(
              draft_value,
              '{support}',
-             '{"email":"support@onetoken.one","work_time":"工作日 09:00-18:00","help_center_url":"https://www.onetoken.one/docs"}'::jsonb
+             '{"email":"support@xufongnian.xyz","work_time":"工作日 09:00-18:00","help_center_url":"https://xufongnian.xyz/docs"}'::jsonb
                || coalesce(draft_value->'support', '{}'::jsonb),
              true
            ),
            '{copy}',
            '{
              "api_base_url_label": "API Base URL",
-             "public_api_base_url": "https://api.onetoken.one/v1",
+             "public_api_base_url": "https://xufongnian.xyz/v1",
              "wallet_balance_label": "可用余额",
              "cash_balance_label": "现金余额",
              "gift_balance_label": "赠送额度",
@@ -238,16 +238,16 @@ update configs
    set published_value = jsonb_set(
          published_value,
          '{support,email}',
-         '"support@onetoken.one"'::jsonb,
+         '"support@xufongnian.xyz"'::jsonb,
          true
        ),
        draft_value = case
          when status = 'draft' then draft_value
-         else jsonb_set(draft_value, '{support,email}', '"support@onetoken.one"'::jsonb, true)
+         else jsonb_set(draft_value, '{support,email}', '"support@xufongnian.xyz"'::jsonb, true)
        end,
        updated_at = now()
  where config_key = 'site_config'
    and (
      published_value #>> '{support,email}' is null
-     or published_value #>> '{support,email}' = 'support@onetoken.local'
+     or published_value #>> '{support,email}' = 'support@otoken.local'
    );

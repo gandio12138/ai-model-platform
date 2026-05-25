@@ -74,7 +74,7 @@ create index if not exists idx_policy_documents_lookup
 
 insert into policy_documents (policy_type, variant, title, content, status, version, metadata)
 values
-  ('terms', 'standard_cn', '用户协议', 'OneToken 为企业和开发者提供统一的大模型服务接入、额度钱包、API Key 和账单管理能力。用户应遵守平台规则，不得将服务用于违法、侵权、高风险决策或规避监管的场景。', 'published', 1, '{"source":"migration"}'),
+  ('terms', 'standard_cn', '用户协议', 'oToken 为企业和开发者提供统一的大模型服务接入、额度钱包、API Key 和账单管理能力。用户应遵守平台规则，不得将服务用于违法、侵权、高风险决策或规避监管的场景。', 'published', 1, '{"source":"migration"}'),
   ('privacy', 'standard_cn', '隐私政策', '平台仅在提供账号登录、模型调用、计费、风控和客户支持所需范围内处理必要信息。访问令牌、API Key、支付凭证和 Provider 密钥不会在客户端明文持久化展示。', 'published', 1, '{"source":"migration"}'),
   ('disclaimer', 'standard_cn', 'AI 生成内容免责声明', 'AI 生成内容可能存在不准确、不完整或不适合特定场景的情况。用户应自行判断输出内容，不得将其直接用于医疗、法律、金融等高风险决策。', 'published', 1, '{"source":"migration"}'),
   ('report', 'standard_cn', '内容举报说明', '如果你认为 AI 生成内容存在违法违规、侵权或安全风险，可以通过内容举报入口提交，平台会记录并由管理员审核处理。', 'published', 1, '{"source":"migration"}'),

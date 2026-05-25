@@ -24,15 +24,15 @@ values
     'site',
     '{
       "branding": {
-        "site_name": "OneToken",
-        "short_name": "OneToken",
+        "site_name": "oToken",
+        "short_name": "oToken",
         "slogan": "企业级大模型服务平台",
         "hero_badge": "AI API Gateway",
         "hero_title": "一个 API Key，调用多家顶尖模型",
         "hero_subtitle": "统一接入 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型。按量计费、余额共享、账单透明，Web 与 App 共用同一个账户体系。",
         "primary_cta": "立即接入",
         "secondary_cta": "查看文档",
-        "footer_text": "© 2026 OneToken. 版权所有"
+        "footer_text": "© 2026 oToken. 版权所有"
       },
       "navigation": [
         {"key":"home","label":"首页","visible":true},
@@ -48,21 +48,21 @@ values
         {"question":"中转站的计费模式是怎样的？","answer":"按模型实际消耗和后台价格配置扣费。","sort_order":1,"visible":true},
         {"question":"如何将现有 OpenAI 代码迁移？","answer":"替换 Base URL 和 API Key 即可复用原有 Chat Completions 调用。","sort_order":2,"visible":true}
       ],
-      "support": {"email":"support@onetoken.one","work_time":"工作日 09:00-18:00","help_center_url":"https://www.onetoken.one/docs"},
+      "support": {"email":"support@xufongnian.xyz","work_time":"工作日 09:00-18:00","help_center_url":"https://xufongnian.xyz/docs"},
       "legal": {},
-      "copy": {"api_base_url_label":"API Base URL","public_api_base_url":"https://api.onetoken.one/v1","wallet_balance_label":"可用余额","cash_balance_label":"现金余额","gift_balance_label":"赠送额度","frozen_balance_label":"冻结金额","estimated_cost_title":"发送前预估费用","payment_notice":"支付成功和权益到账以服务端确认、查单和钱包入账为准。","ai_disclaimer":"AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。","model_catalog_intro":"查看当前账户可调用模型、价格、上下文长度和能力标签。"}
+      "copy": {"api_base_url_label":"API Base URL","public_api_base_url":"https://xufongnian.xyz/v1","wallet_balance_label":"可用余额","cash_balance_label":"现金余额","gift_balance_label":"赠送额度","frozen_balance_label":"冻结金额","estimated_cost_title":"发送前预估费用","payment_notice":"支付成功和权益到账以服务端确认、查单和钱包入账为准。","ai_disclaimer":"AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。","model_catalog_intro":"查看当前账户可调用模型、价格、上下文长度和能力标签。"}
     }'::jsonb,
     '{
       "branding": {
-        "site_name": "OneToken",
-        "short_name": "OneToken",
+        "site_name": "oToken",
+        "short_name": "oToken",
         "slogan": "企业级大模型服务平台",
         "hero_badge": "AI API Gateway",
         "hero_title": "一个 API Key，调用多家顶尖模型",
         "hero_subtitle": "统一接入 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型。按量计费、余额共享、账单透明，Web 与 App 共用同一个账户体系。",
         "primary_cta": "立即接入",
         "secondary_cta": "查看文档",
-        "footer_text": "© 2026 OneToken. 版权所有"
+        "footer_text": "© 2026 oToken. 版权所有"
       },
       "navigation": [
         {"key":"home","label":"首页","visible":true},
@@ -78,9 +78,9 @@ values
         {"question":"中转站的计费模式是怎样的？","answer":"按模型实际消耗和后台价格配置扣费。","sort_order":1,"visible":true},
         {"question":"如何将现有 OpenAI 代码迁移？","answer":"替换 Base URL 和 API Key 即可复用原有 Chat Completions 调用。","sort_order":2,"visible":true}
       ],
-      "support": {"email":"support@onetoken.one","work_time":"工作日 09:00-18:00","help_center_url":"https://www.onetoken.one/docs"},
+      "support": {"email":"support@xufongnian.xyz","work_time":"工作日 09:00-18:00","help_center_url":"https://xufongnian.xyz/docs"},
       "legal": {},
-      "copy": {"api_base_url_label":"API Base URL","public_api_base_url":"https://api.onetoken.one/v1","wallet_balance_label":"可用余额","cash_balance_label":"现金余额","gift_balance_label":"赠送额度","frozen_balance_label":"冻结金额","estimated_cost_title":"发送前预估费用","payment_notice":"支付成功和权益到账以服务端确认、查单和钱包入账为准。","ai_disclaimer":"AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。","model_catalog_intro":"查看当前账户可调用模型、价格、上下文长度和能力标签。"}
+      "copy": {"api_base_url_label":"API Base URL","public_api_base_url":"https://xufongnian.xyz/v1","wallet_balance_label":"可用余额","cash_balance_label":"现金余额","gift_balance_label":"赠送额度","frozen_balance_label":"冻结金额","estimated_cost_title":"发送前预估费用","payment_notice":"支付成功和权益到账以服务端确认、查单和钱包入账为准。","ai_disclaimer":"AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。","model_catalog_intro":"查看当前账户可调用模型、价格、上下文长度和能力标签。"}
     }'::jsonb,
     'published',
     1
@@ -88,8 +88,8 @@ values
   (
     'app_download',
     'app_download',
-    '{"enabled":true,"show_on_web_home":true,"show_on_console":true,"show_on_payment_success":true,"title":"移动端随时使用 OneToken","subtitle":"App、Web 与 API 共用同一个客户账号和余额。","ios":{"enabled":true},"android":{"enabled":true}}'::jsonb,
-    '{"enabled":true,"show_on_web_home":true,"show_on_console":true,"show_on_payment_success":true,"title":"移动端随时使用 OneToken","subtitle":"App、Web 与 API 共用同一个客户账号和余额。","ios":{"enabled":true},"android":{"enabled":true}}'::jsonb,
+    '{"enabled":true,"show_on_web_home":true,"show_on_console":true,"show_on_payment_success":true,"title":"移动端随时使用 oToken","subtitle":"App、Web 与 API 共用同一个客户账号和余额。","ios":{"enabled":true},"android":{"enabled":true}}'::jsonb,
+    '{"enabled":true,"show_on_web_home":true,"show_on_console":true,"show_on_payment_success":true,"title":"移动端随时使用 oToken","subtitle":"App、Web 与 API 共用同一个客户账号和余额。","ios":{"enabled":true},"android":{"enabled":true}}'::jsonb,
     'published',
     1
   ),

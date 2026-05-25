@@ -89,7 +89,7 @@ class AppEnv {
       ),
       appName: const String.fromEnvironment(
         'APP_NAME',
-        defaultValue: 'OneToken Dev',
+        defaultValue: 'oToken Dev',
       ),
       appVersion: const String.fromEnvironment(
         'APP_VERSION',
@@ -97,11 +97,11 @@ class AppEnv {
       ),
       packageName: const String.fromEnvironment(
         'PACKAGE_NAME',
-        defaultValue: 'com.onetoken.app.dev',
+        defaultValue: 'com.otoken.app.dev',
       ),
       bundleId: const String.fromEnvironment(
         'BUNDLE_ID',
-        defaultValue: 'com.onetoken.app.dev',
+        defaultValue: 'com.otoken.app.dev',
       ),
       distributionChannel: const String.fromEnvironment(
         'DISTRIBUTION_CHANNEL',
@@ -122,10 +122,10 @@ class AppEnv {
       'API_BASE_URL',
       defaultValue: 'http://127.0.0.1:4000',
     ),
-    appName: 'OneToken Dev',
+    appName: 'oToken Dev',
     appVersion: String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0'),
-    packageName: 'com.onetoken.app.dev',
-    bundleId: 'com.onetoken.app.dev',
+    packageName: 'com.otoken.app.dev',
+    bundleId: 'com.otoken.app.dev',
     distributionChannel: String.fromEnvironment(
       'DISTRIBUTION_CHANNEL',
       defaultValue: 'dev_local',
@@ -139,12 +139,12 @@ class AppEnv {
     flavor: AppFlavor.staging,
     apiBaseUrl: String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'https://staging-api.onetoken.one',
+      defaultValue: 'https://xufongnian.xyz',
     ),
-    appName: 'OneToken Staging',
+    appName: 'oToken Staging',
     appVersion: String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0'),
-    packageName: 'com.onetoken.app.staging',
-    bundleId: 'com.onetoken.app.staging',
+    packageName: 'com.otoken.app.staging',
+    bundleId: 'com.otoken.app.staging',
     distributionChannel: String.fromEnvironment(
       'DISTRIBUTION_CHANNEL',
       defaultValue: 'testflight_or_internal',
@@ -158,12 +158,12 @@ class AppEnv {
     flavor: AppFlavor.prod,
     apiBaseUrl: String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'https://api.onetoken.one',
+      defaultValue: 'https://xufongnian.xyz',
     ),
-    appName: 'OneToken',
+    appName: 'oToken',
     appVersion: String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0'),
-    packageName: 'com.onetoken.app',
-    bundleId: 'com.onetoken.app',
+    packageName: 'com.otoken.app',
+    bundleId: 'com.otoken.app',
     distributionChannel: String.fromEnvironment(
       'DISTRIBUTION_CHANNEL',
       defaultValue: 'app_store_or_official',

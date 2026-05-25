@@ -19,8 +19,8 @@ class SecureTokenStore implements TokenStore {
 
   final FlutterSecureStorage _storage;
 
-  static const _accessTokenKey = 'onetoken.access_token';
-  static const _refreshTokenKey = 'onetoken.refresh_token';
+  static const _accessTokenKey = 'otoken.access_token';
+  static const _refreshTokenKey = 'otoken.refresh_token';
 
   @override
   Future<TokenPair?> read() async {
@@ -72,7 +72,7 @@ class SecureApiBaseStore implements ApiBaseStore {
 
   final FlutterSecureStorage _storage;
 
-  static const _apiBaseUrlKey = 'onetoken.api_base_url';
+  static const _apiBaseUrlKey = 'otoken.api_base_url';
 
   @override
   Future<String?> read() async {

@@ -10,7 +10,7 @@ import 'api_models.dart';
 import 'local_network_permission.dart';
 import 'mock_api_client.dart';
 
-abstract class OneTokenApi {
+abstract class OTokenApi {
   Future<AppConfig> fetchAppConfig(AppLaunchContext context);
   Future<AuthSession> login(
     String account,
@@ -78,19 +78,19 @@ abstract class OneTokenApi {
   });
 }
 
-OneTokenApi createOneTokenApi({
+OTokenApi createOTokenApi({
   required AppEnv env,
   required TokenStore tokenStore,
   Dio? dio,
 }) {
   if (env.allowMockData) {
-    return MockOneTokenApi(env: env, tokenStore: tokenStore);
+    return MockOTokenApi(env: env, tokenStore: tokenStore);
   }
-  return DioOneTokenApi(env: env, tokenStore: tokenStore, dio: dio);
+  return DioOTokenApi(env: env, tokenStore: tokenStore, dio: dio);
 }
 
-class DioOneTokenApi implements OneTokenApi {
-  DioOneTokenApi({required this.env, required this.tokenStore, Dio? dio})
+class DioOTokenApi implements OTokenApi {
+  DioOTokenApi({required this.env, required this.tokenStore, Dio? dio})
     : _dio =
           dio ??
           Dio(
@@ -126,8 +126,8 @@ class DioOneTokenApi implements OneTokenApi {
   Future<void>? _localNetworkWarmup;
 
   AppLaunchContext get _context => AppLaunchContext.fromEnv(env);
-  MockOneTokenApi get _fallback =>
-      MockOneTokenApi(env: env, tokenStore: tokenStore);
+  MockOTokenApi get _fallback =>
+      MockOTokenApi(env: env, tokenStore: tokenStore);
 
   @override
   Future<AppConfig> fetchAppConfig(AppLaunchContext context) async {
@@ -722,8 +722,8 @@ class DioOneTokenApi implements OneTokenApi {
       modelListEnabled: true,
       referralEnabled: false,
       developerApiEnabled: true,
-      supportContact: 'support@onetoken.one',
-      support: const {'email': 'support@onetoken.one'},
+      supportContact: 'support@xufongnian.xyz',
+      support: const {'email': 'support@xufongnian.xyz'},
       announcement: '当前配置来自 /api/public/bootstrap，与 Web 客户端使用同一租户上下文。',
       contentSafetyNotice: '请勿输入敏感个人信息，AI 生成内容仅供参考。',
       privacyNoticeVariant: 'default',
@@ -737,7 +737,7 @@ class DioOneTokenApi implements OneTokenApi {
           ? Map<String, dynamic>.from(data['app_download'] as Map)
           : const <String, dynamic>{},
       branding: const {
-        'site_name': 'OneToken',
+        'site_name': 'oToken',
         'hero_title': '一个 API Key，调用多家顶尖模型',
       },
       legal: const <String, dynamic>{},

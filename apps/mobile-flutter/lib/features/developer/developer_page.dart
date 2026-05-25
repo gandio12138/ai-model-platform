@@ -130,10 +130,10 @@ class ApiUsageGuideCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final endpoint = '$baseUrl/chat/completions';
     final example =
-        '''export ONE_TOKEN_BASE_URL="$baseUrl"
-export AI_TOKEN_API_KEY="你的 OneToken API Key"
+        '''export OTOKEN_BASE_URL="$baseUrl"
+export AI_TOKEN_API_KEY="你的 oToken API Key"
 
-curl "\$ONE_TOKEN_BASE_URL/chat/completions" \\
+curl "\$OTOKEN_BASE_URL/chat/completions" \\
   -H "Authorization: Bearer \$AI_TOKEN_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

@@ -61,7 +61,7 @@ class UserProfile {
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
       id: _string(json['id'], 'me'),
-      email: _string(json['email'], 'user@onetoken.one'),
+      email: _string(json['email'], 'user@xufongnian.xyz'),
       phone: json['phone']?.toString(),
       nickname: json['nickname']?.toString(),
     );
@@ -180,7 +180,7 @@ class AppConfig {
       developerApiEnabled: _bool(json['developer_api_enabled'], true),
       supportContact: _supportText(json['support_contact']),
       support: _map(json['support_contact']),
-      announcement: _string(json['announcement'], '欢迎使用 OneToken'),
+      announcement: _string(json['announcement'], '欢迎使用 oToken'),
       contentSafetyNotice: _string(
         json['content_safety_notice'],
         'AI 生成内容仅供参考，请遵守当地法律法规并避免输入敏感个人信息。',
@@ -206,7 +206,7 @@ class AppConfig {
 
 String _supportText(Object? value) {
   final map = _map(value);
-  return _string(map['email'] ?? value, 'support@onetoken.one');
+  return _string(map['email'] ?? value, 'support@xufongnian.xyz');
 }
 
 class Wallet {

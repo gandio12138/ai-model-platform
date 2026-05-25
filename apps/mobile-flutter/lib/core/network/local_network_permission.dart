@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-const _localNetworkChannel = MethodChannel('one_token/local_network');
+const _localNetworkChannel = MethodChannel('otoken/local_network');
 
 Future<void> warmUpLocalNetworkPermission(String apiBaseUrl) async {
   if (!Platform.isIOS) return;
@@ -21,7 +21,7 @@ Future<void> warmUpLocalNetworkPermission(String apiBaseUrl) async {
   }
 }
 
-Future<bool> openOneTokenAppSettings() async {
+Future<bool> openOTokenAppSettings() async {
   if (!Platform.isIOS) return false;
   try {
     return await _localNetworkChannel.invokeMethod<bool>('openSettings') ??

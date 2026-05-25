@@ -211,9 +211,9 @@ function simplifiedModelCategory(model: ModelInfo) {
 
 function modelIntegrationExample(model: ModelInfo, siteConfig: SiteConfigPayload | null) {
   const apiBase = configuredApiBase(siteConfig);
-  return `# OneToken OpenAI-compatible configuration
+  return `# oToken OpenAI-compatible configuration
 BASE_URL=${apiBase}
-API_KEY=你的 OneToken API Key
+API_KEY=你的 oToken API Key
 MODEL=${model.model_code}
 
 curl "$BASE_URL/chat/completions" \\
@@ -845,7 +845,7 @@ function PublicLayout({
     { key: "models", label: "模型目录" },
     { key: "docs", label: "文档" }
   ];
-  const siteName = siteConfig?.site_config.branding.site_name ?? "OneToken";
+  const siteName = siteConfig?.site_config.branding.site_name ?? "oToken";
 
   return (
     <main className="app-shell">
@@ -1018,10 +1018,10 @@ function HomePage({
             </div>
           </div>
 
-          <aside className="landing-market-card" aria-label="OneToken 模型 API 看板">
+          <aside className="landing-market-card" aria-label="oToken 模型 API 看板">
             <div className="market-card-topline">
               <span>Model API</span>
-              <strong>OneToken Gateway</strong>
+              <strong>oToken Gateway</strong>
             </div>
             <div className="market-live-model">
               <div>
@@ -1244,7 +1244,7 @@ await client.chat.completions.create({
         {showDownloads ? <section className="mobile-downloads" aria-labelledby="mobile-download-title">
           <div className="mobile-download-copy">
             <span>Mobile App</span>
-            <h2 id="mobile-download-title">{appDownload?.title ?? "移动端随时使用 OneToken"}</h2>
+            <h2 id="mobile-download-title">{appDownload?.title ?? "移动端随时使用 oToken"}</h2>
             <p>{appDownload?.subtitle ?? "App 端优先承载 AI 对话、模型切换、钱包充值和账单查看，Web、App 与 API 共用同一个客户账号和余额。"}</p>
           </div>
           <div className="mobile-download-grid">
@@ -1290,9 +1290,9 @@ await client.chat.completions.create({
         </section> : null}
 
         <footer className="landing-footer">
-          <span>{branding?.footer_text ?? "© 2026 OneToken. 版权所有"}</span>
+          <span>{branding?.footer_text ?? "© 2026 oToken. 版权所有"}</span>
           <span>
-            设计与开发由 <strong>OneToken</strong>
+            设计与开发由 <strong>oToken</strong>
           </span>
         </footer>
       </div>
@@ -1562,7 +1562,7 @@ function Dashboard({
         </section> : null}
         <section className="panel">
           <PanelTitle icon={<Gauge size={17} />} title="服务可用性" extra={<RefreshCw size={16} />} />
-          <ServiceStatus name="OneToken Gateway" />
+          <ServiceStatus name="oToken Gateway" />
           <ServiceStatus name="Provider Routing" />
         </section>
       </div>
@@ -2257,10 +2257,10 @@ function DocsPage({ copyText, models, siteConfig }: { copyText: (text: string) =
   const examples = [
     {
       title: "cURL",
-      code: `export ONE_TOKEN_BASE_URL="${apiBase}"
-export AI_TOKEN_API_KEY="你的 OneToken API Key"
+      code: `export OTOKEN_BASE_URL="${apiBase}"
+export AI_TOKEN_API_KEY="你的 oToken API Key"
 
-curl "$ONE_TOKEN_BASE_URL/chat/completions" \\
+curl "$OTOKEN_BASE_URL/chat/completions" \\
   -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

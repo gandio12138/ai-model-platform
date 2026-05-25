@@ -35,7 +35,7 @@ function toAppDownloadFormValues(value: any) {
     show_on_web_home: value?.show_on_web_home ?? true,
     show_on_console: value?.show_on_console ?? true,
     show_on_payment_success: value?.show_on_payment_success ?? true,
-    title: value?.title ?? "移动端随时使用 OneToken",
+    title: value?.title ?? "移动端随时使用 oToken",
     subtitle: value?.subtitle ?? "App、Web 与 API 共用同一个客户账号和余额。",
     qr_code_url: value?.qr_code_url ?? "",
     release_notes: value?.release_notes ?? "",
@@ -72,7 +72,7 @@ function fromAppDownloadFormValues(values: any) {
     show_on_web_home: Boolean(values.show_on_web_home),
     show_on_console: Boolean(values.show_on_console),
     show_on_payment_success: Boolean(values.show_on_payment_success),
-    title: values.title || "移动端随时使用 OneToken",
+    title: values.title || "移动端随时使用 oToken",
     subtitle: values.subtitle || "",
     qr_code_url: values.qr_code_url || null,
     release_notes: values.release_notes || null,
@@ -182,7 +182,7 @@ function AppDownloadConfigEditor({
               </Form.Item>
             </div>
             <Form.Item label="官网 APK 地址" name="android_apk_url">
-              <Input disabled={!canWrite} placeholder="https://download.example.com/onetoken.apk" />
+              <Input disabled={!canWrite} placeholder="https://download.example.com/otoken.apk" />
             </Form.Item>
             <Form.Item label="官方下载页" name="android_official_url">
               <Input disabled={!canWrite} placeholder="https://www.example.com/download/android" />

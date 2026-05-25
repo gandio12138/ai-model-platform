@@ -1,4 +1,4 @@
-# OneToken / AI Token Platform Implementation Gap Report
+# oToken / AI Token Platform Implementation Gap Report
 
 更新时间：2026-05-20
 

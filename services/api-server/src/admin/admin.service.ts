@@ -3734,8 +3734,8 @@ export class AdminService {
 
   private async ensureDefaultProjectsForTenant(client: PoolClient, tenantId: string) {
     const projects = [
-      ["ios-app", "自营 iOS App", "ios_app", "ios", "com.chengchengxu.onetoken.dev", null, null, { payment_methods: ["apple_iap"] }],
-      ["android-app", "自营 Android App", "android_app", "android", null, "com.onetoken.app", null, { payment_methods: ["alipay_app", "wechat_app"] }],
+      ["ios-app", "自营 iOS App", "ios_app", "ios", "com.otoken.app.dev", null, null, { payment_methods: ["apple_iap"] }],
+      ["android-app", "自营 Android App", "android_app", "android", null, "com.otoken.app", null, { payment_methods: ["alipay_app", "wechat_app"] }],
       ["web-checkout", "自营 Web 收银台", "web_checkout", "web", null, null, "localhost", { payment_methods: ["alipay_qr", "wechat_native", "card_checkout", "enterprise_transfer"] }],
       ["developer-api", "自营开发者 API", "developer_api", "api", null, null, null, { payment_methods: [] }]
     ] as const;

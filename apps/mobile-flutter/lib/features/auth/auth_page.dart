@@ -102,7 +102,7 @@ class _AuthPageState extends ConsumerState<AuthPage> {
               ),
               const SizedBox(height: AppSpacing.xl),
               Text(
-                _registerMode ? '创建 OneToken 账号' : '登录 OneToken',
+                _registerMode ? '创建 oToken 账号' : '登录 oToken',
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -162,12 +162,12 @@ class _AuthPageState extends ConsumerState<AuthPage> {
                       label: '打开 iOS 网络设置',
                       variant: AppButtonVariant.secondary,
                       onPressed: () async {
-                        final opened = await openOneTokenAppSettings();
+                        final opened = await openOTokenAppSettings();
                         if (!opened && context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                '请手动进入系统设置，打开 OneToken 的无线局域网与蜂窝网络权限',
+                                '请手动进入系统设置，打开 oToken 的无线局域网与蜂窝网络权限',
                               ),
                             ),
                           );
