@@ -278,7 +278,7 @@ function geminiThinkingBudget(provider: ProviderConfig, providerModelCode: strin
     const value = Number(configured);
     return Number.isFinite(value) ? value : null;
   }
-  return providerModelCode.toLowerCase().includes("gemini-2.5") ? 0 : null;
+  return null;
 }
 
 function estimateTokens(text: string) {
