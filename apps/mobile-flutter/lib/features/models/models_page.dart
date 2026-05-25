@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/router.dart';
 import '../../core/errors/app_exception.dart';
@@ -20,7 +21,6 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
   String _company = 'all';
   String _category = 'all';
   String _capability = 'all';
-  String _toolsStatus = 'all';
 
   @override
   void dispose() {
@@ -70,13 +70,7 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
               'stream' => model.supportsStream,
               _ => true,
             };
-            final toolsOk =
-                _toolsStatus == 'all' || model.toolsStatus == _toolsStatus;
-            return keywordOk &&
-                companyOk &&
-                categoryOk &&
-                capabilityOk &&
-                toolsOk;
+            return keywordOk && companyOk && categoryOk && capabilityOk;
           }).toList();
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(
@@ -97,15 +91,12 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
                   categories: categories,
                   category: _category,
                   total: filtered.length,
-                  toolsStatus: _toolsStatus,
                   onCapabilityChanged: (value) =>
                       setState(() => _capability = value),
                   onCategoryChanged: (value) =>
                       setState(() => _category = value),
                   onCompanyChanged: (value) => setState(() => _company = value),
                   onSearchChanged: (_) => setState(() {}),
-                  onToolsStatusChanged: (value) =>
-                      setState(() => _toolsStatus = value),
                 );
               }
               if (filtered.isEmpty) {
@@ -153,12 +144,10 @@ class _ModelFilterBar extends StatelessWidget {
     required this.companies,
     required this.company,
     required this.total,
-    required this.toolsStatus,
     required this.onCapabilityChanged,
     required this.onCategoryChanged,
     required this.onCompanyChanged,
     required this.onSearchChanged,
-    required this.onToolsStatusChanged,
   });
 
   final TextEditingController controller;
@@ -168,12 +157,10 @@ class _ModelFilterBar extends StatelessWidget {
   final List<String> companies;
   final String company;
   final int total;
-  final String toolsStatus;
   final ValueChanged<String> onCapabilityChanged;
   final ValueChanged<String> onCategoryChanged;
   final ValueChanged<String> onCompanyChanged;
   final ValueChanged<String> onSearchChanged;
-  final ValueChanged<String> onToolsStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -270,26 +257,6 @@ class _ModelFilterBar extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
-          Text('Tools 状态', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: AppSpacing.xs),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              _FilterChip(
-                label: '全部状态',
-                active: toolsStatus == 'all',
-                onTap: () => onToolsStatusChanged('all'),
-              ),
-              for (final item in const ['支持', '不支持', '待验证'])
-                _FilterChip(
-                  label: item,
-                  active: toolsStatus == item,
-                  onTap: () => onToolsStatusChanged(item),
-                ),
-            ],
-          ),
         ],
       ),
     );
@@ -381,10 +348,6 @@ class ModelCard extends StatelessWidget {
               AppBadge(label: model.category, color: AppColors.primary),
               AppBadge(label: model.supportsStream ? '流式' : '非流式'),
               AppBadge(
-                label: 'Tools ${model.toolsStatus}',
-                color: _toolsColor(model.toolsStatus),
-              ),
-              AppBadge(
                 label: '${compactNumber(model.maxContextTokens)} context',
                 color: AppColors.cyan,
               ),
@@ -414,18 +377,24 @@ class ModelCard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: model.code));
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('已复制可调用模型名')));
+              },
+              icon: const Icon(Icons.copy_rounded, size: 18),
+              label: const Text('复制可调用模型名'),
+            ),
+          ),
         ],
       ),
     );
   }
-}
-
-Color _toolsColor(String status) {
-  return switch (status) {
-    '支持' => AppColors.success,
-    '不支持' => AppColors.textMuted,
-    _ => AppColors.warning,
-  };
 }
 
 class _Price extends StatelessWidget {

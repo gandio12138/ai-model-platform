@@ -612,10 +612,6 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                                         ),
                                       if (model.supportsStream)
                                         const AppBadge(label: '流式'),
-                                      AppBadge(
-                                        label: 'Tools ${model.toolsStatus}',
-                                        color: _toolsColor(model.toolsStatus),
-                                      ),
                                     ],
                                   ),
                                 ],
@@ -768,14 +764,6 @@ List<String> _modelCategories(List<ModelInfo> models) {
   final ordered = order.where(values.contains).toList();
   final rest = values.where((item) => !order.contains(item)).toList()..sort();
   return [...ordered, ...rest];
-}
-
-Color _toolsColor(String status) {
-  return switch (status) {
-    '支持' => AppColors.success,
-    '不支持' => AppColors.textMuted,
-    _ => AppColors.warning,
-  };
 }
 
 class CostEstimateSheet extends StatelessWidget {

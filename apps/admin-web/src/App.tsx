@@ -376,6 +376,11 @@ function Shell({
     </PermissionGate>
   );
   const verifyModelTools = async (row: any, reload: () => void) => {
+    const providerSource = String(row.provider_source ?? row.metadata?.source ?? "").toLowerCase();
+    if (providerSource.includes("google_vertex")) {
+      message.info("Google Vertex 工具调用验证暂未接入，后续将按模型运行时能力自动验证");
+      return;
+    }
     const close = message.loading("正在发起 Bedrock Tools 轻量验证...", 0);
     try {
       const result = await apiFetch<{ tools_status_label?: string; message?: string }>(`/api/admin/models/${row.id}/verify-tools`, {
@@ -1189,7 +1194,7 @@ function Shell({
                   canCreate={can("model.write")}
                   canEdit={can("model.write")}
                   rowActions={(row, reload) =>
-                    can("model.write") ? (
+                    can("model.write") && !String(row.provider_source ?? row.metadata?.source ?? "").toLowerCase().includes("google_vertex") ? (
                       <Button size="small" onClick={() => verifyModelTools(row, reload)}>
                         验证 Tools
                       </Button>

@@ -272,7 +272,10 @@ class ModelInfo {
     final capabilities = _map(json['capabilities']);
     return ModelInfo(
       code: _string(json['model_code'] ?? json['code']),
-      name: _string(json['display_name'] ?? json['name']),
+      name: _publicModelName(
+        _string(json['display_name'] ?? json['name']),
+        _string(json['model_company'] ?? json['family'] ?? ''),
+      ),
       providerName: _string(
         json['model_company'] ??
             json['family'] ??
@@ -297,6 +300,32 @@ class ModelInfo {
       ),
     );
   }
+}
+
+String _publicModelName(String raw, String company) {
+  var value = raw.trim();
+  final companyText = company.trim();
+  if (companyText.isNotEmpty &&
+      value.toLowerCase().startsWith('${companyText.toLowerCase()} ')) {
+    value = value.substring(companyText.length).trim();
+  }
+  return value
+      .replaceFirst(RegExp(r'^Google\s+Gemini', caseSensitive: false), 'Gemini')
+      .replaceFirst(
+        RegExp(r'^Anthropic\s+Claude', caseSensitive: false),
+        'Claude',
+      )
+      .replaceFirst(
+        RegExp(r'^Mistral AI\s+Mistral', caseSensitive: false),
+        'Mistral',
+      )
+      .replaceFirstMapped(
+        RegExp(
+          r'\b(Claude\s+(?:Opus|Sonnet|Haiku)\s+\d+)\s+(\d+)\b',
+          caseSensitive: false,
+        ),
+        (match) => '${match.group(1)}.${match.group(2)}',
+      );
 }
 
 class PaymentProduct {

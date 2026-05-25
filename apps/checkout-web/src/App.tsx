@@ -187,6 +187,17 @@ function modelCompany(model: Pick<ModelInfo, "display_name" | "family" | "model_
   return model.model_company ?? model.family ?? "其他";
 }
 
+function modelPublicName(model: Pick<ModelInfo, "display_name" | "family" | "model_code" | "model_company">) {
+  const company = modelCompany(model);
+  const raw = (model.display_name || model.model_code).trim();
+  return raw
+    .replace(new RegExp(`^${company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`, "i"), "")
+    .replace(/^Google\s+Gemini/i, "Gemini")
+    .replace(/^Anthropic\s+Claude/i, "Claude")
+    .replace(/^Mistral AI\s+Mistral/i, "Mistral")
+    .replace(/\b(Claude\s+(?:Opus|Sonnet|Haiku)\s+\d+)\s+(\d+)\b/i, "$1.$2");
+}
+
 const modelCategoryOrder = [
   "文本对话模型",
   "Embedding 模型",
@@ -198,14 +209,6 @@ const modelCategoryOrder = [
 
 function modelCategoryLabel(model: ModelInfo) {
   return model.model_category_label || "文本对话模型";
-}
-
-function modelToolsStatusLabel(model: ModelInfo) {
-  if (model.tools_status_label) return model.tools_status_label;
-  if (model.tools_status === "supported") return "支持";
-  if (model.tools_status === "unsupported") return "不支持";
-  if (model.capabilities.tools) return "支持";
-  return "待验证";
 }
 
 function anonymizedSource(email?: string | null) {
@@ -1650,7 +1653,6 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
   const [category, setCategory] = useState("全部模型");
   const [billing, setBilling] = useState("全部类型");
   const [capability, setCapability] = useState("全部能力");
-  const [toolsStatus, setToolsStatus] = useState("全部状态");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
   const companies = useMemo(() => {
@@ -1684,13 +1686,6 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       ["JSON 模式", json] as const
     ];
   }, [models]);
-  const toolsStatuses = useMemo(() => {
-    const labels = ["支持", "不支持", "待验证"];
-    return [
-      ["全部状态", models.length] as const,
-      ...labels.map((label) => [label, models.filter((model) => modelToolsStatusLabel(model) === label).length] as const)
-    ];
-  }, [models]);
   const filtered = models.filter((model) => {
     const companyName = modelCompany(model);
     const companyOk = company === "全部公司" || companyName === company;
@@ -1704,14 +1699,13 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       capability === "全部能力" ||
       (capability === "流式输出" && model.capabilities.stream) ||
       (capability === "JSON 模式" && model.capabilities.json_mode);
-    const toolsStatusOk = toolsStatus === "全部状态" || modelToolsStatusLabel(model) === toolsStatus;
     const keywordOk =
       !keyword ||
       model.model_code.toLowerCase().includes(keyword.toLowerCase()) ||
-      model.display_name.toLowerCase().includes(keyword.toLowerCase()) ||
+      modelPublicName(model).toLowerCase().includes(keyword.toLowerCase()) ||
       companyName.toLowerCase().includes(keyword.toLowerCase()) ||
       modelCategoryLabel(model).toLowerCase().includes(keyword.toLowerCase());
-    return companyOk && categoryOk && billingOk && capabilityOk && toolsStatusOk && keywordOk;
+    return companyOk && categoryOk && billingOk && capabilityOk && keywordOk;
   });
   const toggleFavorite = (modelCode: string) => {
     setFavorites((items) => (items.includes(modelCode) ? items.filter((item) => item !== modelCode) : [...items, modelCode]));
@@ -1727,7 +1721,7 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       <aside className="filter-panel">
         <div className="filter-title">
           <strong>筛选</strong>
-          <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setBilling("全部类型"); setCapability("全部能力"); setToolsStatus("全部状态"); setKeyword(""); }}>重置</Button>
+          <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setBilling("全部类型"); setCapability("全部能力"); setKeyword(""); }}>重置</Button>
         </div>
         <FilterGroup title="模型公司" items={companies} active={company} setActive={setCompany} />
         <FilterGroup title="模型类型" items={categories} active={category} setActive={setCategory} />
@@ -1742,7 +1736,6 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
           setActive={setBilling}
         />
         <FilterGroup title="能力标签" items={capabilities} active={capability} setActive={setCapability} />
-        <FilterGroup title="Tools 状态" items={toolsStatuses} active={toolsStatus} setActive={setToolsStatus} />
       </aside>
       <section className="market-main">
         <div className="market-hero">
@@ -1762,7 +1755,7 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
         <div className="market-toolbar">
           <Input allowClear prefix={<Search size={16} />} placeholder="模糊搜索模型名称" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           <Button icon={<Copy size={16} />} onClick={() => copyText(filtered.map((model) => model.model_code).join("\n"))}>
-            复制模型 ID
+            复制可调用模型名
           </Button>
         </div>
         <div className="model-card-grid">
@@ -1773,12 +1766,12 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                 <div>
                   <div className="model-card-head">
                     <div>
-                      <h3>{model.display_name}</h3>
+                      <h3>{modelPublicName(model)}</h3>
                       <code>{model.model_code}</code>
                       <span className="model-company-label">{modelCompany(model)}</span>
                     </div>
                     <div>
-                      <Button aria-label="复制模型编码" size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)} />
+                      <Button aria-label="复制可调用模型名" size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)} />
                     </div>
                   </div>
                   <dl className="model-price-grid">
@@ -1800,14 +1793,11 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                     <Tag color="blue">{modelCategoryLabel(model)}</Tag>
                     {model.capabilities.stream ? <Tag>流式</Tag> : null}
                     {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
-                    <Tag color={modelToolsStatusLabel(model) === "支持" ? "green" : modelToolsStatusLabel(model) === "待验证" ? "gold" : "default"}>
-                      Tools {modelToolsStatusLabel(model)}
-                    </Tag>
                     <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "待配置价格"}</Tag>
                   </div>
                   <div className="model-card-actions">
                     <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)}>
-                      复制模型 ID
+                      复制可调用模型名
                     </Button>
                     <Button size="small" icon={<Code2 size={14} />} onClick={() => copyExample(model.model_code)}>
                       查看接入示例
@@ -2271,10 +2261,10 @@ resp = client.chat.completions.create(
               <div className="docs-model-table">
                 {models.slice(0, 12).map((model) => (
                   <div key={model.id}>
-                    <strong>{model.display_name}</strong>
+                    <strong>{modelPublicName(model)}</strong>
                     <code>{model.model_code}</code>
                     <span>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)} 输入</span>
-                    <Button size="small" onClick={() => copyText(model.model_code)}>复制</Button>
+                    <Button size="small" onClick={() => copyText(model.model_code)}>复制可调用模型名</Button>
                   </div>
                 ))}
               </div>

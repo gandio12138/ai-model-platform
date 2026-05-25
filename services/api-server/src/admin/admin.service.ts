@@ -2437,6 +2437,9 @@ export class AdminService {
     const config = this.buildAdminProviderConfig(provider, credential);
     const adapter = this.providerAdapters.resolve(config.providerType);
     if (!adapter.validateToolUse) {
+      if (this.normalizeProviderType(config.providerType) === "google_vertex_ai") {
+        throw new BadRequestException("Google Vertex 工具调用验证暂未接入，后续将按模型运行时能力自动验证");
+      }
       throw new BadRequestException(`Tools validation is not implemented for provider type: ${config.providerType}`);
     }
     const result = await adapter.validateToolUse({

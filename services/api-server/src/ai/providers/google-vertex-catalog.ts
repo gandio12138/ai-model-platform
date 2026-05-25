@@ -463,10 +463,10 @@ function vertexProviderDisplayName(publisher: string) {
 
 function displayNameForVertexModel(publisher: string, modelId: string, displayName?: string) {
   if (displayName?.trim()) return displayName.trim();
-  const prefix = vertexProviderDisplayName(publisher);
   const title = modelId
     .replace(/-/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase())
-    .replace(/\bAi\b/g, "AI");
-  return `${prefix} ${title}`.replace(/^Google Gemini/i, "Gemini");
+    .replace(/\bAi\b/g, "AI")
+    .replace(/\b(Claude\s+(?:Opus|Sonnet|Haiku)\s+\d+)\s+(\d+)\b/i, "$1.$2");
+  return title.replace(/^Google Gemini/i, "Gemini");
 }
