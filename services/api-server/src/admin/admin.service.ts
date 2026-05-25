@@ -2310,7 +2310,17 @@ export class AdminService {
     let pricingMissing = 0;
     let contextMissing = 0;
     const unpricedSourceModelIds: string[] = [];
+    const runtimeUnavailableSourceModelIds: string[] = [];
     for (const item of syncItems) {
+      const runtimeStatus = String(item.raw?.runtime_validation_status ?? "");
+      const includeUnavailableRuntime = this.booleanFlag(
+        body.include_unverified_runtime,
+        process.env.GOOGLE_VERTEX_SYNC_INCLUDE_UNVERIFIED === "true"
+      );
+      if (providerType === "google_vertex_ai" && runtimeStatus === "unavailable" && !includeUnavailableRuntime) {
+        runtimeUnavailableSourceModelIds.push(item.sourceModelId);
+        continue;
+      }
       if (["aws_bedrock", "google_vertex_ai"].includes(providerType) && (!item.pricing || !item.maxContextTokens)) {
         if (!item.pricing) pricingMissing += 1;
         if (!item.maxContextTokens) contextMissing += 1;
@@ -2345,6 +2355,10 @@ export class AdminService {
       ["aws_bedrock", "google_vertex_ai"].includes(providerType)
         ? await this.archiveUnpricedSyncedModels(provider.id, providerType, unpricedSourceModelIds)
         : 0;
+    const archivedRuntimeUnavailableCount =
+      providerType === "google_vertex_ai"
+        ? await this.archiveRuntimeUnavailableSyncedModels(provider.id, runtimeUnavailableSourceModelIds)
+        : 0;
 
     const region = String(
       body.aws_region ??
@@ -2369,6 +2383,7 @@ export class AdminService {
           last_model_sync_price_missing_count: pricingMissing,
           last_model_sync_context_missing_count: contextMissing,
           last_model_sync_archived_unpriced_count: archivedUnpricedCount,
+          last_model_sync_archived_runtime_unavailable_count: archivedRuntimeUnavailableCount,
           last_model_sync_region: region,
           last_model_sync_auth_mode: authMode,
           model_source: providerType === "aws_bedrock" ? "aws_bedrock_sdk" : providerType
@@ -2391,7 +2406,8 @@ export class AdminService {
         pricing_synced_count: pricingSynced,
         pricing_missing_count: pricingMissing,
         context_missing_count: contextMissing,
-        archived_unpriced_count: archivedUnpricedCount
+        archived_unpriced_count: archivedUnpricedCount,
+        archived_runtime_unavailable_count: archivedRuntimeUnavailableCount
       },
       reason: String(body.reason ?? "sync provider models")
     });
@@ -2405,6 +2421,7 @@ export class AdminService {
       pricing_missing_count: pricingMissing,
       context_missing_count: contextMissing,
       archived_unpriced_count: archivedUnpricedCount,
+      archived_runtime_unavailable_count: archivedRuntimeUnavailableCount,
       models: synced
     };
   }
@@ -2571,14 +2588,10 @@ export class AdminService {
       body.validate_runtime,
       process.env.GOOGLE_VERTEX_SYNC_VALIDATE_RUNTIME === "true"
     );
-    const includeUnverifiedRuntime = this.booleanFlag(
-      body.include_unverified_runtime,
-      process.env.GOOGLE_VERTEX_SYNC_INCLUDE_UNVERIFIED === "true"
-    );
     let verifiedCount = 0;
     let unavailableCount = 0;
     const runtimeValidationErrors: Array<{ model: string; error: string | null }> = [];
-    const filteredItems = shouldValidateRuntime
+    const runtimeItems = shouldValidateRuntime
       ? await (async () => {
           const validations = await validateGoogleVertexRuntimeModels({
             projectId,
@@ -2610,11 +2623,6 @@ export class AdminService {
                 }
               };
             })
-            .filter((item) => {
-              if (includeUnverifiedRuntime) return true;
-              const status = String(item.raw.runtime_validation_status ?? "");
-              return status === "verified" || status === "not_checked";
-            });
         })()
       : items.map((item) => ({
           ...item,
@@ -2641,7 +2649,7 @@ export class AdminService {
         provider.id
       ]
     );
-    return filteredItems as ProviderModelSyncItem[];
+    return runtimeItems as ProviderModelSyncItem[];
   }
 
   private async fetchAwsBedrockModelSyncItems(
@@ -3743,6 +3751,50 @@ export class AdminService {
       );
     }
     return archived.rows.length;
+  }
+
+  private async archiveRuntimeUnavailableSyncedModels(providerId: string, sourceModelIds: string[]) {
+    const uniqueSourceModelIds = [...new Set(sourceModelIds.filter(Boolean))];
+    if (!uniqueSourceModelIds.length) return 0;
+    const disabled = await this.db.query<{ model_id: string }>(
+      `with disabled_routes as (
+         update model_routes mr
+            set enabled = false,
+                metadata = coalesce(mr.metadata, '{}'::jsonb) || jsonb_build_object(
+                  'runtime_validation_status', 'unavailable',
+                  'disabled_reason', 'google_vertex_runtime_unavailable',
+                  'disabled_at', now()
+                ),
+                updated_at = now()
+          where mr.provider_id = $1
+            and coalesce(mr.metadata->>'source_model_id', mr.provider_model_code) = any($2::text[])
+          returning mr.model_id
+       )
+       select distinct model_id from disabled_routes`,
+      [providerId, uniqueSourceModelIds]
+    );
+    const modelIds = disabled.rows.map((row) => row.model_id);
+    if (modelIds.length) {
+      await this.db.query(
+        `update models m
+            set status = 'archived',
+                metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object(
+                  'runtime_validation_status', 'unavailable',
+                  'archived_reason', 'google_vertex_runtime_unavailable',
+                  'archived_at', now()
+                ),
+                updated_at = now()
+          where m.id = any($1::uuid[])
+            and not exists (
+              select 1
+                from model_routes mr
+               where mr.model_id = m.id
+                 and mr.enabled = true
+            )`,
+        [modelIds]
+      );
+    }
+    return modelIds.length;
   }
 
   private async upsertSyncedModelPrice(modelId: string, pricing: ResolvedProviderPricing) {
