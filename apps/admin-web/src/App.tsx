@@ -370,6 +370,7 @@ function Shell({
   const defaultPath = visibleLeafItems[0]?.key ?? "/login";
   const can = (permission: Permission) => hasPermission(user, permission);
   const accountTypeLabel = user?.accountType === "tenant" ? "租户" : "管理员";
+  const showSourceModelPricing = user?.accountType === "admin" && can("platform.tenant.read_all");
   const page = (permission: Permission, accountTypes: AccountType[], element: ReactElement) => (
     <PermissionGate user={user} permission={permission} accountTypes={accountTypes} fallback={defaultPath}>
       {element}
@@ -1136,9 +1137,9 @@ function Shell({
                     ["model_company", "模型公司"],
                     ["provider_source", "接入来源"],
                     ["max_context_tokens", "上下文"],
-                    ["source_currency", "原始币种"],
-                    ["source_input_price_per_1k_yuan", "原始输入/1K tokens", "token_price"],
-                    ["source_output_price_per_1k_yuan", "原始输出/1K tokens", "token_price"],
+                    showSourceModelPricing ? ["source_currency", "原始币种"] : ["currency", "币种"],
+                    showSourceModelPricing ? ["source_input_price_per_1k_yuan", "原始输入/1K tokens", "token_price"] : ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    showSourceModelPricing ? ["source_output_price_per_1k_yuan", "原始输出/1K tokens", "token_price"] : ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["supports_stream", "Stream"],
                     ["supports_tools", "Tools"],
                     ["status", "状态"]
@@ -1151,9 +1152,9 @@ function Shell({
                     ["model_family", "模型族"],
                     ["max_context_tokens", "上下文"],
                     ["default_max_output_tokens", "默认输出"],
-                    ["source_currency", "原始币种"],
-                    ["source_input_price_per_1k_yuan", "原始输入/1K tokens", "token_price"],
-                    ["source_output_price_per_1k_yuan", "原始输出/1K tokens", "token_price"],
+                    showSourceModelPricing ? ["source_currency", "原始币种"] : ["currency", "币种"],
+                    showSourceModelPricing ? ["source_input_price_per_1k_yuan", "原始输入/1K tokens", "token_price"] : ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
+                    showSourceModelPricing ? ["source_output_price_per_1k_yuan", "原始输出/1K tokens", "token_price"] : ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
                     ["supports_stream", "支持 Stream"],
                     ["supports_tools", "支持 Tools"],
                     ["supports_json_mode", "支持 JSON"],

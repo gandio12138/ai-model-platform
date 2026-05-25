@@ -1045,6 +1045,9 @@ export class AdminService {
     if (resource === "modelPrices") {
       return this.listModelPrices(query);
     }
+    if (resource === "models" && !this.isSuperAdmin(user)) {
+      return this.listScopedModelCatalog(query, user);
+    }
     if (resource === "tenantUsageAggregates") {
       return this.listTenantUsageAggregates(query, user);
     }
@@ -1554,6 +1557,125 @@ export class AdminService {
     ]);
     return {
       data: dataResult.rows,
+      total: countResult.rows[0]?.total ?? 0,
+      page,
+      pageSize
+    };
+  }
+
+  private async listScopedModelCatalog(query: Record<string, unknown>, user: any) {
+    const tenantIds = await this.getScopedTenantIds(user);
+    if (!tenantIds?.length) {
+      const { page, pageSize } = parsePagination(query);
+      return { data: [], total: 0, page, pageSize };
+    }
+    const tenantId = query.tenant_id && tenantIds.includes(String(query.tenant_id))
+      ? String(query.tenant_id)
+      : tenantIds[0];
+    const { page, pageSize, offset } = parsePagination(query);
+    const params: unknown[] = [tenantId];
+    const filters: string[] = [
+      "m.status = 'active'",
+      "m.max_context_tokens is not null",
+      "coalesce(tmp.price_version, mp.price_version) is not null"
+    ];
+    if (query.search) {
+      params.push(`%${String(query.search)}%`);
+      filters.push(
+        `(m.public_model_code ilike $${params.length}
+          or m.display_name ilike $${params.length}
+          or m.model_family ilike $${params.length}
+          or coalesce(m.metadata->>'model_company', m.metadata->>'provider_name', '') ilike $${params.length})`
+      );
+    }
+    if (query.status) {
+      params.push(query.status);
+      filters.push(`m.status = $${params.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const baseSql = `with model_rows as (
+       select m.*,
+              coalesce(tma.max_context_tokens, mp.max_context_tokens, m.max_context_tokens) as effective_max_context_tokens,
+              coalesce(mp.default_max_output_tokens, m.default_max_output_tokens) as effective_default_max_output_tokens,
+              coalesce(tmp.price_version, mp.price_version) as price_version,
+              coalesce(tmp.currency, mp.currency) as currency,
+              coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
+              coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m,
+              coalesce(m.metadata->>'canonical_model_key', m.public_model_code) as canonical_model_key
+         from models m
+         join tenants context_tenant on context_tenant.id = $1
+         left join tenant_model_authorizations tma
+           on tma.model_id = m.id
+          and tma.tenant_id = context_tenant.id
+          and tma.status = 'active'
+         left join lateral (
+           select *
+             from tenant_model_prices
+            where tenant_id = context_tenant.id
+              and model_id = m.id
+              and status = 'active'
+              and effective_from <= now()
+              and (effective_to is null or effective_to > now())
+            order by effective_from desc, created_at desc
+            limit 1
+         ) tmp on true
+         left join lateral (
+           select *
+             from model_prices
+            where model_id = m.id
+              and status = 'active'
+              and effective_from <= now()
+              and (effective_to is null or effective_to > now())
+            order by effective_from desc, created_at desc
+            limit 1
+         ) mp on true
+        ${where}
+     ),
+     ranked as (
+       select *,
+              row_number() over (
+                partition by canonical_model_key
+                order by
+                  case when metadata->>'public_preferred' = 'true' then 0 else 1 end,
+                  input_price_per_1m asc,
+                  output_price_per_1m asc,
+                  display_name asc
+              ) as model_rank
+         from model_rows
+     )`;
+    const [countResult, dataResult] = await Promise.all([
+      this.db.query<{ total: number }>(
+        `${baseSql}
+         select count(*)::int as total
+           from ranked
+          where model_rank = 1`,
+        params
+      ),
+      this.db.query(
+        `${baseSql}
+         select *,
+                effective_max_context_tokens as max_context_tokens,
+                effective_default_max_output_tokens as default_max_output_tokens,
+                currency as source_currency,
+                round(input_price_per_1m::numeric / 100000, 6) as input_price_per_1k_yuan,
+                round(output_price_per_1m::numeric / 100000, 6) as output_price_per_1k_yuan,
+                round(input_price_per_1m::numeric / 100000, 6) as source_input_price_per_1k_yuan,
+                round(output_price_per_1m::numeric / 100000, 6) as source_output_price_per_1k_yuan
+           from ranked
+          where model_rank = 1
+          order by model_family nulls last, display_name asc
+          limit $${params.length + 1} offset $${params.length + 2}`,
+        [...params, pageSize, offset]
+      )
+    ]);
+    return {
+      data: dataResult.rows.map((row) => ({
+        ...row,
+        provider_source: row.metadata?.source ?? "-",
+        model_company: row.metadata?.model_company ?? row.metadata?.provider_name ?? row.model_family,
+        canonical_model_key: row.metadata?.canonical_model_key ?? row.public_model_code,
+        source_model_id: row.metadata?.source_model_id ?? row.public_model_code
+      })),
       total: countResult.rows[0]?.total ?? 0,
       page,
       pageSize
@@ -2631,18 +2753,36 @@ export class AdminService {
       process.env.GOOGLE_VERTEX_SYNC_VALIDATE_RUNTIME === "true"
     );
     let verifiedCount = 0;
+    let cachedVerifiedCount = 0;
     let unavailableCount = 0;
     const runtimeValidationErrors: Array<{ model: string; error: string | null }> = [];
     const runtimeItems = shouldValidateRuntime
       ? await (async () => {
-          const validations = await validateGoogleVertexRuntimeModels({
-            projectId,
-            credential: provider.credential ?? null,
-            items,
-            maxModels: Number(body.runtime_validation_limit ?? items.length)
-          });
+          const cachedValidations = await this.getCachedVertexRuntimeValidations(provider.id ?? null, items);
+          const itemsToValidate = items.filter((item) => cachedValidations.get(item.providerModelCode)?.status !== "verified");
+          const validations = itemsToValidate.length
+            ? await validateGoogleVertexRuntimeModels({
+                projectId,
+                credential: provider.credential ?? null,
+                items: itemsToValidate,
+                maxModels: Number(body.runtime_validation_limit ?? itemsToValidate.length)
+              })
+            : new Map();
           return items
             .map((item) => {
+              const cached = cachedValidations.get(item.providerModelCode);
+              if (cached?.status === "verified") {
+                cachedVerifiedCount += 1;
+                return {
+                  ...item,
+                  raw: {
+                    ...item.raw,
+                    runtime_validation_status: "verified",
+                    runtime_validation_cached: true,
+                    runtime_validated_at: cached.checkedAt
+                  }
+                };
+              }
               const validation = validations.get(item.providerModelCode);
               if (!validation) return item;
               if (validation.status === "verified") verifiedCount += 1;
@@ -2685,6 +2825,7 @@ export class AdminService {
           last_vertex_sync_errors: catalog.errors.slice(0, 20),
           last_vertex_runtime_validation_enabled: shouldValidateRuntime,
           last_vertex_runtime_verified_count: verifiedCount,
+          last_vertex_runtime_cached_verified_count: cachedVerifiedCount,
           last_vertex_runtime_unavailable_count: unavailableCount,
           last_vertex_runtime_validation_errors: runtimeValidationErrors.slice(0, 20)
         }),
@@ -2692,6 +2833,43 @@ export class AdminService {
       ]
     );
     return runtimeItems as ProviderModelSyncItem[];
+  }
+
+  private async getCachedVertexRuntimeValidations(providerId: string | null | undefined, items: ProviderModelSyncItem[]) {
+    const modelCodes = [...new Set(items.flatMap((item) => [item.providerModelCode, item.sourceModelId]).filter(Boolean))];
+    const cached = new Map<string, { status: string; checkedAt: string | null }>();
+    if (!providerId || !modelCodes.length) return cached;
+    const { rows } = await this.db.query<{
+      provider_model_code: string | null;
+      source_model_id: string | null;
+      status: string | null;
+      checked_at: string | null;
+    }>(
+      `select mr.provider_model_code,
+              coalesce(m.metadata->>'source_model_id', mr.metadata->>'source_model_id') as source_model_id,
+              m.metadata->>'runtime_validation_status' as status,
+              m.metadata->>'runtime_validated_at' as checked_at
+         from model_routes mr
+         join models m on m.id = mr.model_id
+        where mr.provider_id = $1
+          and m.status = 'active'
+          and mr.enabled = true
+          and m.metadata->>'runtime_validation_status' = 'verified'
+          and (
+            mr.provider_model_code = any($2::text[])
+            or coalesce(m.metadata->>'source_model_id', mr.metadata->>'source_model_id') = any($2::text[])
+          )`,
+      [providerId, modelCodes]
+    );
+    for (const row of rows) {
+      const value = {
+        status: row.status ?? "verified",
+        checkedAt: row.checked_at
+      };
+      if (row.provider_model_code) cached.set(row.provider_model_code, value);
+      if (row.source_model_id) cached.set(row.source_model_id, value);
+    }
+    return cached;
   }
 
   private async fetchAwsBedrockModelSyncItems(
