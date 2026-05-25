@@ -375,27 +375,6 @@ function Shell({
       {element}
     </PermissionGate>
   );
-  const verifyModelTools = async (row: any, reload: () => void) => {
-    const providerSource = String(row.provider_source ?? row.metadata?.source ?? "").toLowerCase();
-    if (providerSource.includes("google_vertex")) {
-      message.info("Google Vertex 工具调用验证暂未接入，后续将按模型运行时能力自动验证");
-      return;
-    }
-    const close = message.loading("正在发起 Bedrock Tools 轻量验证...", 0);
-    try {
-      const result = await apiFetch<{ tools_status_label?: string; message?: string }>(`/api/admin/models/${row.id}/verify-tools`, {
-        method: "POST",
-        body: JSON.stringify({ reason: "admin verify tools support" })
-      });
-      message.success(`Tools ${result.tools_status_label ?? "待验证"}：${result.message ?? "验证完成"}`);
-      reload();
-    } catch (error) {
-      message.error((error as Error).message);
-    } finally {
-      close();
-    }
-  };
-
   return (
     <Layout className="admin-shell">
       <Sider width={236} theme={effectiveTheme === "dark" ? "dark" : "light"} className="admin-sider">
@@ -1193,13 +1172,6 @@ function Shell({
                   ]}
                   canCreate={can("model.write")}
                   canEdit={can("model.write")}
-                  rowActions={(row, reload) =>
-                    can("model.write") && !String(row.provider_source ?? row.metadata?.source ?? "").toLowerCase().includes("google_vertex") ? (
-                      <Button size="small" onClick={() => verifyModelTools(row, reload)}>
-                        验证 Tools
-                      </Button>
-                    ) : null
-                  }
                 />
               )}
             />
