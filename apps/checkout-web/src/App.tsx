@@ -981,47 +981,79 @@ function HomePage({
   const heroTitle = branding?.hero_title ?? "一个 API Key，调用多家顶尖模型";
   const heroSubtitle = branding?.hero_subtitle ?? "统一接入 OpenAI、Claude、Gemini、DeepSeek、Qwen 等模型。按量计费、余额共享、账单透明，Web 与 App 共用同一个账户体系。";
   const showDownloads = modules.landing_app_download && shouldShowAppDownload(appDownload, "home");
+  const pricedModels = models.filter((model) => Boolean(model.price && (model.price.input_per_1k !== null || model.price.input_per_1m !== null)));
+  const showcasedModels = (pricedModels.length ? pricedModels : models).slice(0, 5);
+  const heroModel = showcasedModels[0];
+  const companyCount = new Set(models.map((model) => modelCompany(model))).size;
+  const categoryCount = new Set(models.map((model) => simplifiedModelCategory(model))).size;
+  const providerBadges = Array.from(new Set(models.map((model) => modelCompany(model))))
+    .filter((name) => ["Claude", "OpenAI", "Gemini", "DeepSeek", "阿里巴巴"].includes(name))
+    .slice(0, 5);
 
   return (
     <section className="home-page landing-home">
       <div className="landing-stage">
         <NetworkPlane />
-        <div className="landing-globe" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="landing-halo" aria-hidden="true" />
 
-        <div className="landing-hero">
-          <span className="landing-eyebrow">{branding?.hero_badge ?? "AI API Gateway"}</span>
-          <h1>{heroTitle}</h1>
-          <p>
-            {heroSubtitle}
-          </p>
-          <div className="landing-actions">
-            <Button className="landing-doc-button" size="large" onClick={() => setActive("docs")}>
-              {branding?.secondary_cta ?? "查看文档"}
-            </Button>
-            <Button
-              className="landing-primary-button"
-              size="large"
-              type="primary"
-              onClick={() => setActive(user ? "console" : "auth")}
-            >
-              {branding?.primary_cta ?? "立即接入"}
-              <ChevronRight size={18} />
-            </Button>
-          </div>
-          <div className="landing-command-panel" aria-label="OneToken 接入预览">
-            <div className="landing-command-copy">
-              <span>OpenAI Compatible</span>
-              <strong>{apiBase}</strong>
-              <p>替换 Base URL，使用同一组 API Key 即可在 Web、App 与服务端调用所有可用模型。</p>
+        <section className="landing-hero-shell" aria-labelledby="home-hero-title">
+          <div className="landing-hero">
+            <span className="landing-eyebrow">{branding?.hero_badge ?? "AI API Gateway"}</span>
+            <h1 id="home-hero-title">{heroTitle}</h1>
+            <p>{heroSubtitle}</p>
+            <div className="landing-actions">
+              <Button
+                className="landing-primary-button"
+                size="large"
+                type="primary"
+                onClick={() => setActive(user ? "console" : "auth")}
+              >
+                {branding?.primary_cta ?? "立即接入"}
+                <ChevronRight size={18} />
+              </Button>
+              <Button className="landing-doc-button" size="large" onClick={() => setActive("docs")}>
+                {branding?.secondary_cta ?? "查看文档"}
+              </Button>
             </div>
-            <div className="landing-command-code">
+            <div className="landing-provider-strip" aria-label="模型供应商">
+              {(providerBadges.length ? providerBadges : ["Claude", "OpenAI", "Gemini", "DeepSeek"]).map((provider) => (
+                <span key={provider}>{provider}</span>
+              ))}
+            </div>
+          </div>
+
+          <aside className="landing-market-card" aria-label="OneToken 模型 API 看板">
+            <div className="market-card-topline">
+              <span>Model API</span>
+              <strong>OneToken Gateway</strong>
+            </div>
+            <div className="market-live-model">
+              <div>
+                <span>当前推荐模型</span>
+                <strong>{heroModel ? modelPublicName(heroModel) : "Gemini 2.5 Pro"}</strong>
+              </div>
+              <Tag color="blue">OpenAI Compatible</Tag>
+            </div>
+            <div className="market-price-stack">
+              {showcasedModels.slice(0, 4).map((model) => (
+                <button key={model.id} type="button" onClick={() => setActive("models")}>
+                  <span>
+                    <strong>{modelPublicName(model)}</strong>
+                    <em>{modelCompany(model)} · {simplifiedModelCategory(model)}</em>
+                  </span>
+                  <b>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)}</b>
+                </button>
+              ))}
+              {!showcasedModels.length ? (
+                <button type="button" onClick={() => setActive("models")}>
+                  <span>
+                    <strong>模型目录</strong>
+                    <em>同步 Provider 后展示真实价格</em>
+                  </span>
+                  <b>查看</b>
+                </button>
+              ) : null}
+            </div>
+            <div className="landing-command-code compact-code">
               <div className="code-window-bar">
                 <span />
                 <span />
@@ -1033,12 +1065,31 @@ function HomePage({
 });
 
 await client.chat.completions.create({
-  model: "${models[0]?.model_code ?? "gpt-4o"}",
+  model: "${heroModel?.model_code ?? "gemini-2.5-pro"}",
   messages: [{ role: "user", content: "你好" }]
 });`}</pre>
             </div>
+          </aside>
+        </section>
+
+        <section className="landing-proof-strip" aria-label="平台概览">
+          <div>
+            <span>可用模型</span>
+            <strong>{numberText(models.length)}</strong>
           </div>
-        </div>
+          <div>
+            <span>供应商/模型公司</span>
+            <strong>{numberText(companyCount)}</strong>
+          </div>
+          <div>
+            <span>模型类型</span>
+            <strong>{numberText(categoryCount)}</strong>
+          </div>
+          <div>
+            <span>计费方式</span>
+            <strong>按 1K tokens</strong>
+          </div>
+        </section>
 
         <section className="capability-row" aria-label="平台核心能力">
           <article className="capability-card coverage-card">
@@ -1101,6 +1152,57 @@ await client.chat.completions.create({
               <span>Model</span>
             </div>
           </article>
+        </section>
+
+        <section className="landing-price-section" aria-labelledby="price-title">
+          <div className="landing-section-copy">
+            <span>Transparent Pricing</span>
+            <h2 id="price-title">把模型成本、平台价格和钱包扣费放在同一条链路里</h2>
+            <p>后台同步供应商模型与成本价格，管理员设置平台售卖价格和上下文窗口；Web、App 与 API 调用只展示最终生效的客户价格。</p>
+          </div>
+          <div className="landing-price-board">
+            <div className="price-board-head">
+              <span>模型</span>
+              <span>输入价格</span>
+              <span>输出价格</span>
+              <span>上下文</span>
+            </div>
+            {(showcasedModels.length ? showcasedModels : models.slice(0, 5)).map((model) => (
+              <button key={model.id} type="button" className="price-board-row" onClick={() => setActive("models")}>
+                <span>
+                  <strong>{modelPublicName(model)}</strong>
+                  <em>{model.model_code}</em>
+                </span>
+                <b>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)}</b>
+                <b>{modelPriceText(model.price?.output_per_1m, model.price?.output_per_1k)}</b>
+                <b>{numberText(model.max_context_tokens)}</b>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="landing-plan-section" aria-labelledby="plan-title">
+          <div className="landing-section-copy">
+            <span>Workflow</span>
+            <h2 id="plan-title">从充值到调用，闭环更短</h2>
+          </div>
+          <div className="landing-plan-grid">
+            <article>
+              <CircleDollarSign size={22} />
+              <h3>充值额度</h3>
+              <p>Web、App 共享钱包余额，充值、赠送、冻结和实际扣费都进入同一套账单明细。</p>
+            </article>
+            <article>
+              <KeyRound size={22} />
+              <h3>创建 API Key</h3>
+              <p>客户 API Key 按租户和用户共享，可直接用于所有已上架模型，不再区分 Web/App 来源。</p>
+            </article>
+            <article>
+              <Shield size={22} />
+              <h3>可观测调用</h3>
+              <p>每次请求记录模型、tokens、耗时、实际扣费和上游状态，方便成本复盘与问题定位。</p>
+            </article>
+          </div>
         </section>
 
         {modules.landing_integrations ? <section className="app-configs" aria-labelledby="integration-title">

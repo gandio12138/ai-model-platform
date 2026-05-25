@@ -4055,6 +4055,361 @@ input {
 }
 
 /* Web/App copy optimization pass */
+.landing-hero-shell {
+  align-items: center;
+  display: grid;
+  gap: 42px;
+  grid-template-columns: minmax(0, 0.98fr) minmax(420px, 0.78fr);
+  max-width: 1240px;
+  position: relative;
+  width: 100%;
+  z-index: 7;
+}
+
+.landing-hero-shell .landing-hero {
+  max-width: 690px;
+  text-align: left;
+}
+
+.landing-hero-shell .landing-hero h1 {
+  font-size: clamp(44px, 4.6vw, 68px);
+  max-width: 760px;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.landing-hero-shell .landing-hero p {
+  margin-left: 0;
+  max-width: 660px;
+}
+
+.landing-hero-shell .landing-actions {
+  justify-content: flex-start;
+}
+
+.landing-provider-strip {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.landing-provider-strip span {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 999px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 8px 12px;
+}
+
+.landing-market-card {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(96, 165, 250, 0.24), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.94));
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  border-radius: 26px;
+  box-shadow: 0 32px 90px rgba(15, 23, 42, 0.14);
+  min-width: 0;
+  overflow: hidden;
+  padding: 22px;
+  position: relative;
+}
+
+.landing-market-card::before {
+  background-image:
+    linear-gradient(rgba(37, 99, 235, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px);
+  background-size: 34px 34px;
+  content: "";
+  inset: 0;
+  opacity: 0.7;
+  pointer-events: none;
+  position: absolute;
+}
+
+.landing-market-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.market-card-topline {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.market-card-topline span,
+.market-live-model span {
+  color: #2563eb;
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.market-card-topline strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.market-live-model {
+  align-items: flex-start;
+  background: #0f172a;
+  border-radius: 20px;
+  color: #fff;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 20px;
+}
+
+.market-live-model strong {
+  color: #fff;
+  display: block;
+  font-size: 24px;
+  line-height: 1.18;
+  margin-top: 8px;
+}
+
+.market-price-stack {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.market-price-stack button,
+.price-board-row {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 14px;
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.market-price-stack button {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.market-price-stack button:hover,
+.price-board-row:hover {
+  border-color: rgba(37, 99, 235, 0.34);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.market-price-stack span,
+.price-board-row span {
+  min-width: 0;
+}
+
+.market-price-stack strong,
+.price-board-row strong {
+  color: #0f172a;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-price-stack em,
+.price-board-row em {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  font-style: normal;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-price-stack b,
+.price-board-row b {
+  color: #1d4ed8;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.compact-code {
+  border-radius: 16px;
+}
+
+.compact-code pre {
+  max-height: 190px;
+}
+
+.landing-proof-strip {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(203, 213, 225, 0.68);
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.07);
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 30px;
+  max-width: 1240px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+  z-index: 7;
+}
+
+.landing-proof-strip div {
+  background: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+  padding: 18px 20px;
+}
+
+.landing-proof-strip span {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.landing-proof-strip strong {
+  color: #0f172a;
+  display: block;
+  font-size: 22px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.landing-section-copy {
+  min-width: 0;
+}
+
+.landing-section-copy > span {
+  color: var(--landing-accent);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.landing-section-copy h2 {
+  color: #0f172a;
+  font-size: clamp(28px, 3vw, 42px);
+  line-height: 1.16;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.landing-section-copy p {
+  color: #475569;
+  font-size: 15px;
+  line-height: 1.8;
+  margin: 14px 0 0;
+  max-width: 620px;
+}
+
+.landing-price-section {
+  align-items: start;
+  display: grid;
+  gap: 34px;
+  grid-template-columns: minmax(0, 0.78fr) minmax(520px, 1fr);
+  margin-top: 58px;
+  max-width: 1240px;
+  position: relative;
+  width: 100%;
+  z-index: 7;
+}
+
+.landing-price-board {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 20px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+  padding: 10px;
+}
+
+.price-board-head,
+.price-board-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 1.5fr) 112px 112px 92px;
+}
+
+.price-board-head {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 14px 12px;
+}
+
+.price-board-row {
+  margin-top: 8px;
+  padding: 13px 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.landing-plan-section {
+  margin-top: 54px;
+  max-width: 1240px;
+  position: relative;
+  width: 100%;
+  z-index: 7;
+}
+
+.landing-plan-section .landing-section-copy {
+  align-items: end;
+  display: flex;
+  gap: 22px;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.landing-plan-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.landing-plan-grid article {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 18px;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.06);
+  min-width: 0;
+  padding: 24px;
+}
+
+.landing-plan-grid svg {
+  color: #2563eb;
+  margin-bottom: 18px;
+}
+
+.landing-plan-grid h3 {
+  color: #0f172a;
+  font-size: 18px;
+  margin: 0 0 10px;
+}
+
+.landing-plan-grid p {
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.76;
+  margin: 0;
+}
+
 .landing-home .capability-row {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   max-width: 1240px;
@@ -4409,12 +4764,84 @@ input {
 }
 
 @media (max-width: 1180px) {
+  .landing-hero-shell,
+  .landing-price-section {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-hero-shell .landing-hero {
+    max-width: 860px;
+  }
+
+  .landing-market-card {
+    width: 100%;
+  }
+
   .landing-home .capability-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
+  .landing-hero-shell .landing-hero {
+    text-align: center;
+  }
+
+  .landing-hero-shell .landing-hero h1 {
+    font-size: 34px;
+    line-height: 1.16;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 350px;
+  }
+
+  .landing-hero-shell .landing-hero p {
+    margin-left: auto;
+  }
+
+  .landing-hero-shell .landing-actions,
+  .landing-provider-strip {
+    justify-content: center;
+  }
+
+  .landing-market-card,
+  .landing-price-board,
+  .landing-plan-grid article {
+    border-radius: 16px;
+  }
+
+  .landing-proof-strip,
+  .landing-plan-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-proof-strip div {
+    padding: 16px 18px;
+  }
+
+  .landing-price-section,
+  .landing-plan-section {
+    margin-top: 38px;
+  }
+
+  .price-board-head {
+    display: none;
+  }
+
+  .price-board-row {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .price-board-row b {
+    display: inline-flex;
+  }
+
+  .landing-plan-section .landing-section-copy {
+    align-items: start;
+    flex-direction: column;
+  }
+
   .landing-home .capability-row,
   .wallet-stats,
   .wallet-hero-panel,
