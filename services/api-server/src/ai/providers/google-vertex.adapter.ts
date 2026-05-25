@@ -103,6 +103,15 @@ export class GoogleVertexProviderAdapter implements ProviderAdapter {
     runtime: VertexRuntime
   ): Promise<ProviderCompletionResult> {
     const started = Date.now();
+    const generationConfig: Record<string, unknown> = {
+      maxOutputTokens: input.maxTokens,
+      temperature: input.temperature,
+      topP: input.topP
+    };
+    const thinkingBudget = geminiThinkingBudget(provider, runtime.providerModelCode);
+    if (thinkingBudget !== null) {
+      generationConfig.thinkingConfig = { thinkingBudget };
+    }
     const response = await this.vertexFetch(provider, runtime, "generateContent", {
       contents: input.messages
         .filter((message) => message.role !== "system")
@@ -111,11 +120,7 @@ export class GoogleVertexProviderAdapter implements ProviderAdapter {
           parts: [{ text: message.content }]
         })),
       systemInstruction: systemInstruction(input.messages),
-      generationConfig: {
-        maxOutputTokens: input.maxTokens,
-        temperature: input.temperature,
-        topP: input.topP
-      }
+      generationConfig
     });
     const text = response.candidates?.[0]?.content?.parts
       ?.map((part: any) => part.text ?? "")
@@ -265,6 +270,15 @@ function inferPublisher(providerModelCode: string) {
   if (code.startsWith("claude-")) return "anthropic";
   if (code.startsWith("mistral-") || code.startsWith("codestral-")) return "mistralai";
   return "google";
+}
+
+function geminiThinkingBudget(provider: ProviderConfig, providerModelCode: string) {
+  const configured = provider.metadata?.thinking_budget ?? provider.metadata?.gemini_thinking_budget;
+  if (configured !== undefined && configured !== null && configured !== "") {
+    const value = Number(configured);
+    return Number.isFinite(value) ? value : null;
+  }
+  return providerModelCode.toLowerCase().includes("gemini-2.5") ? 0 : null;
 }
 
 function estimateTokens(text: string) {
