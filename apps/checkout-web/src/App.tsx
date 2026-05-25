@@ -179,8 +179,8 @@ function modelCompany(model: Pick<ModelInfo, "display_name" | "family" | "model_
   const raw = `${model.model_company ?? ""} ${model.family ?? ""} ${model.model_code} ${model.display_name}`.toLowerCase();
   if (raw.includes("deepseek")) return "DeepSeek";
   if (raw.includes("openai") || raw.includes("gpt-")) return "OpenAI";
-  if (raw.includes("anthropic") || raw.includes("claude")) return "Anthropic";
-  if (raw.includes("gemini") || raw.includes("google")) return "Google";
+  if (raw.includes("anthropic") || raw.includes("claude")) return "Claude";
+  if (raw.includes("gemini") || raw.includes("google")) return "Gemini";
   if (raw.includes("qwen") || raw.includes("alibaba") || raw.includes("阿里")) return "阿里巴巴";
   if (raw.includes("midjourney")) return "Midjourney";
   if (raw.includes("grok") || raw.includes("xai")) return "xAI";
@@ -190,25 +190,26 @@ function modelCompany(model: Pick<ModelInfo, "display_name" | "family" | "model_
 function modelPublicName(model: Pick<ModelInfo, "display_name" | "family" | "model_code" | "model_company">) {
   const company = modelCompany(model);
   const raw = (model.display_name || model.model_code).trim();
-  return raw
-    .replace(new RegExp(`^${company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`, "i"), "")
+  const companyPrefixPattern = company === "Claude" || company === "Gemini" ? null : new RegExp(`^${company.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+`, "i");
+  const normalized = companyPrefixPattern ? raw.replace(companyPrefixPattern, "") : raw;
+  return normalized
     .replace(/^Google\s+Gemini/i, "Gemini")
     .replace(/^Anthropic\s+Claude/i, "Claude")
     .replace(/^Mistral AI\s+Mistral/i, "Mistral")
     .replace(/\b(Claude\s+(?:Opus|Sonnet|Haiku)\s+\d+)\s+(\d+)\b/i, "$1.$2");
 }
 
-const modelCategoryOrder = [
-  "文本对话模型",
-  "Embedding 模型",
-  "图像模型",
-  "视频模型",
-  "Rerank 模型",
-  "Legacy / Inference Profile 模型"
-];
-
 function modelCategoryLabel(model: ModelInfo) {
   return model.model_category_label || "文本对话模型";
+}
+
+function simplifiedModelCategory(model: ModelInfo) {
+  const key = String(model.model_category ?? "").toLowerCase();
+  const label = modelCategoryLabel(model);
+  if (key === "image" || label.includes("图像") || label.includes("图片")) return "图片模型";
+  if (key === "video" || label.includes("视频")) return "视频模型";
+  if (key === "text_chat" || label.includes("文本") || label.includes("对话")) return "文本模型";
+  return "其他模型";
 }
 
 function anonymizedSource(email?: string | null) {
@@ -1651,61 +1652,36 @@ function AppDownloadMini({ appDownload }: { appDownload: SiteConfigPayload["app_
 function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string) => void; models: ModelInfo[]; siteConfig: SiteConfigPayload | null }) {
   const [company, setCompany] = useState("全部公司");
   const [category, setCategory] = useState("全部模型");
-  const [billing, setBilling] = useState("全部类型");
-  const [capability, setCapability] = useState("全部能力");
   const [favorites, setFavorites] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
   const companies = useMemo(() => {
-    const counts = new Map<string, number>();
-    models.forEach((model) => {
-      const name = modelCompany(model);
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    });
-    return [["全部公司", models.length] as const, ...Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b))];
+    const visibleCompanies = ["Claude", "OpenAI", "Gemini"] as const;
+    return [
+      ["全部公司", models.length] as const,
+      ...visibleCompanies.map((name) => [name, models.filter((model) => modelCompany(model) === name).length] as const)
+    ];
   }, [models]);
   const categories = useMemo(() => {
-    const counts = new Map<string, number>();
-    models.forEach((model) => {
-      const name = modelCategoryLabel(model);
-      counts.set(name, (counts.get(name) ?? 0) + 1);
-    });
-    const ordered = modelCategoryOrder
-      .filter((name) => counts.has(name))
-      .map((name) => [name, counts.get(name) ?? 0] as const);
-    const rest = Array.from(counts.entries())
-      .filter(([name]) => !modelCategoryOrder.includes(name))
-      .sort(([a], [b]) => a.localeCompare(b));
-    return [["全部模型", models.length] as const, ...ordered, ...rest];
-  }, [models]);
-  const capabilities = useMemo(() => {
-    const stream = models.filter((model) => model.capabilities.stream).length;
-    const json = models.filter((model) => model.capabilities.json_mode).length;
     return [
-      ["全部能力", models.length] as const,
-      ["流式输出", stream] as const,
-      ["JSON 模式", json] as const
+      ["全部模型", models.length] as const,
+      ["文本模型", models.filter((model) => simplifiedModelCategory(model) === "文本模型").length] as const,
+      ["图片模型", models.filter((model) => simplifiedModelCategory(model) === "图片模型").length] as const,
+      ["视频模型", models.filter((model) => simplifiedModelCategory(model) === "视频模型").length] as const
     ];
   }, [models]);
   const filtered = models.filter((model) => {
     const companyName = modelCompany(model);
     const companyOk = company === "全部公司" || companyName === company;
-    const categoryOk = category === "全部模型" || modelCategoryLabel(model) === category;
-    const billingMode = String(model.price?.mode ?? "usage");
-    const billingOk =
-      billing === "全部类型" ||
-      (billing === "按量计费" && ["usage", "per_token", "token"].includes(billingMode)) ||
-      (billing === "按次计费" && billingMode === "per_request");
-    const capabilityOk =
-      capability === "全部能力" ||
-      (capability === "流式输出" && model.capabilities.stream) ||
-      (capability === "JSON 模式" && model.capabilities.json_mode);
+    const categoryName = simplifiedModelCategory(model);
+    const categoryOk = category === "全部模型" || categoryName === category;
     const keywordOk =
       !keyword ||
       model.model_code.toLowerCase().includes(keyword.toLowerCase()) ||
       modelPublicName(model).toLowerCase().includes(keyword.toLowerCase()) ||
       companyName.toLowerCase().includes(keyword.toLowerCase()) ||
-      modelCategoryLabel(model).toLowerCase().includes(keyword.toLowerCase());
-    return companyOk && categoryOk && billingOk && capabilityOk && keywordOk;
+      modelCategoryLabel(model).toLowerCase().includes(keyword.toLowerCase()) ||
+      categoryName.toLowerCase().includes(keyword.toLowerCase());
+    return companyOk && categoryOk && keywordOk;
   });
   const toggleFavorite = (modelCode: string) => {
     setFavorites((items) => (items.includes(modelCode) ? items.filter((item) => item !== modelCode) : [...items, modelCode]));
@@ -1721,21 +1697,10 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       <aside className="filter-panel">
         <div className="filter-title">
           <strong>筛选</strong>
-          <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setBilling("全部类型"); setCapability("全部能力"); setKeyword(""); }}>重置</Button>
+          <Button size="small" onClick={() => { setCompany("全部公司"); setCategory("全部模型"); setKeyword(""); }}>重置</Button>
         </div>
         <FilterGroup title="模型公司" items={companies} active={company} setActive={setCompany} />
         <FilterGroup title="模型类型" items={categories} active={category} setActive={setCategory} />
-        <FilterGroup
-          title="计费类型"
-          items={[
-            ["全部类型", models.length],
-            ["按量计费", models.length],
-            ["按次计费", 0]
-          ]}
-          active={billing}
-          setActive={setBilling}
-        />
-        <FilterGroup title="能力标签" items={capabilities} active={capability} setActive={setCapability} />
       </aside>
       <section className="market-main">
         <div className="market-hero">
@@ -1790,7 +1755,7 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                   </dl>
                   <div className="tag-row">
                     <Tag color="purple">按量计费</Tag>
-                    <Tag color="blue">{modelCategoryLabel(model)}</Tag>
+                    <Tag color="blue">{simplifiedModelCategory(model)}</Tag>
                     {model.capabilities.stream ? <Tag>流式</Tag> : null}
                     {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
                     <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "待配置价格"}</Tag>

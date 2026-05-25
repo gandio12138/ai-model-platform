@@ -1133,7 +1133,7 @@ function Shell({
                   rowKey="id"
                   columns={[
                     ["public_model_code", "公开模型名"],
-                    ["display_name", "展示名"],
+                    ["display_name", "模型名称"],
                     ["model_company", "模型公司"],
                     ["provider_source", "接入来源"],
                     ["max_context_tokens", "上下文"],
@@ -1146,7 +1146,7 @@ function Shell({
                   ]}
                   detailFields={[
                     ["public_model_code", "公开模型名"],
-                    ["display_name", "展示名"],
+                    ["display_name", "模型名称"],
                     ["model_company", "模型公司"],
                     ["provider_source", "接入来源"],
                     ["model_family", "模型族"],

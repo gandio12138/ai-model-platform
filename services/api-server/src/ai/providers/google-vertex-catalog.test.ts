@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 import {
   buildGoogleVertexCatalogSyncItems,
   resolveGoogleVertexModelContext,
-  resolveGoogleVertexPricing
+  resolveGoogleVertexPricing,
+  resolveVertexModelCategory
 } from "./google-vertex-catalog.js";
 
 const testConversion = {
@@ -103,5 +104,55 @@ describe("Google Vertex model catalog parsing", () => {
     assert.equal(price?.outputUsdPer1k, 0.01);
     assert.equal(context.maxContextTokens, 1048576);
     assert.equal(context.defaultMaxOutputTokens, 65536);
+  });
+
+  it("keeps Gemini image and video models for runtime countTokens validation", () => {
+    const items = buildGoogleVertexCatalogSyncItems(
+      [
+        {
+          region: "global",
+          publisher: "google",
+          name: "publishers/google/models/gemini-2.5-flash-image-preview",
+          versionId: "default",
+          supportedActions: { openGenerationAiStudio: {} }
+        },
+        {
+          region: "global",
+          publisher: "google",
+          name: "publishers/google/models/gemini-2.5-flash-video-preview",
+          versionId: "default",
+          supportedActions: { openGenerationAiStudio: {} }
+        }
+      ],
+      { conversion: testConversion, priceVersion: "test-vertex" }
+    );
+
+    assert.deepEqual(items.map((item) => item.publicModelCode), [
+      "gemini-2.5-flash-image-preview",
+      "gemini-2.5-flash-video-preview"
+    ]);
+    assert.equal(items[0].raw.model_category, "image");
+    assert.deepEqual(items[0].outputModalities, ["IMAGE"]);
+    assert.equal(items[0].raw.runtime_adapter, "gemini_generate_content");
+    assert.equal(items[1].raw.model_category, "video");
+    assert.deepEqual(items[1].outputModalities, ["VIDEO"]);
+    assert.equal(items[1].raw.runtime_adapter, "gemini_generate_content");
+  });
+
+  it("classifies Gemini media variants before generic media rules", () => {
+    assert.equal(
+      resolveVertexModelCategory({
+        publisher: "google",
+        name: "publishers/google/models/gemini-2.5-flash-image-preview"
+      }),
+      "image"
+    );
+    assert.equal(
+      resolveVertexModelCategory({
+        publisher: "google",
+        name: "publishers/google/models/gemini-2.5-flash-video-preview"
+      }),
+      "video"
+    );
   });
 });

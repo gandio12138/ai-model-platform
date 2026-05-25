@@ -216,19 +216,19 @@ export function buildGoogleVertexCatalogSyncItems(
       conversion: options.conversion,
       priceVersion: options.priceVersion
     });
-    if (category !== "text_chat") continue;
     if (!runtime.supported && !options.includeUnsupportedRuntime) continue;
     if (!pricing || !context.maxContextTokens) continue;
+    const modalities = vertexModalitiesForCategory(category);
     items.push({
       publicModelCode: canonicalVertexPublicModelCode(model.publisher, modelId),
       providerModelCode: runtime.providerModelCode,
       displayName: displayNameForVertexModel(model.publisher, modelId, model.displayName),
       providerName: vertexProviderDisplayName(model.publisher),
       modelFamily: vertexProviderDisplayName(model.publisher),
-      inputModalities: ["TEXT"],
-      outputModalities: ["TEXT"],
+      inputModalities: modalities.input,
+      outputModalities: modalities.output,
       inferenceTypesSupported: ["MANAGED_API"],
-      supportsStream: true,
+      supportsStream: category === "text_chat",
       supportsTools: runtime.supportsTools,
       sourceModelId: modelId,
       invocationType: "vertex_managed_api",
@@ -327,14 +327,17 @@ export function resolveVertexModelCategory(model: Pick<VertexPublisherModel, "pu
   const modelId = extractVertexModelId(model.name).toLowerCase();
   const actionKeys = Object.keys(model.supportedActions ?? {});
   if (actionKeys.includes("deploy") || actionKeys.includes("multiDeployVertex")) return "deploy_only";
+  if (model.publisher === "google" && modelId.startsWith("gemini-")) {
+    if (/embedding|text-embedding/.test(modelId)) return "embedding";
+    if (/image|imagen|imagegeneration|virtual-try-on/.test(modelId)) return "image";
+    if (/video|veo/.test(modelId)) return "video";
+    if (/tts|audio|live|chirp|lyria/.test(modelId)) return "audio";
+    return "text_chat";
+  }
   if (/embedding|text-embedding/.test(modelId)) return "embedding";
   if (/imagen|imagegeneration|image-|virtual-try-on/.test(modelId)) return "image";
   if (/veo|video/.test(modelId)) return "video";
   if (/chirp|lyria|audio|tts/.test(modelId)) return "audio";
-  if (model.publisher === "google" && modelId.startsWith("gemini-")) {
-    if (/embedding|image|tts|audio|live/.test(modelId)) return /embedding/.test(modelId) ? "embedding" : "audio";
-    return "text_chat";
-  }
   if (["anthropic", "mistralai", "xai"].includes(model.publisher)) return "text_chat";
   if (model.publisher === "meta" && /llama.*maas/.test(modelId)) return "text_chat";
   return "deploy_only";
@@ -345,7 +348,7 @@ export function resolveGoogleVertexModelContext(
   modelId: string,
   category: VertexModelCategory = "text_chat"
 ): VertexModelContext {
-  if (category !== "text_chat") {
+  if (!["text_chat", "image", "video"].includes(category)) {
     return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
   }
   const normalized = modelId.toLowerCase();
@@ -360,7 +363,18 @@ export function resolveGoogleVertexModelContext(
   if (publisher === "mistralai") {
     return { maxContextTokens: 128000, defaultMaxOutputTokens: 8192, contextSource: "catalog_rule" };
   }
+  if (category !== "text_chat") {
+    return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
+  }
   return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
+}
+
+function vertexModalitiesForCategory(category: VertexModelCategory) {
+  if (category === "image") return { input: ["TEXT"], output: ["IMAGE"] };
+  if (category === "video") return { input: ["TEXT"], output: ["VIDEO"] };
+  if (category === "audio") return { input: ["TEXT"], output: ["AUDIO"] };
+  if (category === "embedding") return { input: ["TEXT"], output: ["EMBEDDING"] };
+  return { input: ["TEXT"], output: ["TEXT"] };
 }
 
 export function resolveGoogleVertexPricing(
