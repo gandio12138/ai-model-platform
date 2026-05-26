@@ -217,6 +217,7 @@ export class AiGatewayService {
                 join providers p on p.id = mr.provider_id
                where mr.model_id = m.id
                  and mr.enabled = true
+                 and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
                  and p.status = 'active'
                  and p.provider_type = any($2::text[])
             )
@@ -761,6 +762,64 @@ export class AiGatewayService {
         JSON.stringify({ adapter: input.route.provider_type })
       ]
     );
+    if (this.isRuntimeModelUnavailable(input.route, errorMessage)) {
+      await this.markRouteRuntimeUnavailable(input.route, errorMessage);
+    }
+  }
+
+  private isRuntimeModelUnavailable(route: ModelRouteConfig, errorMessage: string) {
+    const message = errorMessage.toLowerCase();
+    if (route.provider_type === "google_vertex_ai") {
+      return (
+        message.includes("google vertex request failed: 404") &&
+        (message.includes("was not found") || message.includes("does not have access"))
+      );
+    }
+    return false;
+  }
+
+  private async markRouteRuntimeUnavailable(route: ModelRouteConfig, errorMessage: string) {
+    const redactedError = errorMessage.slice(0, 300);
+    await this.db.transaction(async (client) => {
+      const disabled = await client.query<{ model_id: string }>(
+        `update model_routes
+            set enabled = false,
+                metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                  'runtime_validation_status', 'unavailable',
+                  'runtime_validation_error', $2,
+                  'runtime_validation_checked_at', now(),
+                  'disabled_reason', 'provider_runtime_unavailable',
+                  'disabled_at', now()
+                ),
+                updated_at = now()
+          where id = $1
+          returning model_id`,
+        [route.id, redactedError]
+      );
+      const modelId = disabled.rows[0]?.model_id;
+      if (!modelId) return;
+      await client.query(
+        `update models m
+            set status = 'archived',
+                metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                  'runtime_validation_status', 'unavailable',
+                  'runtime_validation_error', $2,
+                  'runtime_validation_checked_at', now(),
+                  'archived_reason', 'provider_runtime_unavailable',
+                  'archived_at', now()
+                ),
+                updated_at = now()
+          where m.id = $1
+            and not exists (
+              select 1
+                from model_routes mr
+               where mr.model_id = m.id
+                 and mr.enabled = true
+                 and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
+            )`,
+        [modelId, redactedError]
+      );
+    });
   }
 
   private async contextFromUser(user: PublicRequestUser, query: Record<string, unknown>): Promise<GatewayContext> {
@@ -863,6 +922,7 @@ export class AiGatewayService {
               join providers p on p.id = mr.provider_id
              where mr.model_id = m.id
                and mr.enabled = true
+               and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
                and p.status = 'active'
                and p.provider_type = any($3::text[])
           )
@@ -979,6 +1039,7 @@ export class AiGatewayService {
          ) pc on true
         where mr.model_id = $1
           and mr.enabled = true
+          and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
           and p.status = 'active'
           and p.provider_type = any($2::text[])
         order by mr.priority asc, mr.weight desc, mr.created_at asc

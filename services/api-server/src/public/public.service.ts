@@ -451,6 +451,7 @@ export class PublicService {
                 join providers p on p.id = mr.provider_id
                where mr.model_id = m.id
                  and mr.enabled = true
+                 and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
                  and p.status = 'active'
                  and p.provider_type = any($2::text[])
             )
