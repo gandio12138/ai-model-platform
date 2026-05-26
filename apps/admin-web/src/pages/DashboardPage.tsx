@@ -37,6 +37,7 @@ type TopTenant = {
 };
 
 type DashboardData = {
+  trendRange?: { startDate: string; endDate: string; days: number };
   todayRechargeRevenue?: number;
   todayRevenue: number;
   todayCost: number;
@@ -67,6 +68,24 @@ function percent(numerator: number, denominator: number) {
   return `${((numerator / denominator) * 100).toFixed(1)}%`;
 }
 
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function shiftDate(date: Date, days: number) {
+  const value = new Date(date);
+  value.setDate(value.getDate() + days);
+  return value;
+}
+
+function lastDaysRange(days: number) {
+  const end = new Date();
+  return {
+    startDate: isoDate(shiftDate(end, -(days - 1))),
+    endDate: isoDate(end)
+  };
+}
+
 function linePath(points: { x: number; y: number }[]) {
   if (!points.length) return "";
   return points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
@@ -74,10 +93,14 @@ function linePath(points: { x: number; y: number }[]) {
 
 function TrendLineChart({
   data,
-  series
+  series,
+  selectedDate,
+  onSelect
 }: {
   data: RevenueTrendPoint[];
   series: { key: keyof RevenueTrendPoint; label: string; color: string; formatter: (value: number) => string }[];
+  selectedDate?: string;
+  onSelect?: (point: RevenueTrendPoint) => void;
 }) {
   const width = 680;
   const height = 250;
@@ -86,6 +109,8 @@ function TrendLineChart({
   const stepX = data.length > 1 ? (width - pad.left - pad.right) / (data.length - 1) : 0;
   const y = (value: number) => pad.top + (1 - value / maxValue) * (height - pad.top - pad.bottom);
   const x = (index: number) => pad.left + index * stepX;
+  const selectedIndex = selectedDate ? data.findIndex((item) => item.date === selectedDate) : -1;
+  const hitWidth = data.length > 1 ? Math.max(18, stepX) : width - pad.left - pad.right;
 
   if (!data.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />;
 
@@ -112,19 +137,59 @@ function TrendLineChart({
             {index % 2 === 0 || data.length <= 8 ? item.label : ""}
           </text>
         ))}
+        {selectedIndex >= 0 ? (
+          <line
+            x1={x(selectedIndex)}
+            x2={x(selectedIndex)}
+            y1={pad.top}
+            y2={height - pad.bottom}
+            stroke="#94a3b8"
+            strokeDasharray="4 4"
+          />
+        ) : null}
         {series.map((item) => {
-          const points = data.map((row, index) => ({ x: x(index), y: y(Number(row[item.key] || 0)), raw: Number(row[item.key] || 0), label: row.label }));
+          const points = data.map((row, index) => ({ x: x(index), y: y(Number(row[item.key] || 0)), raw: Number(row[item.key] || 0), label: row.label, date: row.date }));
           return (
             <g key={String(item.key)}>
               <path d={linePath(points)} fill="none" stroke={item.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
               {points.map((point) => (
-                <circle key={`${item.key}-${point.label}`} cx={point.x} cy={point.y} r="3.5" fill={item.color}>
+                <circle
+                  key={`${item.key}-${point.label}`}
+                  cx={point.x}
+                  cy={point.y}
+                  r={point.date === selectedDate ? "5" : "3.5"}
+                  fill={item.color}
+                  stroke="#fff"
+                  strokeWidth="1.5"
+                >
                   <title>{`${item.label} ${point.label}: ${item.formatter(point.raw)}`}</title>
                 </circle>
               ))}
             </g>
           );
         })}
+        {data.map((item, index) => (
+          <g
+            key={`hit-${item.date}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelect?.(item)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") onSelect?.(item);
+            }}
+            style={{ cursor: onSelect ? "pointer" : "default" }}
+          >
+            <rect
+              x={Math.max(pad.left, x(index) - hitWidth / 2)}
+              y={pad.top}
+              width={index === 0 || index === data.length - 1 ? hitWidth / 2 : hitWidth}
+              height={height - pad.top - pad.bottom}
+              fill="transparent"
+            >
+              <title>{`${item.date} 调用收入 ${money(item.revenue)} / 成本 ${money(item.cost)} / 毛利 ${money(item.grossProfit)}`}</title>
+            </rect>
+          </g>
+        ))}
       </svg>
     </div>
   );
@@ -219,11 +284,17 @@ function TopList({
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData>();
   const [loading, setLoading] = useState(false);
+  const [range, setRange] = useState(() => lastDaysRange(14));
+  const [selectedTrendDate, setSelectedTrendDate] = useState<string>();
 
-  async function load() {
+  async function load(nextRange = range) {
     setLoading(true);
     try {
-      setData(await apiFetch<DashboardData>("/api/admin/dashboard"));
+      const params = new URLSearchParams({
+        start_date: nextRange.startDate,
+        end_date: nextRange.endDate
+      });
+      setData(await apiFetch<DashboardData>(`/api/admin/dashboard?${params.toString()}`));
     } catch (error) {
       message.error((error as Error).message);
     } finally {
@@ -235,10 +306,27 @@ export default function DashboardPage() {
     load();
   }, []);
 
+  function applyRange(nextRange = range) {
+    setRange(nextRange);
+    setSelectedTrendDate(undefined);
+    void load(nextRange);
+  }
+
   const requestStatusTotal = useMemo(
     () => (data?.requestsByStatus ?? []).reduce((sum: number, item: any) => sum + Number(item.count ?? 0), 0),
     [data]
   );
+  const selectedRevenuePoint = useMemo(() => {
+    const points = data?.revenueTrend ?? [];
+    return points.find((item) => item.date === selectedTrendDate) ?? points[points.length - 1];
+  }, [data, selectedTrendDate]);
+  const selectedRequestPoint = useMemo(() => {
+    if (!selectedRevenuePoint) return undefined;
+    return (data?.requestTrend ?? []).find((item) => item.date === selectedRevenuePoint.date);
+  }, [data, selectedRevenuePoint]);
+  const trendTitle = data?.trendRange
+    ? `${data.trendRange.startDate} 至 ${data.trendRange.endDate}`
+    : `${range.startDate} 至 ${range.endDate}`;
 
   return (
     <div>
@@ -247,7 +335,7 @@ export default function DashboardPage() {
           <Typography.Title level={3}>仪表盘</Typography.Title>
           <Typography.Text type="secondary">充值到账、调用收入、估算成本、请求趋势和模型用量</Typography.Text>
         </div>
-        <Button icon={<RefreshCw size={16} />} onClick={load} loading={loading}>刷新</Button>
+        <Button icon={<RefreshCw size={16} />} onClick={() => load()} loading={loading}>刷新</Button>
       </div>
 
       <Row gutter={[12, 12]}>
@@ -273,19 +361,61 @@ export default function DashboardPage() {
 
       <Row gutter={[12, 12]} className="dashboard-grid">
         <Col xs={24} xl={12}>
-          <Card title="14 天调用收入 / 成本趋势">
+          <Card
+            title="调用收入 / 成本趋势"
+            extra={
+              <Space wrap>
+                <Button size="small" onClick={() => applyRange(lastDaysRange(7))}>近 7 天</Button>
+                <Button size="small" onClick={() => applyRange(lastDaysRange(14))}>近 14 天</Button>
+                <Button size="small" onClick={() => applyRange(lastDaysRange(30))}>近 30 天</Button>
+                <input
+                  className="dashboard-date-input"
+                  type="date"
+                  value={range.startDate}
+                  max={range.endDate}
+                  onChange={(event) => setRange((current) => ({ ...current, startDate: event.target.value }))}
+                />
+                <input
+                  className="dashboard-date-input"
+                  type="date"
+                  value={range.endDate}
+                  min={range.startDate}
+                  max={isoDate(new Date())}
+                  onChange={(event) => setRange((current) => ({ ...current, endDate: event.target.value }))}
+                />
+                <Button size="small" type="primary" onClick={() => applyRange()}>应用</Button>
+              </Space>
+            }
+          >
+            <Typography.Text type="secondary">{trendTitle}，点击折线上的日期区域查看当天数据。</Typography.Text>
             <TrendLineChart
               data={data?.revenueTrend ?? []}
+              selectedDate={selectedRevenuePoint?.date}
+              onSelect={(point) => setSelectedTrendDate(point.date)}
               series={[
                 { key: "revenue", label: "调用收入", color: "#2563eb", formatter: money },
                 { key: "cost", label: "估算成本", color: "#f97316", formatter: money },
                 { key: "grossProfit", label: "毛利", color: "#16a34a", formatter: money }
               ]}
             />
+            {selectedRevenuePoint ? (
+              <Card size="small" className="dashboard-day-detail">
+                <Row gutter={[12, 12]}>
+                  <Col xs={12} md={6}><Statistic title={`${selectedRevenuePoint.date} 调用收入`} value={money(selectedRevenuePoint.revenue)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="估算上游成本" value={money(selectedRevenuePoint.cost)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="毛利" value={money(selectedRevenuePoint.grossProfit)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="消费记录" value={compact(selectedRevenuePoint.orders)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="请求数" value={compact(selectedRequestPoint?.requests ?? 0)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="Tokens" value={compact(selectedRequestPoint?.tokens ?? 0)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="错误率" value={percent(selectedRequestPoint?.errorRequests ?? 0, selectedRequestPoint?.requests ?? 0)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="平均延迟" value={selectedRequestPoint?.avgLatencyMs ?? 0} suffix="ms" /></Col>
+                </Row>
+              </Card>
+            ) : null}
           </Card>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="14 天请求趋势">
+          <Card title="请求趋势" extra={<Typography.Text type="secondary">{trendTitle}</Typography.Text>}>
             <RequestBarChart data={data?.requestTrend ?? []} />
           </Card>
         </Col>

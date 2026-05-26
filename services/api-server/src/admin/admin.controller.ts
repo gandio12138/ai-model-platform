@@ -36,8 +36,8 @@ export class AdminController {
 
   @RequirePermissions("payment.read")
   @Get("dashboard")
-  dashboard(@Req() req: ReqWithUser) {
-    return this.admin.dashboard(req.user);
+  dashboard(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.dashboard(req.user, query);
   }
 
   @Get("options/:resource")

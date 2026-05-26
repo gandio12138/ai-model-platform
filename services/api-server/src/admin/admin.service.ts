@@ -825,16 +825,26 @@ export class AdminService {
     };
   }
 
-  async dashboard(user: any) {
+  async dashboard(user: any, query: Record<string, unknown> = {}) {
     this.assertPermission(user, "payment.read");
     const scopedTenantIds = await this.getScopedTenantIds(user);
+    const trendRange = this.dashboardDateRange(query);
     const scopedPayment = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
     const scopedRequest = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
     const scopedUsage = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
-    const scopedUsageTrend = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
-    const scopedRequestTrend = this.buildTenantScopeSql("rl.tenant_id", scopedTenantIds, []);
+    const scopedUsageTrend = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, [
+      trendRange.startDate,
+      trendRange.endDate
+    ]);
+    const scopedRequestTrend = this.buildTenantScopeSql("rl.tenant_id", scopedTenantIds, [
+      trendRange.startDate,
+      trendRange.endDate
+    ]);
     const scopedModelTop = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
-    const scopedTenantUsageTop = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
+    const scopedTenantUsageTop = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, [
+      trendRange.startDate,
+      trendRange.endDate
+    ]);
     const [
       rechargeRevenue,
       usageFinancial,
@@ -899,10 +909,10 @@ export class AdminService {
       this.db.query<{ date: string; label: string; revenue: string; cost: string; orders: string }>(
         `with days as (
            select generate_series(
-                    date_trunc('day', now()) - interval '13 days',
-                    date_trunc('day', now()),
+                    $1::date,
+                    $2::date,
                     interval '1 day'
-                  ) as day
+                  )::date as day
          )
          select to_char(day, 'YYYY-MM-DD') as date,
                 to_char(day, 'MM-DD') as label,
@@ -928,10 +938,10 @@ export class AdminService {
       this.db.query<{ date: string; label: string; requests: string; tokens: string; error_requests: string; avg_latency_ms: string }>(
         `with days as (
            select generate_series(
-                    date_trunc('day', now()) - interval '13 days',
-                    date_trunc('day', now()),
+                    $1::date,
+                    $2::date,
                     interval '1 day'
-                  ) as day
+                  )::date as day
          )
          select to_char(day, 'YYYY-MM-DD') as date,
                 to_char(day, 'MM-DD') as label,
@@ -969,7 +979,8 @@ export class AdminService {
                 count(br.id)::text as orders
            from billing_records br
            join tenants t on t.id = br.tenant_id
-          where br.created_at >= now() - interval '30 days'
+          where br.created_at >= $1::date
+            and br.created_at < $2::date + interval '1 day'
             and br.billing_status = 'settled'
             ${scopedTenantUsageTop.sql}
           group by t.id, t.name
@@ -1005,6 +1016,7 @@ export class AdminService {
       todayRequests: Number(todayRequests.rows[0]?.requests ?? 0),
       todayTokens: Number(todayRequests.rows[0]?.tokens ?? 0),
       todayAverageLatencyMs: Number(todayRequests.rows[0]?.avg_latency_ms ?? 0),
+      trendRange,
       paymentOrdersByStatus: orders.rows,
       requestsByStatus: requests.rows,
       revenueTrend: usageTrend.rows.map((row) => {
@@ -1041,6 +1053,38 @@ export class AdminService {
       providerHealth: providerHealth.rows,
       paymentStatus: paymentStatus.rows
     };
+  }
+
+  private dashboardDateRange(query: Record<string, unknown>) {
+    const today = this.isoDate(new Date());
+    const requestedEnd = this.safeDateString(query.end_date ?? query.endDate) ?? today;
+    const defaultStart = this.shiftIsoDate(requestedEnd, -13);
+    const requestedStart = this.safeDateString(query.start_date ?? query.startDate) ?? defaultStart;
+    let startDate = requestedStart <= requestedEnd ? requestedStart : requestedEnd;
+    const endDate = requestedStart <= requestedEnd ? requestedEnd : requestedStart;
+    const maxStart = this.shiftIsoDate(endDate, -89);
+    if (startDate < maxStart) {
+      startDate = maxStart;
+    }
+    const days = Math.floor((Date.parse(`${endDate}T00:00:00.000Z`) - Date.parse(`${startDate}T00:00:00.000Z`)) / 86_400_000) + 1;
+    return { startDate, endDate, days };
+  }
+
+  private safeDateString(value: unknown) {
+    const raw = String(value ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+    const date = new Date(`${raw}T00:00:00.000Z`);
+    return Number.isNaN(date.getTime()) ? null : this.isoDate(date);
+  }
+
+  private shiftIsoDate(date: string, days: number) {
+    const value = new Date(`${date}T00:00:00.000Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return this.isoDate(value);
+  }
+
+  private isoDate(date: Date) {
+    return date.toISOString().slice(0, 10);
   }
 
   async list(resource: ResourceKey, query: Record<string, unknown>, user: any) {

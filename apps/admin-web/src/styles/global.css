@@ -132,6 +132,26 @@ body {
   margin-top: 12px;
 }
 
+.dashboard-date-input {
+  width: 132px;
+  height: 24px;
+  padding: 0 8px;
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-surface);
+}
+
+.dashboard-date-input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.2);
+  border-color: var(--app-accent);
+}
+
+.dashboard-day-detail {
+  margin-top: 12px;
+  background: var(--app-bg);
+}
+
 .action-bar {
   justify-content: flex-end;
   margin-bottom: 10px;
