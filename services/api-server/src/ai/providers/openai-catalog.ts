@@ -112,15 +112,23 @@ export function buildOpenAiCatalogSyncItems(
 ): OpenAiCatalogSyncItem[] {
   const unique = [...new Map(models.map((model) => [model.id, model])).values()]
     .sort((left, right) => left.id.localeCompare(right.id));
-  const items: OpenAiCatalogSyncItem[] = [];
+  const selected = new Map<string, { model: OpenAiListedModel; entry: OpenAiModelMetadata }>();
   for (const model of unique) {
     const entry = resolveOpenAiCatalogEntry(model.id, options.metadataByModelId);
     if (!entry) continue;
+    const canonicalModelId = canonicalOpenAiModelId(model.id);
+    const current = selected.get(canonicalModelId);
+    if (!current || shouldPreferOpenAiListedModel(model.id, current.model.id)) {
+      selected.set(canonicalModelId, { model, entry });
+    }
+  }
+  const items: OpenAiCatalogSyncItem[] = [];
+  for (const [canonicalModelId, { model, entry }] of [...selected.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const pricing = resolveOpenAiPricing(entry, options);
     items.push({
-      publicModelCode: model.id,
+      publicModelCode: canonicalModelId,
       providerModelCode: model.id,
-      displayName: displayNameForOpenAiModel(model.id, entry),
+      displayName: displayNameForOpenAiModel(canonicalModelId, entry),
       providerName: "OpenAI",
       modelFamily: "OpenAI",
       inputModalities: entry.inputModalities,
@@ -136,7 +144,7 @@ export function buildOpenAiCatalogSyncItems(
       raw: {
         source: "openai",
         source_model_id: model.id,
-        canonical_model_key: model.id,
+        canonical_model_key: canonicalModelId,
         model_company: "OpenAI",
         model_category: entry.category,
         provider_name: "OpenAI",
@@ -255,8 +263,21 @@ export function resolveOpenAiCatalogEntry(modelId: string, metadataByModelId: Ma
   if (!normalized) return null;
   const exact = metadataByModelId.get(normalized);
   if (exact) return exact;
-  const dateAlias = normalized.replace(/-\d{4}-\d{2}-\d{2}$/u, "");
+  const dateAlias = canonicalOpenAiModelId(normalized);
   return metadataByModelId.get(dateAlias) ?? null;
+}
+
+export function canonicalOpenAiModelId(modelId: string) {
+  return String(modelId ?? "").trim().replace(/-\d{4}-\d{2}-\d{2}$/u, "");
+}
+
+function shouldPreferOpenAiListedModel(candidateId: string, currentId: string) {
+  const candidateCanonical = canonicalOpenAiModelId(candidateId);
+  const currentCanonical = canonicalOpenAiModelId(currentId);
+  const candidateIsBase = candidateId === candidateCanonical;
+  const currentIsBase = currentId === currentCanonical;
+  if (candidateIsBase !== currentIsBase) return candidateIsBase;
+  return candidateId.localeCompare(currentId) > 0;
 }
 
 function resolveOpenAiPricing(
@@ -366,14 +387,22 @@ function parseFeatureStatus(text: string, label: string): "supported" | "not_sup
 }
 
 function displayNameFromModelId(modelId: string) {
-  return String(modelId ?? "")
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+  const parts = String(modelId ?? "").split("-").filter(Boolean);
+  if (parts[0]?.toLowerCase() === "gpt" && parts[1]) {
+    return [`GPT-${parts[1]}`, ...parts.slice(2).map(titleWord)].join(" ");
+  }
+  return parts
+    .map(titleWord)
+    .join(" ")
     .replace(/\bGpt\b/g, "GPT")
     .replace(/\bMini\b/g, "Mini")
     .replace(/\bNano\b/g, "Nano")
     .replace(/\bPro\b/g, "Pro")
     .replace(/\bCodex\b/g, "Codex");
+}
+
+function titleWord(value: string) {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function resolveOpenAiApiKey(credential?: ProviderCredentialConfig | null) {

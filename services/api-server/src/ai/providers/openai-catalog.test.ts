@@ -118,6 +118,30 @@ describe("OpenAI API-key driven catalog sync", () => {
     assert.equal(resolveOpenAiCatalogEntry("gpt-5.5-2026-04-23", metadataMap())?.id, "gpt-5.5");
   });
 
+  it("deduplicates dated snapshots to the canonical public model code", () => {
+    const items = buildOpenAiCatalogSyncItems(
+      [
+        { id: "gpt-5.5-2026-04-23", owned_by: "openai" },
+        { id: "gpt-5.5", owned_by: "openai" }
+      ],
+      { conversion: testConversion, priceVersion: "test-openai", metadataByModelId: metadataMap() }
+    );
+
+    assert.deepEqual(items.map((item) => item.publicModelCode), ["gpt-5.5"]);
+    assert.equal(items[0].providerModelCode, "gpt-5.5");
+  });
+
+  it("uses the canonical public model code even if only a dated snapshot is listed", () => {
+    const items = buildOpenAiCatalogSyncItems(
+      [{ id: "gpt-5.5-2026-04-23", owned_by: "openai" }],
+      { conversion: testConversion, priceVersion: "test-openai", metadataByModelId: metadataMap() }
+    );
+
+    assert.deepEqual(items.map((item) => item.publicModelCode), ["gpt-5.5"]);
+    assert.equal(items[0].providerModelCode, "gpt-5.5-2026-04-23");
+    assert.equal(items[0].displayName, "GPT-5.5");
+  });
+
   it("fetches official metadata by the actual listed model id", async () => {
     const result = await fetchOpenAiOfficialModelMetadata({
       modelId: "gpt-5.5",

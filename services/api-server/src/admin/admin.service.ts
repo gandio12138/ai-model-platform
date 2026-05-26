@@ -2629,6 +2629,10 @@ export class AdminService {
       ["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType)
         ? await this.archiveUnpricedSyncedModels(provider.id, providerType, unpricedSourceModelIds)
         : 0;
+    const archivedDuplicateCount =
+      providerType === "openai"
+        ? await this.archiveDuplicateOpenAiSnapshotModels(provider.id)
+        : 0;
     const archivedRuntimeUnavailableCount =
       providerType === "google_vertex_ai"
         ? await this.archiveRuntimeUnavailableSyncedModels(provider.id, runtimeUnavailableSourceModelIds)
@@ -2657,6 +2661,7 @@ export class AdminService {
           last_model_sync_price_missing_count: pricingMissing,
           last_model_sync_context_missing_count: contextMissing,
           last_model_sync_archived_unpriced_count: archivedUnpricedCount,
+          last_model_sync_archived_duplicate_count: archivedDuplicateCount,
           last_model_sync_archived_runtime_unavailable_count: archivedRuntimeUnavailableCount,
           last_model_sync_region: region,
           last_model_sync_auth_mode: authMode,
@@ -2681,6 +2686,7 @@ export class AdminService {
         pricing_missing_count: pricingMissing,
         context_missing_count: contextMissing,
         archived_unpriced_count: archivedUnpricedCount,
+        archived_duplicate_count: archivedDuplicateCount,
         archived_runtime_unavailable_count: archivedRuntimeUnavailableCount
       },
       reason: String(body.reason ?? "sync provider models")
@@ -2695,6 +2701,7 @@ export class AdminService {
       pricing_missing_count: pricingMissing,
       context_missing_count: contextMissing,
       archived_unpriced_count: archivedUnpricedCount,
+      archived_duplicate_count: archivedDuplicateCount,
       archived_runtime_unavailable_count: archivedRuntimeUnavailableCount,
       models: synced
     };
@@ -4211,6 +4218,49 @@ export class AdminService {
       );
     }
     return modelIds.length;
+  }
+
+  private async archiveDuplicateOpenAiSnapshotModels(providerId: string) {
+    const { rows } = await this.db.query<{ id: string }>(
+      `with candidates as (
+         select distinct m.id
+           from models m
+           join model_routes mr on mr.model_id = m.id
+          where mr.provider_id = $1
+            and coalesce(m.metadata->>'source', '') = 'openai'
+            and m.public_model_code ~ '-[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            and exists (
+              select 1
+                from models canonical
+               where canonical.public_model_code = regexp_replace(m.public_model_code, '-[0-9]{4}-[0-9]{2}-[0-9]{2}$', '')
+                 and canonical.status = 'active'
+                 and coalesce(canonical.metadata->>'source', '') = 'openai'
+            )
+       ),
+       disabled_routes as (
+         update model_routes mr
+            set enabled = false,
+                metadata = coalesce(mr.metadata, '{}'::jsonb) || jsonb_build_object(
+                  'disabled_reason', 'openai_snapshot_duplicate',
+                  'disabled_at', now()
+                ),
+                updated_at = now()
+          where mr.provider_id = $1
+            and mr.model_id in (select id from candidates)
+          returning mr.model_id
+       )
+       update models m
+          set status = 'archived',
+              metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object(
+                'archived_reason', 'openai_snapshot_duplicate',
+                'archived_at', now()
+              ),
+              updated_at = now()
+        where m.id in (select id from candidates)
+        returning m.id`,
+      [providerId]
+    );
+    return rows.length;
   }
 
   private toSourcePricingMetadata(pricing: ResolvedProviderPricing) {

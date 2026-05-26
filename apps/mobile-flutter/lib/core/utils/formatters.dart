@@ -10,12 +10,12 @@ String yuanToCurrency(num yuan) => _currency.format(yuan);
 
 String centsPer1mToCurrencyPer1k(num centsPer1m) {
   final yuanPer1k = centsPer1m / 100000;
-  return '¥${yuanPer1k.toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), '')}/1K';
+  return '¥${yuanPer1k.toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), '')} / 1K';
 }
 
 String centsPer1kToCurrencyPer1k(num centsPer1k) {
   final yuanPer1k = centsPer1k / 100;
-  return '¥${yuanPer1k.toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), '')}/1K';
+  return '¥${yuanPer1k.toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), '')} / 1K';
 }
 
 String modelTokenPricePer1k({int? centsPer1m, required int centsPer1k}) {

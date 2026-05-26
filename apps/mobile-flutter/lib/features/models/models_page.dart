@@ -310,26 +310,27 @@ class ModelCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          Row(
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
             children: [
-              Expanded(
-                child: _Price(
-                  label: '输入',
-                  value: modelTokenPricePer1k(
-                    centsPer1m: model.inputPer1m,
-                    centsPer1k: model.inputPer1k,
-                  ),
+              _MetricTile(
+                label: '输入',
+                value: modelTokenPricePer1k(
+                  centsPer1m: model.inputPer1m,
+                  centsPer1k: model.inputPer1k,
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: _Price(
-                  label: '输出',
-                  value: modelTokenPricePer1k(
-                    centsPer1m: model.outputPer1m,
-                    centsPer1k: model.outputPer1k,
-                  ),
+              _MetricTile(
+                label: '补全',
+                value: modelTokenPricePer1k(
+                  centsPer1m: model.outputPer1m,
+                  centsPer1k: model.outputPer1k,
                 ),
+              ),
+              _MetricTile(
+                label: '上下文',
+                value: compactNumber(model.maxContextTokens),
               ),
             ],
           ),
@@ -353,29 +354,49 @@ class ModelCard extends StatelessWidget {
   }
 }
 
-class _Price extends StatelessWidget {
-  const _Price({required this.label, required this.value});
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({required this.label, required this.value});
 
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceSoft,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.labelMedium),
-          Text(
-            '$value / 1K',
-            style: const TextStyle(fontWeight: FontWeight.w900),
-          ),
-        ],
+    final width =
+        (MediaQuery.sizeOf(context).width -
+            AppSpacing.md * 2 -
+            AppSpacing.sm * 2) /
+        3;
+    return SizedBox(
+      width: width.clamp(96, 180).toDouble(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceSoft,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ],
+        ),
       ),
     );
   }
