@@ -38,7 +38,8 @@ import {
 import {
   OpenAiResolvedPricing,
   buildOpenAiCatalogSyncItems,
-  fetchOpenAiModels
+  fetchOpenAiModels,
+  fetchOpenAiOfficialModelMetadata
 } from "../ai/providers/openai-catalog.js";
 import { resolveUsdPriceConversion } from "../ai/providers/fx-rate.js";
 
@@ -2846,10 +2847,20 @@ export class AdminService {
       ),
       fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
     });
+    const metadataResults = await this.fetchOpenAiMetadataForListedModels(catalog.rows, provider.timeoutMs);
+    const metadataByModelId = new Map(
+      metadataResults
+        .filter((result) => result.metadata)
+        .map((result) => [result.modelId, result.metadata!])
+    );
     const items = buildOpenAiCatalogSyncItems(catalog.rows, {
       conversion,
-      priceVersion: body.price_version ? String(body.price_version) : undefined
+      priceVersion: body.price_version ? String(body.price_version) : undefined,
+      metadataByModelId
     });
+    const missingMetadataModelIds = catalog.rows
+      .map((model) => model.id)
+      .filter((modelId) => !metadataByModelId.has(modelId));
     await this.db.query(
       `update providers
           set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
@@ -2859,12 +2870,35 @@ export class AdminService {
         JSON.stringify({
           last_openai_sync_token_source: catalog.tokenSource,
           last_openai_sync_visible_model_count: catalog.rows.length,
-          last_openai_sync_priced_model_count: items.length
+          last_openai_sync_priced_model_count: items.length,
+          last_openai_sync_missing_metadata_count: missingMetadataModelIds.length,
+          last_openai_sync_missing_metadata_model_ids: missingMetadataModelIds.slice(0, 100)
         }),
         provider.id
       ]
     );
     return items as ProviderModelSyncItem[];
+  }
+
+  private async fetchOpenAiMetadataForListedModels(models: { id: string }[], timeoutMs?: number | null) {
+    const uniqueIds = [...new Set(models.map((model) => String(model.id ?? "").trim()).filter(Boolean))];
+    const docsBaseUrl = process.env.OPENAI_MODEL_DOCS_BASE_URL || "https://developers.openai.com/api/docs/models";
+    const results: Awaited<ReturnType<typeof fetchOpenAiOfficialModelMetadata>>[] = [];
+    const concurrency = Math.max(1, Math.min(6, this.positiveNumber(process.env.OPENAI_MODEL_METADATA_SYNC_CONCURRENCY, 4)));
+    for (let index = 0; index < uniqueIds.length; index += concurrency) {
+      const batch = uniqueIds.slice(index, index + concurrency);
+      const batchResults = await Promise.all(
+        batch.map((modelId) =>
+          fetchOpenAiOfficialModelMetadata({
+            modelId,
+            docsBaseUrl,
+            timeoutMs: Math.min(Number(timeoutMs ?? 30000), 45000)
+          })
+        )
+      );
+      results.push(...batchResults);
+    }
+    return results;
   }
 
   private async fetchGoogleVertexModelSyncItems(

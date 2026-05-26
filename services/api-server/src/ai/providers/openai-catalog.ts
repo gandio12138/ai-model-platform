@@ -54,7 +54,7 @@ export interface OpenAiCatalogSyncItem {
   raw: Record<string, unknown>;
 }
 
-interface OpenAiCatalogEntry {
+export interface OpenAiModelMetadata {
   id: string;
   displayName: string;
   inputUsdPer1m: number;
@@ -64,185 +64,19 @@ interface OpenAiCatalogEntry {
   defaultMaxOutputTokens: number;
   inputModalities: string[];
   outputModalities: string[];
+  supportsStream?: boolean;
   supportsTools: boolean;
   category: "text_chat";
+  sourceUrl?: string;
+  fetchedAt?: string;
 }
 
-// OpenAI's /models endpoint lists accessible model IDs but does not include price
-// or context metadata. Keep this table scoped to official API docs/pricing entries.
-const officialOpenAiCatalog: OpenAiCatalogEntry[] = [
-  {
-    id: "gpt-5.2",
-    displayName: "GPT-5.2",
-    inputUsdPer1m: 1.75,
-    cachedInputUsdPer1m: 0.175,
-    outputUsdPer1m: 14,
-    maxContextTokens: 400000,
-    defaultMaxOutputTokens: 128000,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5.1",
-    displayName: "GPT-5.1",
-    inputUsdPer1m: 1.25,
-    cachedInputUsdPer1m: 0.125,
-    outputUsdPer1m: 10,
-    maxContextTokens: 400000,
-    defaultMaxOutputTokens: 128000,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5",
-    displayName: "GPT-5",
-    inputUsdPer1m: 1.25,
-    cachedInputUsdPer1m: 0.125,
-    outputUsdPer1m: 10,
-    maxContextTokens: 400000,
-    defaultMaxOutputTokens: 128000,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5-mini",
-    displayName: "GPT-5 Mini",
-    inputUsdPer1m: 0.25,
-    cachedInputUsdPer1m: 0.025,
-    outputUsdPer1m: 2,
-    maxContextTokens: 400000,
-    defaultMaxOutputTokens: 128000,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5-nano",
-    displayName: "GPT-5 Nano",
-    inputUsdPer1m: 0.05,
-    cachedInputUsdPer1m: 0.005,
-    outputUsdPer1m: 0.4,
-    maxContextTokens: 400000,
-    defaultMaxOutputTokens: 128000,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5.2-chat-latest",
-    displayName: "GPT-5.2 Chat",
-    inputUsdPer1m: 1.75,
-    cachedInputUsdPer1m: 0.175,
-    outputUsdPer1m: 14,
-    maxContextTokens: 128000,
-    defaultMaxOutputTokens: 16384,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5.1-chat-latest",
-    displayName: "GPT-5.1 Chat",
-    inputUsdPer1m: 1.25,
-    cachedInputUsdPer1m: 0.125,
-    outputUsdPer1m: 10,
-    maxContextTokens: 128000,
-    defaultMaxOutputTokens: 16384,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-5-chat-latest",
-    displayName: "GPT-5 Chat",
-    inputUsdPer1m: 1.25,
-    cachedInputUsdPer1m: 0.125,
-    outputUsdPer1m: 10,
-    maxContextTokens: 128000,
-    defaultMaxOutputTokens: 16384,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-4.1",
-    displayName: "GPT-4.1",
-    inputUsdPer1m: 2,
-    cachedInputUsdPer1m: 0.5,
-    outputUsdPer1m: 8,
-    maxContextTokens: 1047576,
-    defaultMaxOutputTokens: 32768,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-4.1-mini",
-    displayName: "GPT-4.1 Mini",
-    inputUsdPer1m: 0.4,
-    cachedInputUsdPer1m: 0.1,
-    outputUsdPer1m: 1.6,
-    maxContextTokens: 1047576,
-    defaultMaxOutputTokens: 32768,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-4.1-nano",
-    displayName: "GPT-4.1 Nano",
-    inputUsdPer1m: 0.1,
-    cachedInputUsdPer1m: 0.025,
-    outputUsdPer1m: 0.4,
-    maxContextTokens: 1047576,
-    defaultMaxOutputTokens: 32768,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-4o",
-    displayName: "GPT-4o",
-    inputUsdPer1m: 2.5,
-    cachedInputUsdPer1m: 1.25,
-    outputUsdPer1m: 10,
-    maxContextTokens: 128000,
-    defaultMaxOutputTokens: 16384,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  },
-  {
-    id: "gpt-4o-mini",
-    displayName: "GPT-4o Mini",
-    inputUsdPer1m: 0.15,
-    cachedInputUsdPer1m: 0.075,
-    outputUsdPer1m: 0.6,
-    maxContextTokens: 128000,
-    defaultMaxOutputTokens: 16384,
-    inputModalities: ["TEXT", "IMAGE"],
-    outputModalities: ["TEXT"],
-    supportsTools: true,
-    category: "text_chat"
-  }
-];
-
-const catalogById = new Map(officialOpenAiCatalog.map((entry) => [entry.id, entry]));
+export interface OpenAiMetadataFetchResult {
+  modelId: string;
+  metadata: OpenAiModelMetadata | null;
+  sourceUrl: string | null;
+  error?: string;
+}
 
 export async function fetchOpenAiModels(input: {
   credential?: ProviderCredentialConfig | null;
@@ -273,13 +107,14 @@ export function buildOpenAiCatalogSyncItems(
   options: {
     conversion: ProviderPriceConversion;
     priceVersion?: string;
+    metadataByModelId: Map<string, OpenAiModelMetadata>;
   }
 ): OpenAiCatalogSyncItem[] {
   const unique = [...new Map(models.map((model) => [model.id, model])).values()]
     .sort((left, right) => left.id.localeCompare(right.id));
   const items: OpenAiCatalogSyncItem[] = [];
   for (const model of unique) {
-    const entry = resolveOpenAiCatalogEntry(model.id);
+    const entry = resolveOpenAiCatalogEntry(model.id, options.metadataByModelId);
     if (!entry) continue;
     const pricing = resolveOpenAiPricing(entry, options);
     items.push({
@@ -291,7 +126,7 @@ export function buildOpenAiCatalogSyncItems(
       inputModalities: entry.inputModalities,
       outputModalities: entry.outputModalities,
       inferenceTypesSupported: ["OPENAI_API"],
-      supportsStream: true,
+      supportsStream: entry.supportsStream ?? true,
       supportsTools: entry.supportsTools,
       sourceModelId: model.id,
       invocationType: "openai_api",
@@ -307,8 +142,10 @@ export function buildOpenAiCatalogSyncItems(
         provider_name: "OpenAI",
         owned_by: model.owned_by ?? null,
         created: model.created ?? null,
-        context_source: "openai_official_model_docs",
-        price_source: "openai_official_pricing",
+        context_source: entry.sourceUrl ? "openai_official_model_docs" : "openai_metadata",
+        price_source: entry.sourceUrl ? "openai_official_model_docs" : "openai_metadata",
+        metadata_source_url: entry.sourceUrl ?? null,
+        metadata_fetched_at: entry.fetchedAt ?? null,
         tools_status: entry.supportsTools ? "supported" : "unsupported"
       }
     });
@@ -316,17 +153,114 @@ export function buildOpenAiCatalogSyncItems(
   return items;
 }
 
-export function resolveOpenAiCatalogEntry(modelId: string) {
+export async function fetchOpenAiOfficialModelMetadata(input: {
+  modelId: string;
+  docsBaseUrl?: string | null;
+  timeoutMs?: number | null;
+  fetchFn?: typeof fetch;
+}): Promise<OpenAiMetadataFetchResult> {
+  const modelId = String(input.modelId ?? "").trim();
+  const sourceUrl = modelId ? `${String(input.docsBaseUrl ?? "https://developers.openai.com/api/docs/models").replace(/\/+$/u, "")}/${encodeURIComponent(modelId)}` : null;
+  if (!modelId || !sourceUrl) {
+    return { modelId, metadata: null, sourceUrl, error: "missing_model_id" };
+  }
+  const fetchFn = input.fetchFn ?? fetch;
+  const timeoutMs = Number(input.timeoutMs ?? 30000);
+  const fetchOne = async (candidateModelId: string) => {
+    const candidateUrl = `${String(input.docsBaseUrl ?? "https://developers.openai.com/api/docs/models").replace(/\/+$/u, "")}/${encodeURIComponent(candidateModelId)}`;
+    const response = await fetchFn(candidateUrl, {
+      headers: {
+        accept: "text/html,application/xhtml+xml",
+        "user-agent": "OneTokenModelSync/1.0 (+https://xufongnian.xyz)"
+      },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    const html = await response.text();
+    if (!response.ok || /Page not found|not found/i.test(html)) {
+      return { metadata: null, sourceUrl: candidateUrl, error: `metadata_http_${response.status}` };
+    }
+    return {
+      metadata: parseOpenAiOfficialModelPage(candidateModelId, html, candidateUrl),
+      sourceUrl: candidateUrl,
+      error: undefined
+    };
+  };
+  try {
+    const primary = await fetchOne(modelId);
+    if (primary.metadata) return { modelId, metadata: primary.metadata, sourceUrl: primary.sourceUrl };
+    const alias = modelId.replace(/-\d{4}-\d{2}-\d{2}$/u, "");
+    if (alias && alias !== modelId) {
+      const fallback = await fetchOne(alias);
+      if (fallback.metadata) {
+        return {
+          modelId,
+          metadata: { ...fallback.metadata, id: alias },
+          sourceUrl: fallback.sourceUrl
+        };
+      }
+      return { modelId, metadata: null, sourceUrl: fallback.sourceUrl, error: fallback.error ?? "metadata_parse_failed" };
+    }
+    return { modelId, metadata: null, sourceUrl: primary.sourceUrl, error: primary.error ?? "metadata_parse_failed" };
+  } catch (error) {
+    return {
+      modelId,
+      metadata: null,
+      sourceUrl,
+      error: error instanceof Error ? error.message : "metadata_fetch_failed"
+    };
+  }
+}
+
+export function parseOpenAiOfficialModelPage(
+  modelId: string,
+  html: string,
+  sourceUrl?: string | null
+): OpenAiModelMetadata | null {
+  const text = htmlToPlainText(html);
+  const displayName =
+    matchMetaTitle(html) ??
+    firstNonEmptyLine(text) ??
+    displayNameFromModelId(modelId);
+  const contextTokens = parseTokenCount(text, /([\d,]+)\s+context window/iu);
+  const outputTokens = parseTokenCount(text, /([\d,]+)\s+max output tokens/iu);
+  const inputPrice = parseUsdPriceAfterLabel(text, "Input");
+  const cachedInputPrice = parseUsdPriceAfterLabel(text, "Cached input");
+  const outputPrice = parseUsdPriceAfterLabel(text, "Output");
+  if (!contextTokens || !outputTokens || inputPrice === null || outputPrice === null) {
+    return null;
+  }
+  const supportsStream = parseFeatureStatus(text, "Streaming") !== "not_supported";
+  const supportsTools = parseFeatureStatus(text, "Function calling") === "supported";
+  const hasImageInput = /Image\s+Input only/iu.test(text);
+  return {
+    id: modelId,
+    displayName,
+    inputUsdPer1m: inputPrice,
+    cachedInputUsdPer1m: cachedInputPrice ?? undefined,
+    outputUsdPer1m: outputPrice,
+    maxContextTokens: contextTokens,
+    defaultMaxOutputTokens: outputTokens,
+    inputModalities: hasImageInput ? ["TEXT", "IMAGE"] : ["TEXT"],
+    outputModalities: ["TEXT"],
+    supportsStream,
+    supportsTools,
+    category: "text_chat",
+    sourceUrl: sourceUrl ?? undefined,
+    fetchedAt: new Date().toISOString()
+  };
+}
+
+export function resolveOpenAiCatalogEntry(modelId: string, metadataByModelId: Map<string, OpenAiModelMetadata>) {
   const normalized = String(modelId ?? "").trim();
   if (!normalized) return null;
-  const exact = catalogById.get(normalized);
+  const exact = metadataByModelId.get(normalized);
   if (exact) return exact;
   const dateAlias = normalized.replace(/-\d{4}-\d{2}-\d{2}$/u, "");
-  return catalogById.get(dateAlias) ?? null;
+  return metadataByModelId.get(dateAlias) ?? null;
 }
 
 function resolveOpenAiPricing(
-  entry: OpenAiCatalogEntry,
+  entry: OpenAiModelMetadata,
   options: { conversion: ProviderPriceConversion; priceVersion?: string }
 ): OpenAiResolvedPricing {
   return {
@@ -357,14 +291,91 @@ function usdPer1mToTargetCentsPer1m(usdPer1m: number, conversion: ProviderPriceC
   return Math.ceil(usdPer1m * conversion.usdToTargetRate * conversion.markupMultiplier * 100);
 }
 
-function displayNameForOpenAiModel(modelId: string, entry: OpenAiCatalogEntry) {
+function displayNameForOpenAiModel(modelId: string, entry: OpenAiModelMetadata) {
   if (modelId === entry.id) return entry.displayName;
-  return modelId
+  return displayNameFromModelId(modelId);
+}
+
+function htmlToPlainText(html: string) {
+  return String(html ?? "")
+    .replace(/<script[\s\S]*?<\/script>/giu, "\n")
+    .replace(/<style[\s\S]*?<\/style>/giu, "\n")
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .replace(/<br\s*\/?>/giu, "\n")
+    .replace(/<\/(div|p|li|h[1-6]|section|article|tr|td|th)>/giu, "\n")
+    .replace(/<[^>]+>/gu, "\n")
+    .replace(/&nbsp;/gu, " ")
+    .replace(/&amp;/gu, "&")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&#x27;|&#39;/gu, "'")
+    .replace(/&quot;/gu, '"')
+    .replace(/[ \t]+\n/gu, "\n")
+    .replace(/\n[ \t]+/gu, "\n")
+    .replace(/\n{2,}/gu, "\n")
+    .trim();
+}
+
+function matchMetaTitle(html: string) {
+  const title = /<meta\s+name=["']title["']\s+content=["']([^"']+)["']/iu.exec(html)?.[1] ??
+    /<title>([^<]+)<\/title>/iu.exec(html)?.[1] ??
+    "";
+  return title.replace(/\s*Model\s*\|\s*OpenAI API\s*$/iu, "").trim() || null;
+}
+
+function firstNonEmptyLine(text: string) {
+  return text.split(/\n/u).map((line) => line.trim()).find(Boolean) ?? null;
+}
+
+function parseTokenCount(text: string, pattern: RegExp) {
+  const match = pattern.exec(text);
+  if (!match?.[1]) return null;
+  const value = Number(match[1].replace(/,/gu, ""));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function parseUsdPriceAfterLabel(text: string, label: string) {
+  const lines = text.split(/\n/u).map((line) => line.trim()).filter(Boolean);
+  const start = lines.findIndex((line) => /^Pricing$/iu.test(line));
+  const scoped = start >= 0 ? lines.slice(start, start + 80) : lines;
+  for (let index = 0; index < scoped.length; index += 1) {
+    if (scoped[index]?.toLowerCase() !== label.toLowerCase()) continue;
+    for (const candidate of scoped.slice(index + 1, index + 5)) {
+      const parsed = parseUsdPrice(candidate);
+      if (parsed !== null) return parsed;
+    }
+  }
+  return null;
+}
+
+function parseUsdPrice(text: string) {
+  const match = /\$([0-9]+(?:\.[0-9]+)?)/u.exec(text);
+  if (!match?.[1]) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseFeatureStatus(text: string, label: string): "supported" | "not_supported" | "unknown" {
+  const lines = text.split(/\n/u).map((line) => line.trim()).filter(Boolean);
+  const start = lines.findIndex((line) => /^Features$/iu.test(line));
+  const scoped = start >= 0 ? lines.slice(start, start + 80) : lines;
+  const index = scoped.findIndex((line) => line.toLowerCase() === label.toLowerCase());
+  if (index < 0) return "unknown";
+  const next = scoped.slice(index + 1, index + 4).join(" ");
+  if (/Not supported/iu.test(next)) return "not_supported";
+  if (/Supported/iu.test(next)) return "supported";
+  return "unknown";
+}
+
+function displayNameFromModelId(modelId: string) {
+  return String(modelId ?? "")
     .replace(/-/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase())
     .replace(/\bGpt\b/g, "GPT")
     .replace(/\bMini\b/g, "Mini")
-    .replace(/\bNano\b/g, "Nano");
+    .replace(/\bNano\b/g, "Nano")
+    .replace(/\bPro\b/g, "Pro")
+    .replace(/\bCodex\b/g, "Codex");
 }
 
 export function resolveOpenAiApiKey(credential?: ProviderCredentialConfig | null) {
