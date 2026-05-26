@@ -101,38 +101,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       content: content,
       createdAt: DateTime.now(),
     );
-    ChatEstimate estimate;
     try {
-      estimate = await ref
+      final estimate = await ref
           .read(apiProvider)
           .estimateChat(
             modelCode: _modelCode,
             messages: [..._messages, userMessage],
           );
+      if (!estimate.balanceEnough) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '余额不足，预计约 ${centsToCurrency(estimate.estimatedCost)}，当前余额 ${centsToCurrency(estimate.currentBalance)}',
+            ),
+            action: SnackBarAction(
+              label: '去充值',
+              onPressed: () => context.push('/wallet'),
+            ),
+          ),
+        );
+        return;
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('发送前预估失败：${errorMessage(error)}')));
-      return;
-    }
-    if (!mounted) return;
-    final confirmed = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => CostEstimateSheet(estimate: estimate),
-    );
-    if (confirmed == false && !estimate.balanceEnough && mounted) {
-      context.push('/wallet');
-      return;
-    }
-    if (confirmed != true) return;
-    if (!estimate.balanceEnough) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('余额不足，请先充值后再发送')));
-      }
+      ).showSnackBar(SnackBar(content: Text('费用预估失败：${errorMessage(error)}')));
       return;
     }
     await _subscription?.cancel();
@@ -336,7 +331,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
-                            hintText: '输入问题，发送前会预估费用',
+                            hintText: '输入问题，按发送开始对话',
                           ),
                         ),
                       ),
@@ -388,7 +383,7 @@ class _EmptyChat extends StatelessWidget {
               Text('开始一个新问题', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                '发送前会先预估本次费用，确认后再调用模型。你可以直接输入问题，也可以从下面的提示开始。',
+                '你可以直接输入问题，也可以从下面的提示开始。回复完成后会在消息底部展示本次 token 和实际扣费。',
                 style: Theme.of(
                   context,
                 ).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
@@ -642,108 +637,184 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == ChatRole.user;
+    if (isUser) return _UserBubble(message: message);
+    return _AssistantBubble(message: message);
+  }
+}
+
+class _UserBubble extends StatelessWidget {
+  const _UserBubble({required this.message});
+
+  final ChatMessage message;
+
+  @override
+  Widget build(BuildContext context) {
     return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: Alignment.centerRight,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * .82,
+          maxWidth: MediaQuery.sizeOf(context).width * .74,
         ),
-        margin: const EdgeInsets.only(bottom: AppSpacing.md),
-        padding: const EdgeInsets.all(AppSpacing.md),
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: 11,
+        ),
         decoration: BoxDecoration(
-          color: isUser ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isUser ? AppColors.primary : AppColors.border,
+          color: AppColors.primary,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(18),
+            topRight: Radius.circular(18),
+            bottomLeft: Radius.circular(18),
+            bottomRight: Radius.circular(6),
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SelectableText(
-              message.content.isEmpty && message.streaming
-                  ? '生成中...'
-                  : message.content,
-              style: TextStyle(
-                color: isUser ? Colors.white : AppColors.text,
-                height: 1.55,
-              ),
+        child: Text(
+          message.content,
+          style: const TextStyle(
+            color: Colors.white,
+            height: 1.45,
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssistantBubble extends StatelessWidget {
+  const _AssistantBubble({required this.message});
+
+  final ChatMessage message;
+
+  Future<void> _copy(BuildContext context) async {
+    if (message.content.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: message.content));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已复制回复')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final usage = message.usage;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .9,
+        ),
+        margin: const EdgeInsets.only(bottom: AppSpacing.md),
+        padding: const EdgeInsets.fromLTRB(16, 12, 10, 14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0A0F172A),
+              blurRadius: 18,
+              offset: Offset(0, 8),
             ),
-            if (message.streaming) ...[
-              const SizedBox(height: AppSpacing.sm),
-              const LinearProgressIndicator(minHeight: 2),
-            ],
-            if (message.usage != null) ...[
-              const SizedBox(height: AppSpacing.sm),
-              AppBadge(
-                label: '本次扣费 ${centsToCurrency(message.usage!.actualCost)}',
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                '输入 ${compactNumber(message.usage!.inputTokens)} tokens · 输出 ${compactNumber(message.usage!.outputTokens)} tokens · ${formatDate(message.usage!.chargedAt)}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isUser ? Colors.white70 : AppColors.textMuted,
-                ),
-              ),
-            ],
-            const SizedBox(height: AppSpacing.xs),
-            Wrap(
-              spacing: AppSpacing.sm,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextButton(
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: message.content));
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('已复制')));
-                  },
-                  child: Text(isUser ? '复制' : '复制回复'),
-                ),
-                if (!isUser && message.usage != null)
-                  TextButton(
-                    onPressed: () => _showUsageDetail(context, message),
-                    child: const Text('详情'),
+                Expanded(
+                  child: SelectableText(
+                    message.content.isEmpty && message.streaming
+                        ? '生成中...'
+                        : message.content,
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      height: 1.58,
+                      fontSize: 15,
+                    ),
                   ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: '复制回复',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
+                  padding: EdgeInsets.zero,
+                  onPressed: message.content.isEmpty
+                      ? null
+                      : () => _copy(context),
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                ),
               ],
             ),
+            if (message.streaming) ...[
+              const SizedBox(height: AppSpacing.md),
+              const LinearProgressIndicator(minHeight: 2),
+            ],
+            if (usage != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              _UsageSummary(usage: usage),
+            ],
           ],
         ),
       ),
     );
   }
+}
 
-  void _showUsageDetail(BuildContext context, ChatMessage message) {
-    final usage = message.usage;
-    if (usage == null) return;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+class _UsageSummary extends StatelessWidget {
+  const _UsageSummary({required this.usage});
+
+  final ChatUsage usage;
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted, height: 1.45);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '本次实际消耗 ${centsToCurrency(usage.actualCost)}',
+            style: const TextStyle(
+              color: AppColors.text,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
             children: [
-              Text('本次扣费详情', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: AppSpacing.md),
-              _Row(label: '实际扣费', value: centsToCurrency(usage.actualCost)),
-              _Row(label: '输入 Tokens', value: compactNumber(usage.inputTokens)),
-              _Row(
-                label: '输出 Tokens',
-                value: compactNumber(usage.outputTokens),
-              ),
-              _Row(label: '计费时间', value: formatDate(usage.chargedAt)),
-              const SizedBox(height: AppSpacing.md),
               Text(
-                '实际扣费以服务端记录的模型返回 tokens 和后台价格为准。',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
+                '输入 ${compactNumber(usage.inputTokens)} tokens',
+                style: textStyle,
               ),
+              Text(
+                '输出 ${compactNumber(usage.outputTokens)} tokens',
+                style: textStyle,
+              ),
+              Text('模型 ${usage.modelCode}', style: textStyle),
+              Text(formatDate(usage.chargedAt), style: textStyle),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -755,111 +826,4 @@ List<String> _modelCategories(List<ModelInfo> _) {
 
 List<String> _modelCompanies(List<ModelInfo> _) {
   return const ['Claude', 'OpenAI', 'Gemini'];
-}
-
-class CostEstimateSheet extends StatelessWidget {
-  const CostEstimateSheet({required this.estimate, super.key});
-
-  final ChatEstimate estimate;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                height: 4,
-                width: 42,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('发送前预估费用', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: AppSpacing.md),
-            _Row(label: '模型', value: estimate.modelCode),
-            _Row(
-              label: '预计输入',
-              value: '${compactNumber(estimate.inputTokens)} tokens',
-            ),
-            _Row(
-              label: '预计输出',
-              value: '${compactNumber(estimate.estimatedOutputTokens)} tokens',
-            ),
-            _Row(
-              label: '模型输出上限',
-              value: '${compactNumber(estimate.maxOutputTokens)} tokens',
-            ),
-            _Row(
-              label: '预估费用',
-              value: '约 ${centsToCurrency(estimate.estimatedCost)}',
-            ),
-            _Row(
-              label: '当前余额',
-              value: centsToCurrency(estimate.currentBalance),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            AppCard(
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const AppBadge(label: '说明', color: AppColors.cyan),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      '预估费用仅用于发送前确认，实际消耗以模型返回和服务端最终计费为准。',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            if (!estimate.balanceEnough)
-              AppButton(
-                label: '余额不足，去充值',
-                fullWidth: true,
-                onPressed: () => Navigator.pop(context, false),
-              )
-            else
-              AppButton(
-                label: '确认发送',
-                fullWidth: true,
-                onPressed: () => Navigator.pop(context, true),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-          ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
-        ],
-      ),
-    );
-  }
 }

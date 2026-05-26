@@ -79,7 +79,7 @@ void main() {
     expect(find.text('GPT-4o'), findsOneWidget);
   });
 
-  testWidgets('chat bubble renders and estimate sheet confirms', (
+  testWidgets('chat bubble renders usage and compact copy action', (
     tester,
   ) async {
     final message = ChatMessage(
@@ -87,23 +87,19 @@ void main() {
       role: ChatRole.assistant,
       content: 'hello',
       createdAt: DateTime.now(),
+      usage: ChatUsage(
+        actualCost: 1,
+        inputTokens: 41,
+        outputTokens: 9,
+        modelCode: 'gpt-4o',
+        chargedAt: DateTime(2026, 5, 26, 10, 26, 58),
+      ),
     );
     await tester.pumpWidget(wrap(Scaffold(body: ChatBubble(message: message))));
     expect(find.text('hello'), findsOneWidget);
-
-    const estimate = ChatEstimate(
-      modelCode: 'gpt-4o',
-      inputTokens: 1240,
-      estimatedOutputTokens: 1500,
-      outputTokenLimit: 2000,
-      maxOutputTokens: 2000,
-      estimatedCost: 83,
-      currentBalance: 3520,
-    );
-    await tester.pumpWidget(
-      wrap(const Scaffold(body: CostEstimateSheet(estimate: estimate))),
-    );
-    expect(find.text('确认发送'), findsOneWidget);
+    expect(find.textContaining('本次实际消耗'), findsOneWidget);
+    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
+    expect(find.text('复制回复'), findsNothing);
   });
 
   testWidgets('chat page switches model and renders generated reply', (
@@ -128,14 +124,11 @@ void main() {
 
     await tester.enterText(find.byType(TextField).last, '你好');
     await tester.tap(find.byIcon(Icons.arrow_upward_rounded));
-    await tester.pumpAndSettle();
-    expect(find.text('确认发送'), findsOneWidget);
-    await tester.tap(find.text('确认发送'));
     await tester.pump(const Duration(milliseconds: 1200));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('现在通过 claude-3-7-sonnet 生成回复'), findsOneWidget);
-    expect(find.textContaining('本次扣费'), findsOneWidget);
+    expect(find.textContaining('本次实际消耗'), findsOneWidget);
   });
 
   testWidgets('payment product card renders', (tester) async {
