@@ -97,7 +97,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(Scaffold(body: ChatBubble(message: message))));
     expect(find.text('hello'), findsOneWidget);
-    expect(find.textContaining('本次实际消耗'), findsOneWidget);
+    expect(find.textContaining('输入 41 tokens'), findsOneWidget);
     expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
     expect(find.text('复制回复'), findsNothing);
   });
@@ -128,7 +128,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('现在通过 claude-3-7-sonnet 生成回复'), findsOneWidget);
-    expect(find.textContaining('本次实际消耗'), findsOneWidget);
+    expect(find.textContaining('输入'), findsWidgets);
   });
 
   testWidgets('payment product card renders', (tester) async {

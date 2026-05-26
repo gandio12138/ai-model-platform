@@ -790,14 +790,6 @@ class _UsageSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '本次实际消耗 ${centsToCurrency(usage.actualCost)}',
-            style: const TextStyle(
-              color: AppColors.text,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
           Wrap(
             spacing: 8,
             runSpacing: 4,
