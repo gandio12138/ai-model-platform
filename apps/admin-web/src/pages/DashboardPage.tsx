@@ -37,6 +37,7 @@ type TopTenant = {
 };
 
 type DashboardData = {
+  todayRechargeRevenue?: number;
   todayRevenue: number;
   todayCost: number;
   todayGrossProfit: number;
@@ -244,17 +245,20 @@ export default function DashboardPage() {
       <div className="page-header">
         <div>
           <Typography.Title level={3}>仪表盘</Typography.Title>
-          <Typography.Text type="secondary">收入、成本、请求趋势、模型用量和支付状态</Typography.Text>
+          <Typography.Text type="secondary">充值到账、调用收入、估算成本、请求趋势和模型用量</Typography.Text>
         </div>
         <Button icon={<RefreshCw size={16} />} onClick={load} loading={loading}>刷新</Button>
       </div>
 
       <Row gutter={[12, 12]}>
         <Col xs={24} md={8} xl={4}>
-          <Card><Statistic title="今日收入" value={money(data?.todayRevenue ?? 0)} /></Card>
+          <Card><Statistic title="今日充值到账" value={money(data?.todayRechargeRevenue ?? 0)} /></Card>
         </Col>
         <Col xs={24} md={8} xl={4}>
-          <Card><Statistic title="今日成本" value={money(data?.todayCost ?? 0)} /></Card>
+          <Card><Statistic title="今日调用收入" value={money(data?.todayRevenue ?? 0)} /></Card>
+        </Col>
+        <Col xs={24} md={8} xl={4}>
+          <Card><Statistic title="估算上游成本" value={money(data?.todayCost ?? 0)} /></Card>
         </Col>
         <Col xs={24} md={8} xl={4}>
           <Card><Statistic title="今日毛利" value={money(data?.todayGrossProfit ?? 0)} /></Card>
@@ -265,19 +269,16 @@ export default function DashboardPage() {
         <Col xs={24} md={8} xl={4}>
           <Card><Statistic title="今日 Token" value={compact(data?.todayTokens ?? 0)} /></Card>
         </Col>
-        <Col xs={24} md={8} xl={4}>
-          <Card><Statistic title="平均延迟" value={data?.todayAverageLatencyMs ?? 0} suffix="ms" /></Card>
-        </Col>
       </Row>
 
       <Row gutter={[12, 12]} className="dashboard-grid">
         <Col xs={24} xl={12}>
-          <Card title="14 天收入 / 成本趋势">
+          <Card title="14 天调用收入 / 成本趋势">
             <TrendLineChart
               data={data?.revenueTrend ?? []}
               series={[
-                { key: "revenue", label: "收入", color: "#2563eb", formatter: money },
-                { key: "cost", label: "成本", color: "#f97316", formatter: money },
+                { key: "revenue", label: "调用收入", color: "#2563eb", formatter: money },
+                { key: "cost", label: "估算成本", color: "#f97316", formatter: money },
                 { key: "grossProfit", label: "毛利", color: "#16a34a", formatter: money }
               ]}
             />
@@ -302,11 +303,11 @@ export default function DashboardPage() {
         </Col>
         <Col xs={24} lg={12}>
           <TopList
-            title="30 天租户收入 Top"
+            title="30 天租户调用收入 Top"
             items={data?.tenantRevenueTop ?? []}
             value={(item: TopTenant) => item.revenue}
             renderValue={(item: TopTenant) => money(item.revenue)}
-            secondary={(item: TopTenant) => `${compact(item.orders)} 笔已支付订单`}
+            secondary={(item: TopTenant) => `${compact(item.orders)} 条消费记录`}
           />
         </Col>
       </Row>

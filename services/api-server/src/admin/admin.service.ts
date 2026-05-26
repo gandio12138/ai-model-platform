@@ -830,20 +830,18 @@ export class AdminService {
     const scopedTenantIds = await this.getScopedTenantIds(user);
     const scopedPayment = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
     const scopedRequest = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
-    const scopedBilling = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
-    const scopedRevenueTrend = this.buildTenantScopeSql("po.tenant_id", scopedTenantIds, []);
-    const scopedCostTrend = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
+    const scopedUsage = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
+    const scopedUsageTrend = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
     const scopedRequestTrend = this.buildTenantScopeSql("rl.tenant_id", scopedTenantIds, []);
     const scopedModelTop = this.buildTenantScopeSql("tenant_id", scopedTenantIds, []);
-    const scopedTenantTop = this.buildTenantScopeSql("po.tenant_id", scopedTenantIds, []);
+    const scopedTenantUsageTop = this.buildTenantScopeSql("br.tenant_id", scopedTenantIds, []);
     const [
-      revenue,
-      cost,
+      rechargeRevenue,
+      usageFinancial,
       todayRequests,
       orders,
       requests,
-      revenueTrend,
-      costTrend,
+      usageTrend,
       requestTrend,
       modelUsageTop,
       tenantRevenueTop,
@@ -858,12 +856,20 @@ export class AdminService {
             ${scopedPayment.sql}`,
         scopedPayment.params
       ),
-      this.db.query<{ amount: string }>(
-        `select coalesce(sum(amount), 0)::text as amount
-           from billing_records
-          where created_at >= date_trunc('day', now())
-            ${scopedBilling.sql}`,
-        scopedBilling.params
+      this.db.query<{ revenue: string; cost: string }>(
+        `select coalesce(sum(br.amount), 0)::text as revenue,
+                coalesce(
+                  sum(floor(br.amount::numeric / nullif(coalesce(mp.reserve_multiplier, 1.5), 0))),
+                  0
+                )::text as cost
+           from billing_records br
+           left join model_prices mp
+             on mp.model_id = br.model_id
+            and mp.price_version = br.price_version
+          where br.created_at >= date_trunc('day', now())
+            and br.billing_status = 'settled'
+            ${scopedUsage.sql}`,
+        scopedUsage.params
       ),
       this.db.query<{ requests: string; tokens: string; avg_latency_ms: string }>(
         `select count(*)::text as requests,
@@ -890,7 +896,7 @@ export class AdminService {
           group by status`,
         scopedRequest.params
       ),
-      this.db.query<{ date: string; label: string; revenue: string; orders: string }>(
+      this.db.query<{ date: string; label: string; revenue: string; cost: string; orders: string }>(
         `with days as (
            select generate_series(
                     date_trunc('day', now()) - interval '13 days',
@@ -900,36 +906,24 @@ export class AdminService {
          )
          select to_char(day, 'YYYY-MM-DD') as date,
                 to_char(day, 'MM-DD') as label,
-                coalesce(sum(po.amount) filter (where po.status in ('PAID','FULFILLED')), 0)::text as revenue,
-                (count(po.id) filter (where po.status in ('PAID','FULFILLED')))::text as orders
-           from days
-           left join payment_orders po
-             on po.created_at >= day
-            and po.created_at < day + interval '1 day'
-            ${scopedRevenueTrend.sql}
-          group by day
-          order by day`,
-        scopedRevenueTrend.params
-      ),
-      this.db.query<{ date: string; cost: string }>(
-        `with days as (
-           select generate_series(
-                    date_trunc('day', now()) - interval '13 days',
-                    date_trunc('day', now()),
-                    interval '1 day'
-                  ) as day
-         )
-         select to_char(day, 'YYYY-MM-DD') as date,
-                coalesce(sum(br.amount), 0)::text as cost
+                coalesce(sum(br.amount), 0)::text as revenue,
+                coalesce(
+                  sum(floor(br.amount::numeric / nullif(coalesce(mp.reserve_multiplier, 1.5), 0))),
+                  0
+                )::text as cost,
+                count(br.id)::text as orders
            from days
            left join billing_records br
              on br.created_at >= day
             and br.created_at < day + interval '1 day'
             and br.billing_status = 'settled'
-            ${scopedCostTrend.sql}
+            ${scopedUsageTrend.sql}
+           left join model_prices mp
+             on mp.model_id = br.model_id
+            and mp.price_version = br.price_version
           group by day
           order by day`,
-        scopedCostTrend.params
+        scopedUsageTrend.params
       ),
       this.db.query<{ date: string; label: string; requests: string; tokens: string; error_requests: string; avg_latency_ms: string }>(
         `with days as (
@@ -971,16 +965,17 @@ export class AdminService {
       this.db.query<{ tenant_id: string; tenant_name: string; revenue: string; orders: string }>(
         `select t.id as tenant_id,
                 t.name as tenant_name,
-                coalesce(sum(po.amount) filter (where po.status in ('PAID','FULFILLED')), 0)::text as revenue,
-                (count(po.id) filter (where po.status in ('PAID','FULFILLED')))::text as orders
-           from payment_orders po
-           join tenants t on t.id = po.tenant_id
-          where po.created_at >= now() - interval '30 days'
-            ${scopedTenantTop.sql}
+                coalesce(sum(br.amount), 0)::text as revenue,
+                count(br.id)::text as orders
+           from billing_records br
+           join tenants t on t.id = br.tenant_id
+          where br.created_at >= now() - interval '30 days'
+            and br.billing_status = 'settled'
+            ${scopedTenantUsageTop.sql}
           group by t.id, t.name
-          order by coalesce(sum(po.amount) filter (where po.status in ('PAID','FULFILLED')), 0) desc
+          order by coalesce(sum(br.amount), 0) desc
           limit 8`,
-        scopedTenantTop.params
+        scopedTenantUsageTop.params
       ),
       this.db.query(
         `select code, name, health_status, health_score
@@ -999,21 +994,22 @@ export class AdminService {
       )
     ]);
 
-    const revenueAmount = Number(revenue.rows[0]?.amount ?? 0);
-    const costAmount = Number(cost.rows[0]?.amount ?? 0);
-    const costByDate = new Map(costTrend.rows.map((row) => [row.date, Number(row.cost ?? 0)]));
+    const rechargeRevenueAmount = Number(rechargeRevenue.rows[0]?.amount ?? 0);
+    const usageRevenueAmount = Number(usageFinancial.rows[0]?.revenue ?? 0);
+    const providerCostAmount = Number(usageFinancial.rows[0]?.cost ?? 0);
     return {
-      todayRevenue: revenueAmount,
-      todayCost: costAmount,
-      todayGrossProfit: revenueAmount - costAmount,
+      todayRechargeRevenue: rechargeRevenueAmount,
+      todayRevenue: usageRevenueAmount,
+      todayCost: providerCostAmount,
+      todayGrossProfit: usageRevenueAmount - providerCostAmount,
       todayRequests: Number(todayRequests.rows[0]?.requests ?? 0),
       todayTokens: Number(todayRequests.rows[0]?.tokens ?? 0),
       todayAverageLatencyMs: Number(todayRequests.rows[0]?.avg_latency_ms ?? 0),
       paymentOrdersByStatus: orders.rows,
       requestsByStatus: requests.rows,
-      revenueTrend: revenueTrend.rows.map((row) => {
+      revenueTrend: usageTrend.rows.map((row) => {
         const dayRevenue = Number(row.revenue ?? 0);
-        const dayCost = costByDate.get(row.date) ?? 0;
+        const dayCost = Number(row.cost ?? 0);
         return {
           ...row,
           revenue: dayRevenue,
