@@ -1195,7 +1195,7 @@ function Shell({
                     ["default_max_output_tokens", "默认输出"],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
-                    ["reserve_multiplier", "预留倍率"],
+                    ["reserve_multiplier", "平台倍率"],
                     ["status", "状态"]
                   ]}
                   editableFields={[
@@ -1224,7 +1224,12 @@ function Shell({
                     { key: "output_price_per_1k_yuan", payloadKey: "output_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "输出/1K tokens（元）", kind: "token_price", required: true },
                     { key: "cache_read_price_per_1k_yuan", payloadKey: "cache_read_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "缓存读取/1K tokens（元）", kind: "token_price" },
                     { key: "cache_write_price_per_1k_yuan", payloadKey: "cache_write_price_per_1m", submitTransform: "yuan_per_1k_to_cents_per_1m", label: "缓存写入/1K tokens（元）", kind: "token_price" },
-                    { key: "reserve_multiplier", label: "预留倍率", kind: "number" },
+                    {
+                      key: "reserve_multiplier",
+                      label: "平台倍率",
+                      kind: "number",
+                      help: "按供应商原始价格计算平台价格的倍率；例如 1.5 表示原始价 × 1.5。"
+                    },
                     { key: "status", label: "状态", kind: "select", options: statusOptions, required: true }
                   ]}
                   canCreate={can("price.write")}

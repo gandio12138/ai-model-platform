@@ -362,7 +362,7 @@ async function main() {
   );
   await pool.query(
     `insert into model_prices (model_id, price_version, input_price_per_1k, output_price_per_1k, reserve_multiplier)
-     values ($1, '2026-05-mvp', 8, 32, 1.2)
+     values ($1, '2026-05-mvp', 8, 32, 1.5)
      on conflict (model_id, price_version) do nothing`,
     [model.rows[0].id]
   );
@@ -435,7 +435,7 @@ async function main() {
     await pool.query(
       `insert into model_prices
         (model_id, price_version, currency, input_price_per_1k, output_price_per_1k, cache_read_price_per_1k, reserve_multiplier, status)
-       values ($1, '2026-05-catalog', 'CNY', $2::bigint, $3::bigint, greatest(floor($2::numeric * 0.1)::bigint, 0), 1.2, 'active')
+       values ($1, '2026-05-catalog', 'CNY', $2::bigint, $3::bigint, greatest(floor($2::numeric * 0.1)::bigint, 0), 1.5, 'active')
        on conflict (model_id, price_version) do update
           set input_price_per_1k = excluded.input_price_per_1k,
               output_price_per_1k = excluded.output_price_per_1k,

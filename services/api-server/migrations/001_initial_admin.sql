@@ -175,7 +175,7 @@ create table model_prices (
   output_price_per_1k bigint not null,
   cache_read_price_per_1k bigint default 0,
   cache_write_price_per_1k bigint default 0,
-  reserve_multiplier numeric(8,4) not null default 1.2,
+  reserve_multiplier numeric(8,4) not null default 1.5,
   effective_from timestamptz not null default now(),
   effective_to timestamptz,
   status text not null default 'active',
@@ -414,4 +414,3 @@ create index idx_payment_orders_user_created on payment_orders(user_id, created_
 create index idx_payment_orders_status_created on payment_orders(status, created_at desc);
 create index idx_request_logs_user_created on request_logs(user_id, created_at desc);
 create index idx_request_logs_model_created on request_logs(public_model_code, created_at desc);
-

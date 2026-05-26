@@ -2807,7 +2807,7 @@ export class AdminService {
       explicitUsdToCnyRate: process.env.GOOGLE_VERTEX_PRICE_USD_TO_CNY,
       markupMultiplier: this.positiveNumber(
         process.env.GOOGLE_VERTEX_PRICE_MARKUP_MULTIPLIER ?? process.env.VERTEX_PRICE_MARKUP_MULTIPLIER,
-        1.2
+        1.5
       ),
       fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
     });
@@ -2977,7 +2977,7 @@ export class AdminService {
       explicitUsdToCnyRate: process.env.AWS_BEDROCK_PRICE_USD_TO_CNY,
       markupMultiplier: this.positiveNumber(
         process.env.AWS_BEDROCK_PRICE_MARKUP_MULTIPLIER ?? process.env.BEDROCK_PRICE_MARKUP_MULTIPLIER,
-        1.2
+        1.5
       ),
       fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
     });
