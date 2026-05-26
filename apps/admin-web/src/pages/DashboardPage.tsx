@@ -316,17 +316,47 @@ export default function DashboardPage() {
     () => (data?.requestsByStatus ?? []).reduce((sum: number, item: any) => sum + Number(item.count ?? 0), 0),
     [data]
   );
-  const selectedRevenuePoint = useMemo(() => {
-    const points = data?.revenueTrend ?? [];
-    return points.find((item) => item.date === selectedTrendDate) ?? points[points.length - 1];
-  }, [data, selectedTrendDate]);
-  const selectedRequestPoint = useMemo(() => {
-    if (!selectedRevenuePoint) return undefined;
-    return (data?.requestTrend ?? []).find((item) => item.date === selectedRevenuePoint.date);
-  }, [data, selectedRevenuePoint]);
   const trendTitle = data?.trendRange
     ? `${data.trendRange.startDate} 至 ${data.trendRange.endDate}`
     : `${range.startDate} 至 ${range.endDate}`;
+  const rangeRevenueSummary = useMemo(() => {
+    const points = data?.revenueTrend ?? [];
+    if (!points.length) return undefined;
+    const revenue = points.reduce((sum, item) => sum + Number(item.revenue || 0), 0);
+    const cost = points.reduce((sum, item) => sum + Number(item.cost || 0), 0);
+    return {
+      date: trendTitle,
+      label: "筛选范围",
+      revenue,
+      cost,
+      grossProfit: revenue - cost,
+      orders: points.reduce((sum, item) => sum + Number(item.orders || 0), 0)
+    };
+  }, [data, trendTitle]);
+  const selectedRevenuePoint = useMemo(() => {
+    const points = data?.revenueTrend ?? [];
+    return points.find((item) => item.date === selectedTrendDate);
+  }, [data, selectedTrendDate]);
+  const detailRevenuePoint = selectedRevenuePoint ?? rangeRevenueSummary;
+  const detailRequestPoint = useMemo(() => {
+    const points = data?.requestTrend ?? [];
+    if (selectedRevenuePoint) {
+      return points.find((item) => item.date === selectedRevenuePoint.date);
+    }
+    if (!points.length) return undefined;
+    const requests = points.reduce((sum, item) => sum + Number(item.requests || 0), 0);
+    return {
+      date: trendTitle,
+      label: "筛选范围",
+      requests,
+      tokens: points.reduce((sum, item) => sum + Number(item.tokens || 0), 0),
+      errorRequests: points.reduce((sum, item) => sum + Number(item.errorRequests || 0), 0),
+      avgLatencyMs: requests
+        ? Math.round(points.reduce((sum, item) => sum + Number(item.avgLatencyMs || 0) * Number(item.requests || 0), 0) / requests)
+        : 0
+    };
+  }, [data, selectedRevenuePoint, trendTitle]);
+  const detailTitle = selectedRevenuePoint ? selectedRevenuePoint.date : trendTitle;
 
   return (
     <div>
@@ -387,7 +417,9 @@ export default function DashboardPage() {
               </Space>
             }
           >
-            <Typography.Text type="secondary">{trendTitle}，点击折线上的日期区域查看当天数据。</Typography.Text>
+            <Typography.Text type="secondary">
+              当前明细默认展示筛选日期范围汇总；点击折线上的某一天可查看当天数据。
+            </Typography.Text>
             <TrendLineChart
               data={data?.revenueTrend ?? []}
               selectedDate={selectedRevenuePoint?.date}
@@ -398,17 +430,17 @@ export default function DashboardPage() {
                 { key: "grossProfit", label: "毛利", color: "#16a34a", formatter: money }
               ]}
             />
-            {selectedRevenuePoint ? (
+            {detailRevenuePoint ? (
               <Card size="small" className="dashboard-day-detail">
                 <Row gutter={[12, 12]}>
-                  <Col xs={12} md={6}><Statistic title={`${selectedRevenuePoint.date} 调用收入`} value={money(selectedRevenuePoint.revenue)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="估算上游成本" value={money(selectedRevenuePoint.cost)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="毛利" value={money(selectedRevenuePoint.grossProfit)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="消费记录" value={compact(selectedRevenuePoint.orders)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="请求数" value={compact(selectedRequestPoint?.requests ?? 0)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="Tokens" value={compact(selectedRequestPoint?.tokens ?? 0)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="错误率" value={percent(selectedRequestPoint?.errorRequests ?? 0, selectedRequestPoint?.requests ?? 0)} /></Col>
-                  <Col xs={12} md={6}><Statistic title="平均延迟" value={selectedRequestPoint?.avgLatencyMs ?? 0} suffix="ms" /></Col>
+                  <Col xs={12} md={6}><Statistic title={`${detailTitle} 调用收入`} value={money(detailRevenuePoint.revenue)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="估算上游成本" value={money(detailRevenuePoint.cost)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="毛利" value={money(detailRevenuePoint.grossProfit)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="消费记录" value={compact(detailRevenuePoint.orders)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="请求数" value={compact(detailRequestPoint?.requests ?? 0)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="Tokens" value={compact(detailRequestPoint?.tokens ?? 0)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="错误率" value={percent(detailRequestPoint?.errorRequests ?? 0, detailRequestPoint?.requests ?? 0)} /></Col>
+                  <Col xs={12} md={6}><Statistic title="平均延迟" value={detailRequestPoint?.avgLatencyMs ?? 0} suffix="ms" /></Col>
                 </Row>
               </Card>
             ) : null}
