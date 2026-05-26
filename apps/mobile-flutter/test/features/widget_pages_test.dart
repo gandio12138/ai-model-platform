@@ -50,7 +50,7 @@ void main() {
 
   testWidgets('login page renders', (tester) async {
     await tester.pumpWidget(wrap(const AuthPage()));
-    expect(find.text('登录 oToken'), findsOneWidget);
+    expect(find.text('登录账号'), findsOneWidget);
   });
 
   testWidgets('home page renders balance', (tester) async {

@@ -14,9 +14,9 @@ void main() {
   test('formats model token price per 1k without trailing zeros', () {
     expect(
       modelTokenPricePer1k(centsPer1m: 4818, centsPer1k: 5),
-      '¥0.04818/1K',
+      '¥0.04818 / 1K',
     );
-    expect(modelTokenPricePer1k(centsPer1m: null, centsPer1k: 2), '¥0.02/1K');
+    expect(modelTokenPricePer1k(centsPer1m: null, centsPer1k: 2), '¥0.02 / 1K');
   });
 
   test('parses public model company and simplified categories', () {

@@ -78,6 +78,7 @@ import {
 
 type ConsoleView = "dashboard" | "tokens" | "logs" | "wallet" | "models" | "referral" | "settings";
 type SiteSection = "home" | "console" | "models" | "docs" | "auth";
+const brandLogoUrl = `${import.meta.env.BASE_URL}assets/otoken-logo-monochrome.svg`;
 type AuthMode = "login" | "register";
 
 const tokenApiBase =
@@ -852,8 +853,7 @@ function PublicLayout({
       <header className="site-header">
         <div className="site-header-inner">
           <button className="site-brand" onClick={() => setActive("home")} type="button">
-            <span className="site-brand-mark">O</span>
-            <span>{siteName}</span>
+            <img className="site-brand-logo" src={brandLogoUrl} alt={siteName} />
           </button>
           <nav className="top-links" aria-label="主导航">
             {nav.map((item) => {
@@ -919,7 +919,7 @@ function AuthPage({
     <section className="auth-screen">
       <div className="auth-card">
         <div className="auth-title">
-          <span className="brand-mark">A</span>
+          <img className="auth-brand-logo" src={brandLogoUrl} alt="oToken" />
           <h1>{authMode === "login" ? "登 录" : "注 册"}</h1>
         </div>
         <Form layout="vertical" onFinish={submitAuth}>

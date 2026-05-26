@@ -54,9 +54,18 @@ body {
   height: 64px;
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 0 18px;
   border-bottom: 1px solid var(--app-border);
+}
+
+.brand-logo {
+  display: block;
+  width: 150px;
+  height: 42px;
+  object-fit: contain;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #fff;
 }
 
 .brand-mark {
@@ -74,6 +83,17 @@ body {
   width: 52px;
   height: 52px;
   font-size: 18px;
+}
+
+.login-brand-logo {
+  display: block;
+  width: 210px;
+  height: auto;
+  margin-bottom: 18px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
 }
 
 .brand-subtitle {

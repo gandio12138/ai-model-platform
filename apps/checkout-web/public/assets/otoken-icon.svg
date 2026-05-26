@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="oToken icon">
+  <defs>
+    <linearGradient id="icon-bg" x1="38" y1="30" x2="220" y2="226" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071225"/>
+      <stop offset="0.58" stop-color="#0B1831"/>
+      <stop offset="1" stop-color="#102348"/>
+    </linearGradient>
+    <linearGradient id="node" x1="88" y1="80" x2="164" y2="176" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.48" stop-color="#BAE6FD"/>
+      <stop offset="1" stop-color="#00C2FF"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#071225" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#icon-bg)"/>
+  <g filter="url(#soft-shadow)">
+    <circle cx="128" cy="128" r="58" fill="none" stroke="#FFFFFF" stroke-width="24"/>
+    <circle cx="128" cy="128" r="19" fill="url(#node)"/>
+    <path d="M128 39v178" fill="none" stroke="#EAF6FF" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="128" cy="71" r="11" fill="#FFFFFF"/>
+    <circle cx="128" cy="185" r="11" fill="#38D8FF"/>
+  </g>
+</svg>

@@ -2,6 +2,8 @@ import { Button, Card, Form, Input, Typography, message } from "antd";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, setSession } from "../api";
 
+const adminBrandLogoUrl = `${import.meta.env.BASE_URL}assets/otoken-logo-monochrome.svg`;
+
 export default function LoginPage() {
   const navigate = useNavigate();
 
@@ -22,8 +24,7 @@ export default function LoginPage() {
     <div className="login-page">
       <div className="login-panel">
         <div className="login-copy">
-          <div className="brand-mark large">AI</div>
-          <Typography.Title level={1}>AI Model Platform</Typography.Title>
+          <img className="login-brand-logo" src={adminBrandLogoUrl} alt="oToken" />
           <Typography.Paragraph>
             Provider、模型路由、钱包账本、支付订单和审计日志的统一管理后台。
           </Typography.Paragraph>

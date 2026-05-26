@@ -80,29 +80,10 @@ class _AuthPageState extends ConsumerState<AuthPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 40),
-              Container(
-                height: 58,
-                width: 58,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  gradient: const LinearGradient(
-                    colors: [AppColors.primaryDark, AppColors.primary],
-                  ),
-                ),
-                child: const Center(
-                  child: Text(
-                    'O',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 24,
-                    ),
-                  ),
-                ),
-              ),
+              const AppBrandLogo(height: 48),
               const SizedBox(height: AppSpacing.xl),
               Text(
-                _registerMode ? '创建 oToken 账号' : '登录 oToken',
+                _registerMode ? '创建账号' : '登录账号',
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               const SizedBox(height: AppSpacing.sm),

@@ -1,3 +1,4 @@
+export 'app_brand.dart';
 export 'app_badge.dart';
 export 'app_button.dart';
 export 'app_card.dart';

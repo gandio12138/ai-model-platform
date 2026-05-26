@@ -33,6 +33,7 @@ import TenantAccountsPage from "./pages/TenantAccountsPage";
 import { apiFetch, clearSession, getSessionUser, getToken } from "./api";
 
 const { Header, Sider, Content } = Layout;
+const adminBrandLogoUrl = `${import.meta.env.BASE_URL}assets/otoken-logo-monochrome.svg`;
 type ThemeMode = "system" | "light" | "dark";
 type EffectiveTheme = "light" | "dark";
 
@@ -380,11 +381,7 @@ function Shell({
     <Layout className="admin-shell">
       <Sider width={236} theme={effectiveTheme === "dark" ? "dark" : "light"} className="admin-sider">
         <div className="brand">
-          <div className="brand-mark">AI</div>
-          <div>
-            <Typography.Text strong>AI Model Platform</Typography.Text>
-            <div className="brand-subtitle">Management Console</div>
-          </div>
+          <img className="brand-logo" src={adminBrandLogoUrl} alt="oToken" />
         </div>
         <Menu
           mode="inline"

@@ -8,6 +8,7 @@ import '../core/config/app_context.dart';
 import '../core/errors/app_exception.dart';
 import '../core/network/api_client.dart';
 import '../core/storage/token_store.dart';
+import '../design_system/tokens.dart';
 import '../features/app_config/design_system_preview_page.dart';
 import '../features/auth/auth_page.dart';
 import '../features/billing/billing_page.dart';
@@ -130,7 +131,7 @@ class SplashPage extends ConsumerStatefulWidget {
 }
 
 class _SplashPageState extends ConsumerState<SplashPage> {
-  String _status = '正在连接 oToken 服务';
+  String _status = '正在连接服务';
 
   @override
   void initState() {
@@ -170,28 +171,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                height: 74,
-                width: 74,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1D4ED8), Color(0xFF38BDF8)],
-                  ),
-                ),
-                child: const Center(
-                  child: Text(
-                    'O',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 30,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text('oToken', style: Theme.of(context).textTheme.headlineLarge),
+              const AppBrandLogo(height: 54),
               const SizedBox(height: 8),
               Text(_status, style: Theme.of(context).textTheme.bodySmall),
             ],

@@ -9,6 +9,6 @@ void main() {
   testWidgets('dev mock app can reach auth or home entry', (tester) async {
     runOTokenApp(AppEnv.dev());
     await tester.pumpAndSettle(const Duration(seconds: 2));
-    expect(find.textContaining('oToken'), findsWidgets);
+    expect(find.textContaining('登录账号'), findsWidgets);
   });
 }

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160" role="img" aria-label="oToken">
+  <defs>
+    <linearGradient id="logo-bg" x1="24" y1="22" x2="132" y2="138" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071225"/>
+      <stop offset="0.62" stop-color="#0B1831"/>
+      <stop offset="1" stop-color="#102348"/>
+    </linearGradient>
+    <linearGradient id="logo-node" x1="56" y1="48" x2="102" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.52" stop-color="#BAE6FD"/>
+      <stop offset="1" stop-color="#00C2FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="24" width="112" height="112" rx="28" fill="url(#logo-bg)"/>
+  <circle cx="68" cy="80" r="28" fill="none" stroke="#FFFFFF" stroke-width="13"/>
+  <circle cx="68" cy="80" r="10" fill="url(#logo-node)"/>
+  <path d="M68 42v76" fill="none" stroke="#EAF6FF" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="68" cy="55" r="5.5" fill="#FFFFFF"/>
+  <circle cx="68" cy="106" r="5.5" fill="#38D8FF"/>
+  <text x="156" y="105" fill="#071225" font-family="Inter, Avenir Next, Arial, sans-serif" font-size="72" font-weight="800" letter-spacing="-2">oToken</text>
+</svg>
