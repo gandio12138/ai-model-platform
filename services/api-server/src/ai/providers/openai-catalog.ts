@@ -336,11 +336,9 @@ function parseTokenCount(text: string, pattern: RegExp) {
 
 function parseUsdPriceAfterLabel(text: string, label: string) {
   const lines = text.split(/\n/u).map((line) => line.trim()).filter(Boolean);
-  const start = lines.findIndex((line) => /^Pricing$/iu.test(line));
-  const scoped = start >= 0 ? lines.slice(start, start + 80) : lines;
-  for (let index = 0; index < scoped.length; index += 1) {
-    if (scoped[index]?.toLowerCase() !== label.toLowerCase()) continue;
-    for (const candidate of scoped.slice(index + 1, index + 5)) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index]?.toLowerCase() !== label.toLowerCase()) continue;
+    for (const candidate of lines.slice(index + 1, index + 8)) {
       const parsed = parseUsdPrice(candidate);
       if (parsed !== null) return parsed;
     }
