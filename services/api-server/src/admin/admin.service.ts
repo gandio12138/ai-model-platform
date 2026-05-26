@@ -2574,6 +2574,10 @@ export class AdminService {
     }
     const providerConfig = this.buildAdminProviderConfig(provider, credential);
     const syncItems = await this.fetchProviderModelSyncItems(providerConfig, body);
+    const includeUnavailableRuntime = this.booleanFlag(
+      body.include_unverified_runtime,
+      process.env.GOOGLE_VERTEX_SYNC_INCLUDE_UNVERIFIED === "true"
+    );
     const synced: any[] = [];
     let pricingSynced = 0;
     let pricingMissing = 0;
@@ -2582,10 +2586,6 @@ export class AdminService {
     const runtimeUnavailableSourceModelIds: string[] = [];
     for (const item of syncItems) {
       const runtimeStatus = String(item.raw?.runtime_validation_status ?? "");
-      const includeUnavailableRuntime = this.booleanFlag(
-        body.include_unverified_runtime,
-        process.env.GOOGLE_VERTEX_SYNC_INCLUDE_UNVERIFIED === "true"
-      );
       if (providerType === "google_vertex_ai" && runtimeStatus === "unavailable" && !includeUnavailableRuntime) {
         runtimeUnavailableSourceModelIds.push(item.sourceModelId);
         continue;
@@ -2947,7 +2947,7 @@ export class AdminService {
     });
     const shouldValidateRuntime = this.booleanFlag(
       body.validate_runtime,
-      process.env.GOOGLE_VERTEX_SYNC_VALIDATE_RUNTIME === "true"
+      process.env.GOOGLE_VERTEX_SYNC_VALIDATE_RUNTIME !== "false"
     );
     let verifiedCount = 0;
     let cachedVerifiedCount = 0;
@@ -2956,7 +2956,10 @@ export class AdminService {
     const runtimeItems = shouldValidateRuntime
       ? await (async () => {
           const cachedValidations = await this.getCachedVertexRuntimeValidations(provider.id ?? null, items);
-          const itemsToValidate = items.filter((item) => cachedValidations.get(item.providerModelCode)?.status !== "verified");
+          const itemsToValidate = items.filter((item) => {
+            const status = cachedValidations.get(item.providerModelCode)?.status;
+            return status !== "verified" && status !== "unavailable";
+          });
           const validations = itemsToValidate.length
             ? await validateGoogleVertexRuntimeModels({
                 projectId,
@@ -2975,6 +2978,22 @@ export class AdminService {
                   raw: {
                     ...item.raw,
                     runtime_validation_status: "verified",
+                    runtime_validation_cached: true,
+                    runtime_validated_at: cached.checkedAt
+                  }
+                };
+              }
+              if (cached?.status === "unavailable") {
+                unavailableCount += 1;
+                runtimeValidationErrors.push({
+                  model: item.providerModelCode,
+                  error: "cached runtime unavailable"
+                });
+                return {
+                  ...item,
+                  raw: {
+                    ...item.raw,
+                    runtime_validation_status: "unavailable",
                     runtime_validation_cached: true,
                     runtime_validated_at: cached.checkedAt
                   }
@@ -3044,14 +3063,17 @@ export class AdminService {
     }>(
       `select mr.provider_model_code,
               coalesce(m.metadata->>'source_model_id', mr.metadata->>'source_model_id') as source_model_id,
-              m.metadata->>'runtime_validation_status' as status,
-              m.metadata->>'runtime_validated_at' as checked_at
+              coalesce(m.metadata->>'runtime_validation_status', mr.metadata->>'runtime_validation_status') as status,
+              coalesce(
+                m.metadata->>'runtime_validated_at',
+                m.metadata->>'runtime_validation_checked_at',
+                mr.metadata->>'runtime_validated_at',
+                mr.metadata->>'runtime_validation_checked_at'
+              ) as checked_at
          from model_routes mr
          join models m on m.id = mr.model_id
         where mr.provider_id = $1
-          and m.status = 'active'
-          and mr.enabled = true
-          and m.metadata->>'runtime_validation_status' = 'verified'
+          and coalesce(m.metadata->>'runtime_validation_status', mr.metadata->>'runtime_validation_status') in ('verified', 'unavailable')
           and (
             mr.provider_model_code = any($2::text[])
             or coalesce(m.metadata->>'source_model_id', mr.metadata->>'source_model_id') = any($2::text[])

@@ -349,7 +349,7 @@ export default function ProviderPage({
         </Form>
       </Modal>
       <Modal title="同步模型目录" open={syncOpen} onCancel={() => setSyncOpen(false)} footer={null} destroyOnClose>
-        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ vertex_regions: "global,us-central1,us-east5" }}>
+        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ vertex_regions: "global,us-central1,us-east5", validate_runtime: true }}>
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleSyncProviderChange} />
           </Form.Item>
