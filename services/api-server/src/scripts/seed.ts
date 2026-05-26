@@ -346,14 +346,13 @@ async function main() {
   await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "payment.bonus", "credit", "bonus", 3600, 183400, 858, "seed:web:ledger:bonus:300");
   await seedLedger(webCustomer.rows[0].id, tenant.rows[0].id, webCustomerId, "usage.charge", "debit", "cash", 1460, 168800, 70, "seed:web:ledger:usage:2");
 
+  if (process.env.SEED_FAKE_MODELS === "true") {
   const provider = await pool.query(
     `insert into providers (code, name, provider_type, base_url, region, legal_scope, monthly_budget, rpm_limit, tpm_limit, health_status, health_score, metadata)
      values ('aws-bedrock-main', 'AWS Bedrock 主线路', 'aws_bedrock', 'https://bedrock.us-east-1.amazonaws.com', 'us-east-1', 'authorized_resale', 100000000, 1200, 200000, 'healthy', 0.9821, '{"model_source":"syncable"}'::jsonb)
      on conflict (code) do update set name = excluded.name, provider_type = excluded.provider_type
      returning id`
   );
-
-  if (process.env.SEED_FAKE_MODELS === "true") {
   const model = await pool.query(
     `insert into models (public_model_code, display_name, model_family, max_context_tokens, default_max_output_tokens, supports_stream, supports_tools, supports_json_mode, metadata)
      values ('anthropic.claude-3-5-sonnet-20241022-v2:0', 'Claude 3.5 Sonnet on Bedrock', 'Anthropic', 200000, 4096, true, true, false, '{"source":"seed"}'::jsonb)
@@ -892,7 +891,7 @@ async function main() {
         userId,
         source,
         modelCode,
-        provider.rows[0].id,
+        null,
         promptTokens,
         completionTokens,
         totalTokens,
