@@ -2,6 +2,7 @@ import { HttpException, Injectable } from "@nestjs/common";
 import { AwsBedrockProviderAdapter } from "./aws-bedrock.adapter.js";
 import { FakeProviderAdapter } from "./fake-provider.adapter.js";
 import { GoogleVertexProviderAdapter } from "./google-vertex.adapter.js";
+import { OpenAiProviderAdapter } from "./openai.adapter.js";
 import { ProviderAdapter } from "./types.js";
 
 @Injectable()
@@ -9,6 +10,7 @@ export class ProviderAdapterRegistry {
   constructor(
     private readonly awsBedrock: AwsBedrockProviderAdapter,
     private readonly googleVertex: GoogleVertexProviderAdapter,
+    private readonly openAi: OpenAiProviderAdapter,
     private readonly fakeProvider: FakeProviderAdapter
   ) {}
 
@@ -19,6 +21,9 @@ export class ProviderAdapterRegistry {
     }
     if (normalized === "google_vertex_ai" || normalized === "vertex_ai") {
       return this.googleVertex;
+    }
+    if (normalized === "openai" || normalized === "openai_official" || normalized === "openai_api") {
+      return this.openAi;
     }
     if (this.isFakeProviderAllowed()) {
       return this.fakeProvider;

@@ -35,9 +35,14 @@ import {
   fetchGoogleVertexPublisherModels,
   validateGoogleVertexRuntimeModels
 } from "../ai/providers/google-vertex-catalog.js";
+import {
+  OpenAiResolvedPricing,
+  buildOpenAiCatalogSyncItems,
+  fetchOpenAiModels
+} from "../ai/providers/openai-catalog.js";
 import { resolveUsdPriceConversion } from "../ai/providers/fx-rate.js";
 
-type ResolvedProviderPricing = BedrockResolvedPricing | VertexResolvedPricing;
+type ResolvedProviderPricing = BedrockResolvedPricing | VertexResolvedPricing | OpenAiResolvedPricing;
 
 interface ProviderModelSyncItem {
   publicModelCode: string;
@@ -51,7 +56,7 @@ interface ProviderModelSyncItem {
   supportsStream: boolean;
   supportsTools: boolean;
   sourceModelId: string;
-  invocationType: "foundation_model" | "inference_profile" | "vertex_managed_api";
+  invocationType: "foundation_model" | "inference_profile" | "vertex_managed_api" | "openai_api";
   inferenceProfileId?: string | null;
   inferenceProfileArn?: string | null;
   maxContextTokens?: number | null;
@@ -2584,7 +2589,7 @@ export class AdminService {
         runtimeUnavailableSourceModelIds.push(item.sourceModelId);
         continue;
       }
-      if (["aws_bedrock", "google_vertex_ai"].includes(providerType) && (!item.pricing || !item.maxContextTokens)) {
+      if (["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType) && (!item.pricing || !item.maxContextTokens)) {
         if (!item.pricing) pricingMissing += 1;
         if (!item.maxContextTokens) contextMissing += 1;
         unpricedSourceModelIds.push(item.sourceModelId);
@@ -2620,7 +2625,7 @@ export class AdminService {
       });
     }
     const archivedUnpricedCount =
-      ["aws_bedrock", "google_vertex_ai"].includes(providerType)
+      ["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType)
         ? await this.archiveUnpricedSyncedModels(provider.id, providerType, unpricedSourceModelIds)
         : 0;
     const archivedRuntimeUnavailableCount =
@@ -2634,7 +2639,7 @@ export class AdminService {
       body.location ??
       providerConfig.credential?.awsRegion ??
       providerConfig.region ??
-      (providerType === "google_vertex_ai" ? "global" : "us-east-1")
+      (providerType === "google_vertex_ai" || providerType === "openai" ? "global" : "us-east-1")
     );
     const authMode = this.resolveProviderAuthMode(providerConfig);
 
@@ -2815,7 +2820,51 @@ export class AdminService {
     if (providerType === "google_vertex_ai") {
       return this.fetchGoogleVertexModelSyncItems(provider, body);
     }
+    if (providerType === "openai") {
+      return this.fetchOpenAiModelSyncItems(provider, body);
+    }
     throw new BadRequestException(`Model sync adapter is not implemented for provider type: ${provider.providerType}`);
+  }
+
+  private async fetchOpenAiModelSyncItems(
+    provider: ProviderConfig,
+    body: Record<string, unknown>
+  ): Promise<ProviderModelSyncItem[]> {
+    const catalog = await fetchOpenAiModels({
+      credential: provider.credential ?? null,
+      baseUrl: provider.endpoint ?? provider.credential?.endpointUrl ?? null,
+      organization: body.organization_id ? String(body.organization_id) : String(provider.metadata?.organization_id ?? provider.metadata?.organization ?? ""),
+      project: body.openai_project_id ? String(body.openai_project_id) : String(provider.metadata?.openai_project_id ?? provider.metadata?.project_id ?? provider.metadata?.project ?? ""),
+      timeoutMs: provider.timeoutMs
+    });
+    const conversion = await resolveUsdPriceConversion({
+      targetCurrency: process.env.PROVIDER_PRICE_TARGET_CURRENCY ?? process.env.OPENAI_PRICE_TARGET_CURRENCY,
+      explicitUsdToCnyRate: process.env.OPENAI_PRICE_USD_TO_CNY,
+      markupMultiplier: this.positiveNumber(
+        process.env.OPENAI_PRICE_MARKUP_MULTIPLIER ?? process.env.PROVIDER_PRICE_MARKUP_MULTIPLIER,
+        1.5
+      ),
+      fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
+    });
+    const items = buildOpenAiCatalogSyncItems(catalog.rows, {
+      conversion,
+      priceVersion: body.price_version ? String(body.price_version) : undefined
+    });
+    await this.db.query(
+      `update providers
+          set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
+              updated_at = now()
+        where id = $2`,
+      [
+        JSON.stringify({
+          last_openai_sync_token_source: catalog.tokenSource,
+          last_openai_sync_visible_model_count: catalog.rows.length,
+          last_openai_sync_priced_model_count: items.length
+        }),
+        provider.id
+      ]
+    );
+    return items as ProviderModelSyncItem[];
   }
 
   private async fetchGoogleVertexModelSyncItems(
@@ -3065,6 +3114,8 @@ export class AdminService {
     ).toLowerCase();
     const credentialType = String(provider.credential?.credentialType ?? "").toLowerCase();
     const authMethod = String((provider.credential?.authMethod ?? credentialType) || providerAuthMode || "iam_role").toLowerCase();
+    if (authMethod === "openai_api_key" || credentialType === "openai_api_key") return "openai_api_key";
+    if (authMethod === "api_key" && this.normalizeProviderType(provider.providerType) === "openai") return "openai_api_key";
     if (authMethod === "iam_role" || credentialType === "iam_role") return "iam_role";
     if (authMethod === "iam_access_key" || credentialType === "iam_access_key") return "iam_access_key";
     if (authMethod === "assume_role" || credentialType === "assume_role") return "assume_role";
@@ -3074,6 +3125,7 @@ export class AdminService {
   private normalizeProviderType(providerType: string) {
     const normalized = String(providerType ?? "").toLowerCase();
     if (normalized === "vertex_ai" || normalized === "google_vertex") return "google_vertex_ai";
+    if (normalized === "openai_official" || normalized === "openai_api") return "openai";
     return normalized;
   }
 
@@ -4033,7 +4085,7 @@ export class AdminService {
   private async archiveUnpricedSyncedModels(providerId: string, providerType: string, sourceModelIds: string[]) {
     const uniqueSourceModelIds = [...new Set(sourceModelIds.filter(Boolean))];
     if (!uniqueSourceModelIds.length) return 0;
-    const sourceName = providerType === "google_vertex_ai" ? "google_vertex_ai" : "aws_bedrock";
+    const sourceName = providerType === "google_vertex_ai" ? "google_vertex_ai" : providerType === "openai" ? "openai" : "aws_bedrock";
     const archived = await this.db.query<{ id: string }>(
       `with candidates as (
          select distinct m.id
@@ -4057,7 +4109,7 @@ export class AdminService {
        update models m
           set status = 'archived',
               metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object(
-                'archived_reason', 'aws_bedrock_price_or_context_missing',
+                'archived_reason', 'provider_price_or_context_missing',
                 'archived_at', now()
               ),
               updated_at = now()
@@ -4071,7 +4123,7 @@ export class AdminService {
         `update model_routes
             set enabled = false,
                 metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
-                  'disabled_reason', 'aws_bedrock_price_or_context_missing',
+                  'disabled_reason', 'provider_price_or_context_missing',
                   'disabled_at', now()
                 ),
                 updated_at = now()
@@ -4212,7 +4264,7 @@ export class AdminService {
         maxContextTokens,
         defaultMaxOutputTokens,
         JSON.stringify({
-          source: pricing.priceVersion.startsWith("google-vertex") ? "google_vertex_price_catalog" : "aws_bedrock_price_list",
+          source: this.providerPriceSource(pricing.priceVersion),
           source_region: pricing.sourceRegion,
           source_currency: pricing.sourceCurrency,
           source_publication_date: pricing.publicationDate,
@@ -4242,7 +4294,7 @@ export class AdminService {
     const source = String(summary.raw?.source ?? summary.providerName ?? "provider").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
     const routeCode = `${source}-${providerModelCode.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase()}`;
     const metadata = {
-      source: "aws_bedrock_sync",
+      source: this.providerRouteSyncSource(summary),
       source_model_id: summary.sourceModelId,
       provider_name: summary.providerName,
       invocation_type: summary.invocationType,
@@ -4268,6 +4320,19 @@ export class AdminService {
       [routeCode, modelId, providerId, credentialId, providerModelCode, JSON.stringify(metadata)]
     );
     return rows[0];
+  }
+
+  private providerPriceSource(priceVersion: string) {
+    if (priceVersion.startsWith("google-vertex")) return "google_vertex_price_catalog";
+    if (priceVersion.startsWith("openai-")) return "openai_price_catalog";
+    return "aws_bedrock_price_list";
+  }
+
+  private providerRouteSyncSource(summary: ProviderModelSyncItem) {
+    const source = String(summary.raw?.source ?? "").toLowerCase();
+    if (source === "google_vertex_ai") return "google_vertex_sync";
+    if (source === "openai") return "openai_sync";
+    return "aws_bedrock_sync";
   }
 
   private async buildTenantInvoiceDraft(tenantId: string, body: Record<string, unknown>) {
@@ -4463,6 +4528,10 @@ export class AdminService {
       if (creating && !payload.status) payload.status = "active";
       return;
     }
+    if (resource === "providers") {
+      this.prepareProviderPayload(payload, creating);
+      return;
+    }
     if (resource === "tenantModelPrices") {
       this.preparePreciseModelPricePayload(payload);
       if (creating && !payload.price_version) payload.price_version = "default";
@@ -4498,6 +4567,45 @@ export class AdminService {
     if (rows[0]?.max_context_tokens) {
       payload.max_context_tokens = Number(rows[0].max_context_tokens);
     }
+  }
+
+  private prepareProviderPayload(payload: Record<string, unknown>, creating: boolean) {
+    const providerType = this.normalizeProviderType(String(payload.provider_type ?? ""));
+    if (providerType) {
+      payload.provider_type = providerType;
+    }
+    if (creating && !payload.code) {
+      payload.code = this.generateProviderCode(providerType || "provider");
+    }
+    if (payload.code) {
+      payload.code = String(payload.code)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      if (!payload.code && creating) {
+        payload.code = this.generateProviderCode(providerType || "provider");
+      }
+    }
+    if (creating && !payload.status) payload.status = "active";
+    if (creating && !payload.region) payload.region = "global";
+    if (creating && !payload.legal_scope) payload.legal_scope = "global";
+    if (creating && !payload.cost_currency) payload.cost_currency = "USD";
+    if (creating && payload.timeout_ms === undefined) payload.timeout_ms = 60000;
+    if (creating && payload.retry_count === undefined) payload.retry_count = 2;
+    if (providerType === "openai" && !payload.base_url) {
+      payload.base_url = "https://api.openai.com/v1";
+    }
+  }
+
+  private generateProviderCode(providerType: string) {
+    const prefixByType: Record<string, string> = {
+      google_vertex_ai: "google-vertex",
+      openai: "openai",
+      openai_compatible: "openai-compatible"
+    };
+    const prefix = (prefixByType[providerType] ?? providerType.replace(/_/g, "-")) || "provider";
+    return `${prefix}-main-${crypto.randomBytes(2).toString("hex")}`;
   }
 
   private async applyModelPriceDefaults(payload: Record<string, unknown>, before?: Record<string, unknown>) {

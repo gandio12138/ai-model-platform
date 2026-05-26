@@ -1,4 +1,4 @@
-import { Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
+import { Button, Collapse, Descriptions, Drawer, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { ChangeEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -53,6 +53,7 @@ export type FieldSpec =
       payloadKey?: string;
       submitTransform?: "yuan_per_1k_to_cents_per_1m";
       defaultValue?: unknown;
+      advanced?: boolean;
     };
 
 type NormalizedFieldSpec = {
@@ -78,6 +79,7 @@ type NormalizedFieldSpec = {
   payloadKey?: string;
   submitTransform?: "yuan_per_1k_to_cents_per_1m";
   defaultValue?: unknown;
+  advanced?: boolean;
 };
 
 interface ResourcePageProps {
@@ -941,6 +943,65 @@ export default function ResourcePage(props: ResourcePageProps) {
     }
   }
 
+  function renderEditableField(field: NormalizedFieldSpec) {
+    return (
+      <Form.Item noStyle shouldUpdate key={field.key}>
+        {({ getFieldsValue }) => {
+          const values = getFieldsValue(true);
+          if (!shouldShowField(field, values)) return null;
+          const rules = field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined;
+          return (
+            <Form.Item
+              extra={field.help}
+              label={field.label}
+              name={field.key}
+              rules={rules}
+              valuePropName={field.kind === "boolean" ? "checked" : "value"}
+            >
+              {field.kind === "number" ? (
+                <InputNumber className="full-width" disabled={field.readonly} />
+              ) : field.kind === "token_price" ? (
+                <InputNumber className="full-width" disabled={field.readonly} min={0} precision={6} step={0.000001} addonAfter="元/1K" />
+              ) : field.kind === "money" ? (
+                <InputNumber className="full-width" disabled={field.readonly} min={0} precision={2} step={1} addonAfter="元" />
+              ) : field.kind === "boolean" ? (
+                <Switch disabled={field.readonly} />
+              ) : field.kind === "select" || field.kind === "multi_select" ? (
+                <Select
+                  allowClear
+                  disabled={field.readonly}
+                  mode={field.kind === "multi_select" || field.mode === "multiple" ? "multiple" : undefined}
+                  showSearch
+                  filterOption={field.remoteSearch ? false : undefined}
+                  optionFilterProp="label"
+                  options={options[field.key] ?? []}
+                  placeholder={field.placeholder ?? "请选择"}
+                  onFocus={() => loadRemoteOptions(field).catch((error) => message.error((error as Error).message))}
+                  onSearch={
+                    field.remoteSearch
+                      ? (keyword) => loadRemoteOptions(field, keyword).catch((error) => message.error((error as Error).message))
+                      : undefined
+                  }
+                  onChange={(value) => handleSelectChange(field, value)}
+                />
+              ) : field.kind === "json" ? (
+                <Input.TextArea rows={8} disabled={field.readonly} placeholder={field.placeholder ?? "{ }"} />
+              ) : field.kind === "textarea" ? (
+                <Input.TextArea rows={4} disabled={field.readonly} placeholder={field.placeholder} />
+              ) : (
+                <Input
+                  disabled={field.readonly}
+                  placeholder={field.sensitive ? "留空表示不修改敏感配置" : field.placeholder}
+                  type={field.kind === "url" ? "url" : undefined}
+                />
+              )}
+            </Form.Item>
+          );
+        }}
+      </Form.Item>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -991,62 +1052,20 @@ export default function ResourcePage(props: ResourcePageProps) {
           onValuesChange={handleValuesChange}
           scrollToFirstError
         >
-          {editable.map((field) => (
-            <Form.Item noStyle shouldUpdate key={field.key}>
-              {({ getFieldsValue }) => {
-                const values = getFieldsValue(true);
-                if (!shouldShowField(field, values)) return null;
-                const rules = field.required ? [{ required: true, message: `请填写${field.label}` }] : undefined;
-                return (
-                  <Form.Item
-                    extra={field.help}
-                    label={field.label}
-                    name={field.key}
-                    rules={rules}
-                    valuePropName={field.kind === "boolean" ? "checked" : "value"}
-                  >
-                    {field.kind === "number" ? (
-                      <InputNumber className="full-width" disabled={field.readonly} />
-                    ) : field.kind === "token_price" ? (
-                      <InputNumber className="full-width" disabled={field.readonly} min={0} precision={6} step={0.000001} addonAfter="元/1K" />
-                    ) : field.kind === "money" ? (
-                      <InputNumber className="full-width" disabled={field.readonly} min={0} precision={2} step={1} addonAfter="元" />
-                    ) : field.kind === "boolean" ? (
-                      <Switch disabled={field.readonly} />
-                    ) : field.kind === "select" || field.kind === "multi_select" ? (
-                      <Select
-                        allowClear
-                        disabled={field.readonly}
-                        mode={field.kind === "multi_select" || field.mode === "multiple" ? "multiple" : undefined}
-                        showSearch
-                        filterOption={field.remoteSearch ? false : undefined}
-                        optionFilterProp="label"
-                        options={options[field.key] ?? []}
-                        placeholder={field.placeholder ?? "请选择"}
-                        onFocus={() => loadRemoteOptions(field).catch((error) => message.error((error as Error).message))}
-                        onSearch={
-                          field.remoteSearch
-                            ? (keyword) => loadRemoteOptions(field, keyword).catch((error) => message.error((error as Error).message))
-                            : undefined
-                        }
-                        onChange={(value) => handleSelectChange(field, value)}
-                      />
-                    ) : field.kind === "json" ? (
-                      <Input.TextArea rows={8} disabled={field.readonly} placeholder={field.placeholder ?? "{ }"} />
-                    ) : field.kind === "textarea" ? (
-                      <Input.TextArea rows={4} disabled={field.readonly} placeholder={field.placeholder} />
-                    ) : (
-                      <Input
-                        disabled={field.readonly}
-                        placeholder={field.sensitive ? "留空表示不修改敏感配置" : field.placeholder}
-                        type={field.kind === "url" ? "url" : undefined}
-                      />
-                    )}
-                  </Form.Item>
-                );
-              }}
-            </Form.Item>
-          ))}
+          {editable.filter((field) => !field.advanced).map(renderEditableField)}
+          {editable.some((field) => field.advanced) && (
+            <Collapse
+              ghost
+              style={{ marginBottom: 16 }}
+              items={[
+                {
+                  key: "advanced",
+                  label: "高级设置",
+                  children: editable.filter((field) => field.advanced).map(renderEditableField)
+                }
+              ]}
+            />
+          )}
           {editing && (
             <Form.Item label="操作原因" name="reason">
               <Input.TextArea rows={3} />

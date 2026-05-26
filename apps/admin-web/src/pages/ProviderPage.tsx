@@ -5,15 +5,39 @@ import { ApiList, apiFetch } from "../api";
 import ResourcePage from "./ResourcePage";
 
 const providerTypeOptions = [
-  { value: "google_vertex_ai", label: "Google Vertex AI" },
-  { value: "openai_compatible", label: "OpenAI-Compatible" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "gemini", label: "Gemini" },
-  { value: "azure_openai", label: "Azure OpenAI" },
-  { value: "vertex_ai", label: "Vertex AI（兼容旧配置）" }
+  {
+    value: "google_vertex_ai",
+    label: "Google Vertex AI",
+    meta: {
+      default_code: "google-vertex-main",
+      default_region: "global",
+      default_currency: "USD"
+    }
+  },
+  {
+    value: "openai",
+    label: "OpenAI 官方 API",
+    meta: {
+      default_code: "openai-main",
+      default_base_url: "https://api.openai.com/v1",
+      default_region: "global",
+      default_currency: "USD"
+    }
+  },
+  {
+    value: "openai_compatible",
+    label: "OpenAI-Compatible",
+    meta: {
+      default_code: "openai-compatible-main",
+      default_base_url: "https://api.example.com/v1",
+      default_region: "global",
+      default_currency: "USD"
+    }
+  }
 ];
 
 const credentialTypeOptions = [
+  { value: "openai_api_key", label: "OpenAI API Key" },
   { value: "azure_openai_api_key", label: "Azure OpenAI API Key" },
   { value: "vertex_service_account", label: "Vertex AI Service Account JSON" },
   { value: "openai_compatible_api_key", label: "OpenAI-Compatible API Key" },
@@ -22,6 +46,7 @@ const credentialTypeOptions = [
 ];
 
 const authMethodOptions = [
+  { value: "openai_api_key", label: "OpenAI API Key" },
   { value: "service_account_json", label: "GCP Service Account JSON" },
   { value: "api_key", label: "通用 API Key / Bearer Token" }
 ];
@@ -86,6 +111,7 @@ export default function ProviderPage({
   const syncProviderType = String(syncProvider?.meta?.provider_type ?? "");
   const testProviderType = String(testProvider?.meta?.provider_type ?? "");
   const isSyncGoogleVertex = syncProviderType === "google_vertex_ai" || syncProviderType === "vertex_ai";
+  const isSyncOpenAi = syncProviderType === "openai";
 
   function loadOptions() {
     return Promise.all([
@@ -171,6 +197,8 @@ export default function ProviderPage({
     const region = String(provider?.meta?.region ?? "");
     syncForm.setFieldsValue({
       gcp_project_id: undefined,
+      organization_id: undefined,
+      openai_project_id: undefined,
       vertex_regions: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? region || "global,us-central1,us-east5" : undefined,
       publishers: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? "google,anthropic,mistralai,xai,meta" : undefined
     });
@@ -184,6 +212,7 @@ export default function ProviderPage({
 
   function recommendedTestModelId(providerType: string) {
     if (providerType === "google_vertex_ai" || providerType === "vertex_ai") return "gemini-2.5-flash";
+    if (providerType === "openai") return "gpt-4o-mini";
     if (providerType === "openai_compatible") return "gpt-4o-mini";
     if (providerType === "anthropic") return "claude-3-5-haiku-20241022";
     if (providerType === "gemini") return "gemini-2.5-flash";
@@ -223,27 +252,46 @@ export default function ProviderPage({
           ["region", "区域"],
           ["status", "状态"],
           ["health_status", "健康状态"],
-          ["health_score", "健康分"],
-          ["monthly_budget", "月预算"]
+          ["health_score", "健康分"]
         ]}
         editableFields={[
-          { key: "code", label: "Provider 编码", required: true, placeholder: "google-vertex-main" },
           { key: "name", label: "名称", required: true, placeholder: "Google Vertex AI 主线路" },
-          { key: "provider_type", label: "类型", kind: "select", options: providerTypeOptions, required: true },
+          {
+            key: "provider_type",
+            label: "类型",
+            kind: "select",
+            options: providerTypeOptions,
+            required: true,
+            autofillFromOption: {
+              code: "default_code",
+              base_url: "default_base_url",
+              region: "default_region",
+              cost_currency: "default_currency"
+            },
+            help: "选择上游供应商类型。当前主线只保留 Google Vertex、OpenAI 官方和 OpenAI-Compatible。"
+          },
           {
             key: "base_url",
             label: "API Endpoint",
             kind: "url",
-            visibleWhen: { provider_type: ["openai_compatible", "azure_openai"] },
-            placeholder: "https://api.example.com/v1",
-            help: "仅 OpenAI-Compatible / Azure OpenAI 需要填写；Google Vertex AI 留空。"
+            visibleWhen: { provider_type: ["openai", "openai_compatible", "azure_openai"] },
+            placeholder: "https://api.openai.com/v1",
+            help: "OpenAI 官方 API 默认使用 https://api.openai.com/v1；OpenAI-Compatible 按供应商填写。"
           },
           { key: "region", label: "区域", kind: "select", options: providerRegionOptions, defaultValue: "global", required: true },
           { key: "legal_scope", label: "合规范围", kind: "select", options: legalScopeOptions, defaultValue: "global" },
           { key: "status", label: "状态", kind: "select", options: statusOptions, defaultValue: "active", required: true },
           { key: "cost_currency", label: "成本币种", kind: "select", options: currencyOptions, defaultValue: "USD", required: true },
-          { key: "timeout_ms", label: "超时 ms", kind: "number", defaultValue: 60000 },
-          { key: "retry_count", label: "重试次数", kind: "number", defaultValue: 2 }
+          {
+            key: "code",
+            label: "Provider 编码",
+            placeholder: "openai-main",
+            advanced: true,
+            help: "内部唯一标识。新增时会根据类型自动生成，一般不用手填；只有需要多条线路时再改。"
+          },
+          { key: "timeout_ms", label: "超时 ms", kind: "number", defaultValue: 60000, advanced: true },
+          { key: "retry_count", label: "重试次数", kind: "number", defaultValue: 2, advanced: true },
+          { key: "monthly_budget", label: "月预算", kind: "money", advanced: true }
         ]}
         canCreate={canWrite}
         canEdit={canWrite}
@@ -305,9 +353,25 @@ export default function ProviderPage({
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleSyncProviderChange} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra={isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON。" : "选择该 Provider 对应密钥。"}>
+          <Form.Item label="使用的密钥" name="credential_id" extra={isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON。" : isSyncOpenAi ? "OpenAI 官方 API 请选择 OpenAI API Key。" : "选择该 Provider 对应密钥。"}>
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
+          {isSyncOpenAi && (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="OpenAI /models 只返回可访问模型 ID，不包含价格和上下文。同步时会用平台维护的 OpenAI 官方价格/上下文目录补齐；目录缺少元数据的模型不会上架。"
+              />
+              <Form.Item label="OpenAI Organization，可选" name="organization_id">
+                <Input placeholder="org_xxx" />
+              </Form.Item>
+              <Form.Item label="OpenAI Project，可选" name="openai_project_id">
+                <Input placeholder="proj_xxx" />
+              </Form.Item>
+            </>
+          )}
           {isSyncGoogleVertex && (
             <>
               <Alert

@@ -1,8 +1,9 @@
-const defaultEnabledProviderTypes = ["google_vertex_ai", "vertex_ai", "google_vertex"];
+const defaultEnabledProviderTypes = ["google_vertex_ai", "vertex_ai", "google_vertex", "openai"];
 
 export function normalizeProviderTypeForVisibility(value: unknown) {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (normalized === "vertex_ai" || normalized === "google_vertex") return "google_vertex_ai";
+  if (normalized === "openai_official" || normalized === "openai_api") return "openai";
   return normalized;
 }
 

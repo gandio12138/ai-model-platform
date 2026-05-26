@@ -3,10 +3,11 @@ import { describe, it } from "node:test";
 import { enabledModelProviderTypes, isModelProviderTypeEnabled } from "./provider-visibility.js";
 
 describe("provider visibility", () => {
-  it("defaults to Google Vertex AI and keeps AWS Bedrock disabled", () => {
-    assert.deepEqual(enabledModelProviderTypes({}), ["google_vertex_ai"]);
+  it("defaults to Google Vertex AI and OpenAI, and keeps AWS Bedrock disabled", () => {
+    assert.deepEqual(enabledModelProviderTypes({}), ["google_vertex_ai", "openai"]);
     assert.equal(isModelProviderTypeEnabled("google_vertex_ai", {}), true);
     assert.equal(isModelProviderTypeEnabled("vertex_ai", {}), true);
+    assert.equal(isModelProviderTypeEnabled("openai", {}), true);
     assert.equal(isModelProviderTypeEnabled("aws_bedrock", {}), false);
   });
 
