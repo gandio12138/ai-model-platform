@@ -4,8 +4,7 @@ create temp table cleanup_aws_providers on commit drop as
 create temp table cleanup_aws_routes on commit drop as
   select mr.id, mr.model_id
     from model_routes mr
-   where mr.provider_id in (select id from cleanup_aws_providers)
-      or coalesce(mr.metadata->>'source', '') = 'aws_bedrock_sync';
+   where mr.provider_id in (select id from cleanup_aws_providers);
 
 create temp table cleanup_aws_route_models on commit drop as
   select distinct model_id as id from cleanup_aws_routes;
