@@ -455,6 +455,11 @@ export class PublicService {
                where mr.model_id = m.id
                  and mr.enabled = true
                  and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
+                 and (
+                   p.provider_type <> 'google_vertex_ai'
+                   or coalesce(m.metadata->>'model_category', 'text_chat') <> 'text_chat'
+                   or coalesce(mr.metadata->>'runtime_validation_status', m.metadata->>'runtime_validation_status') = 'verified'
+                 )
                  and p.status = 'active'
                  and p.provider_type = any($2::text[])
             )
@@ -1878,6 +1883,10 @@ export class PublicService {
     const isAuthorized = this.isPlatformDefaultTenant(row) || Boolean(row.authorization_id);
     const isPriced = Boolean(row.price_version);
     const isChatModel = modelCategory === "text_chat";
+    const requiresRuntimeVerification =
+      row.model_metadata?.source === "google_vertex_ai" && isChatModel;
+    const isRuntimeCallable =
+      !requiresRuntimeVerification || row.model_metadata?.runtime_validation_status === "verified";
     return {
       id: row.id,
       model_code: row.public_model_code,
@@ -1922,7 +1931,7 @@ export class PublicService {
       availability: {
         authorized: isAuthorized,
         priced: isPriced,
-        chat_enabled: isChatModel && isAuthorized && isPriced
+        chat_enabled: isChatModel && isAuthorized && isPriced && isRuntimeCallable
       },
       metadata: row.model_metadata ?? {}
     };

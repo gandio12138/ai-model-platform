@@ -202,7 +202,7 @@ export async function validateGoogleVertexRuntimeModels(input: {
     const publisher = String(item.raw.publisher ?? "").toLowerCase();
     const runtimeAdapter = String(item.raw.runtime_adapter ?? "");
     const category = String(item.raw.model_category ?? "");
-    if (publisher !== "google" || runtimeAdapter !== "gemini_generate_content" || category !== "text_chat") {
+    if (category !== "text_chat") {
       results.set(item.providerModelCode, {
         providerModelCode: item.providerModelCode,
         status: "not_checked",
@@ -212,23 +212,31 @@ export async function validateGoogleVertexRuntimeModels(input: {
     }
     const location = String(item.raw.preferred_region ?? "global");
     const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
-    const url = `https://${host}/v1/projects/${encodeURIComponent(input.projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(item.providerModelCode)}:generateContent`;
+    const validation = vertexRuntimeValidationRequest({
+      projectId: input.projectId,
+      location,
+      host,
+      publisher,
+      providerModelCode: item.providerModelCode,
+      runtimeAdapter
+    });
+    if (!validation) {
+      results.set(item.providerModelCode, {
+        providerModelCode: item.providerModelCode,
+        status: "not_checked",
+        checkedAt
+      });
+      continue;
+    }
     try {
-      const response = await fetch(url, {
+      const response = await fetch(validation.url, {
         method: "POST",
         headers: {
           authorization: `Bearer ${token.accessToken}`,
           "x-goog-user-project": input.projectId,
           "content-type": "application/json"
         },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: "Reply with ok." }] }],
-          generationConfig: {
-            maxOutputTokens: 1,
-            temperature: 0,
-            topP: 1
-          }
-        }),
+        body: JSON.stringify(validation.body),
         signal: AbortSignal.timeout(15000)
       });
       const json = (await response.json().catch(() => ({}))) as any;
@@ -236,7 +244,7 @@ export async function validateGoogleVertexRuntimeModels(input: {
         providerModelCode: item.providerModelCode,
         status: response.ok && !json.error ? "verified" : "unavailable",
         httpStatus: response.status,
-        totalTokens: json.totalTokens ?? null,
+        totalTokens: validationTotalTokens(json),
         errorMessage: json.error?.message ? String(json.error.message).slice(0, 500) : null,
         checkedAt
       });
@@ -250,6 +258,62 @@ export async function validateGoogleVertexRuntimeModels(input: {
     }
   }
   return results;
+}
+
+function vertexRuntimeValidationRequest(input: {
+  projectId: string;
+  location: string;
+  host: string;
+  publisher: string;
+  providerModelCode: string;
+  runtimeAdapter: string;
+}) {
+  const base = `https://${input.host}/v1/projects/${encodeURIComponent(input.projectId)}/locations/${encodeURIComponent(input.location)}/publishers/${encodeURIComponent(input.publisher)}/models/${encodeURIComponent(input.providerModelCode)}`;
+  if (input.publisher === "google" && input.runtimeAdapter === "gemini_generate_content") {
+    return {
+      url: `${base}:generateContent`,
+      body: {
+        contents: [{ role: "user", parts: [{ text: "Reply with ok." }] }],
+        generationConfig: {
+          maxOutputTokens: 1,
+          temperature: 0,
+          topP: 1
+        }
+      }
+    };
+  }
+  if (input.publisher === "anthropic" && input.runtimeAdapter === "anthropic_raw_predict") {
+    return {
+      url: `${base}:rawPredict`,
+      body: {
+        anthropic_version: "vertex-2023-10-16",
+        messages: [{ role: "user", content: "Reply with ok." }],
+        max_tokens: 1,
+        temperature: 0,
+        top_p: 1
+      }
+    };
+  }
+  if (input.publisher === "mistralai" && input.runtimeAdapter === "mistral_raw_predict") {
+    return {
+      url: `${base}:rawPredict`,
+      body: {
+        messages: [{ role: "user", content: "Reply with ok." }],
+        max_tokens: 1,
+        temperature: 0,
+        top_p: 1
+      }
+    };
+  }
+  return null;
+}
+
+function validationTotalTokens(response: any) {
+  return Number(
+    response.usageMetadata?.totalTokenCount ??
+      response.usage?.total_tokens ??
+      Number(response.usage?.input_tokens ?? 0) + Number(response.usage?.output_tokens ?? 0)
+  ) || null;
 }
 
 export function buildGoogleVertexCatalogSyncItems(

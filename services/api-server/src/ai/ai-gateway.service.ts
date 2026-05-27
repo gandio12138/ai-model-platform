@@ -1296,6 +1296,11 @@ export class AiGatewayService {
              where mr.model_id = m.id
                and mr.enabled = true
                and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
+               and (
+                 p.provider_type <> 'google_vertex_ai'
+                 or coalesce(m.metadata->>'model_category', 'text_chat') <> 'text_chat'
+                 or coalesce(mr.metadata->>'runtime_validation_status', m.metadata->>'runtime_validation_status') = 'verified'
+               )
                and p.status = 'active'
                and p.provider_type = any($4::text[])
           )
