@@ -105,13 +105,34 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
     );
   }
 
-  List<String> _modelCompanies(List<ModelInfo> _) {
-    return const ['Claude', 'OpenAI', 'Gemini'];
+  List<String> _modelCompanies(List<ModelInfo> models) {
+    return orderedModelFilterValues(
+      models.map((model) => model.providerName),
+      const ['Claude', 'OpenAI', 'Gemini'],
+    );
   }
 
-  List<String> _modelCategories(List<ModelInfo> _) {
-    return const ['文本模型', '图片模型', '视频模型'];
+  List<String> _modelCategories(List<ModelInfo> models) {
+    return orderedModelFilterValues(
+      models.map((model) => model.category),
+      const ['文本模型', '图片模型', '视频模型'],
+    );
   }
+}
+
+List<String> orderedModelFilterValues(
+  Iterable<String> values,
+  List<String> preferred,
+) {
+  final unique = values
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toSet();
+  return [
+    for (final value in preferred)
+      if (unique.remove(value)) value,
+    ...unique.toList()..sort(),
+  ];
 }
 
 class _ModelFilterBar extends StatelessWidget {
