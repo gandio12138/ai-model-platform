@@ -41,9 +41,28 @@ import {
   fetchOpenAiModels,
   fetchOpenAiOfficialModelMetadata
 } from "../ai/providers/openai-catalog.js";
+import {
+  AnthropicResolvedPricing,
+  buildAnthropicCatalogSyncItems,
+  fetchAnthropicModels,
+  fetchAnthropicOfficialModelMetadataCatalog
+} from "../ai/providers/anthropic-catalog.js";
+import {
+  GeminiResolvedPricing,
+  buildGeminiCatalogSyncItems,
+  fetchGeminiModels,
+  fetchGeminiOfficialPricingCatalog,
+  resolveGeminiCatalogEntry
+} from "../ai/providers/gemini-catalog.js";
 import { resolveUsdPriceConversion } from "../ai/providers/fx-rate.js";
+import { isCredentialRequiredForModelSync, normalizeAiProviderType } from "../ai/providers/provider-type.js";
 
-type ResolvedProviderPricing = BedrockResolvedPricing | VertexResolvedPricing | OpenAiResolvedPricing;
+type ResolvedProviderPricing =
+  | BedrockResolvedPricing
+  | VertexResolvedPricing
+  | OpenAiResolvedPricing
+  | AnthropicResolvedPricing
+  | GeminiResolvedPricing;
 
 interface ProviderModelSyncItem {
   publicModelCode: string;
@@ -57,7 +76,7 @@ interface ProviderModelSyncItem {
   supportsStream: boolean;
   supportsTools: boolean;
   sourceModelId: string;
-  invocationType: "foundation_model" | "inference_profile" | "vertex_managed_api" | "openai_api";
+  invocationType: "foundation_model" | "inference_profile" | "vertex_managed_api" | "openai_api" | "anthropic_api" | "gemini_api";
   inferenceProfileId?: string | null;
   inferenceProfileArn?: string | null;
   maxContextTokens?: number | null;
@@ -372,22 +391,20 @@ const resourceMap: Record<string, ResourceConfig> = {
     table: "provider_credentials",
     readPermission: "provider.read",
     writePermission: "provider.credential.write",
-    searchable: ["name", "credential_type", "secret_last4"],
+    searchable: ["name"],
     writable: [
       "provider_id",
       "name",
-      "credential_type",
       "status",
       "rpm_limit",
       "tpm_limit",
       "daily_budget",
       "monthly_budget",
-      "auth_method",
       "aws_region",
       "endpoint_url",
       "metadata"
     ],
-    hidden: ["encrypted_secret"]
+    hidden: ["encrypted_secret", "secret_last4"]
   },
   models: {
     table: "models",
@@ -2426,8 +2443,10 @@ export class AdminService {
 
   async createCredential(providerId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
     this.assertPermission(user, "provider.credential.write");
-    const credentialType = String(body.credential_type ?? "openai_compatible_api_key");
-    const authMethod = String(body.auth_method ?? credentialType);
+    const provider = await this.findById(resourceMap.providers, providerId);
+    const credentialDefaults = this.resolveProviderCredentialDefaults(String(provider.provider_type));
+    const credentialType = String(body.credential_type ?? credentialDefaults.credentialType);
+    const authMethod = String(body.auth_method ?? credentialDefaults.authMethod);
     const secretBundle = this.buildProviderCredentialSecret(body, credentialType, authMethod);
     const encryptedSecret = this.crypto.encryptSecret(secretBundle.secret);
     const payload = {
@@ -2453,15 +2472,101 @@ export class AdminService {
        returning id, provider_id, name, credential_type, auth_method, aws_region, endpoint_url, secret_last4, status, rpm_limit, tpm_limit, daily_budget, monthly_budget, metadata, last_used_at, created_at, updated_at`,
       columns.map(([, value]) => value)
     );
+    const sanitizedCredential = this.hideFields(rows, resourceMap.providerCredentials.hidden)[0];
     await this.audit.record({
       actor,
       action: "provider.credential.create",
       targetType: "provider_credentials",
       targetId: rows[0].id,
-      afterValue: rows[0],
+      afterValue: sanitizedCredential,
       reason: String(body.reason ?? "")
     });
-    return rows[0];
+    return sanitizedCredential;
+  }
+
+  async deleteProviderCredential(id: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
+    this.assertPermission(user, "provider.credential.write");
+    const { rows } = await this.db.query(
+      `select pc.id,
+              pc.provider_id,
+              pc.name,
+              pc.credential_type,
+              pc.auth_method,
+              pc.status,
+              p.name as provider_name,
+              p.provider_type
+         from provider_credentials pc
+         join providers p on p.id = pc.provider_id
+        where pc.id = $1`,
+      [id]
+    );
+    const credential = rows[0];
+    if (!credential) throw new NotFoundException("Provider credential not found");
+
+    const result = await this.db.transaction(async (client) => {
+      const remainingCredentials = await client.query(
+        `select id
+           from provider_credentials
+          where provider_id = $1
+            and id <> $2
+            and status = 'active'
+          limit 1`,
+        [credential.provider_id, id]
+      );
+      const deleteAllProviderRoutes = remainingCredentials.rowCount === 0 && isCredentialRequiredForModelSync(credential.provider_type);
+      const routes = await client.query<{ id: string; model_id: string }>(
+        `delete from model_routes
+          where credential_id = $1
+             or ($2::boolean = true and provider_id = $3)
+        returning id, model_id`,
+        [id, deleteAllProviderRoutes, credential.provider_id]
+      );
+      const modelIds = [...new Set(routes.rows.map((row) => row.model_id).filter(Boolean))];
+      const orphanedModels = modelIds.length
+        ? await client.query<{ id: string }>(
+            `select m.id
+               from models m
+              where m.id = any($1::uuid[])
+                and not exists (
+                  select 1 from model_routes mr where mr.model_id = m.id
+                )`,
+            [modelIds]
+          )
+        : { rows: [] as { id: string }[] };
+      const orphanedModelIds = orphanedModels.rows.map((row) => row.id);
+      if (orphanedModelIds.length) {
+        await client.query(`delete from model_prices where model_id = any($1::uuid[])`, [orphanedModelIds]);
+        await client.query(`delete from models where id = any($1::uuid[])`, [orphanedModelIds]);
+      }
+      await client.query(`delete from provider_credentials where id = $1`, [id]);
+      return {
+        deletedRouteCount: routes.rowCount ?? 0,
+        deletedModelCount: orphanedModelIds.length,
+        removedAllProviderRoutes: deleteAllProviderRoutes
+      };
+    });
+
+    await this.audit.record({
+      actor,
+      action: "provider.credential.delete",
+      targetType: "provider_credentials",
+      targetId: id,
+      beforeValue: credential,
+      afterValue: {
+        deleted: true,
+        deleted_route_count: result.deletedRouteCount,
+        deleted_model_count: result.deletedModelCount,
+        removed_all_provider_routes: result.removedAllProviderRoutes
+      },
+      reason: String(body.reason ?? "delete provider credential")
+    });
+    return {
+      deleted: true,
+      id,
+      deleted_route_count: result.deletedRouteCount,
+      deleted_model_count: result.deletedModelCount,
+      removed_all_provider_routes: result.removedAllProviderRoutes
+    };
   }
 
   private buildProviderCredentialSecret(
@@ -2493,6 +2598,29 @@ export class AdminService {
     }
     const secret = String(body.secret);
     return { secret, last4: secret.slice(-4) };
+  }
+
+  private resolveProviderCredentialDefaults(providerType: string) {
+    const normalized = this.normalizeProviderType(providerType);
+    if (normalized === "openai") {
+      return { credentialType: "openai_api_key", authMethod: "api_key" };
+    }
+    if (normalized === "anthropic") {
+      return { credentialType: "anthropic_api_key", authMethod: "api_key" };
+    }
+    if (normalized === "gemini") {
+      return { credentialType: "gemini_api_key", authMethod: "api_key" };
+    }
+    if (normalized === "openai_compatible") {
+      return { credentialType: "openai_compatible_api_key", authMethod: "api_key" };
+    }
+    if (normalized === "google_vertex_ai") {
+      return { credentialType: "vertex_service_account", authMethod: "api_key" };
+    }
+    if (normalized === "aws_bedrock") {
+      return { credentialType: "iam_role", authMethod: "iam_role" };
+    }
+    return { credentialType: "api_key", authMethod: "api_key" };
   }
 
   async testProviderConnection(providerId: string, body: Record<string, unknown>, user: any, actor: AuditActor) {
@@ -2576,6 +2704,9 @@ export class AdminService {
     if (!isModelProviderTypeEnabled(providerType)) {
       throw new BadRequestException(`Provider type ${providerType} is disabled for model sync`);
     }
+    if (isCredentialRequiredForModelSync(providerType) && !credential) {
+      throw new BadRequestException(`${providerType} model sync requires selecting an active Provider credential`);
+    }
     const providerConfig = this.buildAdminProviderConfig(provider, credential);
     const syncItems = await this.fetchProviderModelSyncItems(providerConfig, body);
     const includeUnavailableRuntime = this.booleanFlag(
@@ -2594,7 +2725,7 @@ export class AdminService {
         runtimeUnavailableSourceModelIds.push(item.sourceModelId);
         continue;
       }
-      if (["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType) && !item.pricing) {
+      if (["aws_bedrock", "google_vertex_ai", "openai", "anthropic", "gemini"].includes(providerType) && !item.pricing) {
         if (!item.pricing) pricingMissing += 1;
         unpricedSourceModelIds.push(item.sourceModelId);
         continue;
@@ -2630,7 +2761,7 @@ export class AdminService {
       });
     }
     const archivedUnpricedCount =
-      ["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType)
+      ["aws_bedrock", "google_vertex_ai", "openai", "anthropic", "gemini"].includes(providerType)
         ? await this.archiveUnpricedSyncedModels(provider.id, providerType, unpricedSourceModelIds)
         : 0;
     const archivedDuplicateCount =
@@ -2648,7 +2779,7 @@ export class AdminService {
       body.location ??
       providerConfig.credential?.awsRegion ??
       providerConfig.region ??
-      (providerType === "google_vertex_ai" || providerType === "openai" ? "global" : "us-east-1")
+      (providerType === "google_vertex_ai" || providerType === "openai" || providerType === "anthropic" || providerType === "gemini" ? "global" : "us-east-1")
     );
     const authMode = this.resolveProviderAuthMode(providerConfig);
 
@@ -2835,6 +2966,12 @@ export class AdminService {
     if (providerType === "openai") {
       return this.fetchOpenAiModelSyncItems(provider, body);
     }
+    if (providerType === "anthropic") {
+      return this.fetchAnthropicModelSyncItems(provider, body);
+    }
+    if (providerType === "gemini") {
+      return this.fetchGeminiModelSyncItems(provider, body);
+    }
     throw new BadRequestException(`Model sync adapter is not implemented for provider type: ${provider.providerType}`);
   }
 
@@ -2910,6 +3047,110 @@ export class AdminService {
       results.push(...batchResults);
     }
     return results;
+  }
+
+  private async fetchAnthropicModelSyncItems(
+    provider: ProviderConfig,
+    body: Record<string, unknown>
+  ): Promise<ProviderModelSyncItem[]> {
+    const catalog = await fetchAnthropicModels({
+      credential: provider.credential ?? null,
+      baseUrl: provider.endpoint ?? provider.credential?.endpointUrl ?? null,
+      anthropicVersion: body.anthropic_version ? String(body.anthropic_version) : String(provider.metadata?.anthropic_version ?? ""),
+      timeoutMs: provider.timeoutMs
+    });
+    const conversion = await resolveUsdPriceConversion({
+      targetCurrency: process.env.PROVIDER_PRICE_TARGET_CURRENCY ?? process.env.ANTHROPIC_PRICE_TARGET_CURRENCY,
+      explicitUsdToCnyRate: process.env.ANTHROPIC_PRICE_USD_TO_CNY,
+      markupMultiplier: this.positiveNumber(
+        process.env.ANTHROPIC_PRICE_MARKUP_MULTIPLIER ?? process.env.PROVIDER_PRICE_MARKUP_MULTIPLIER,
+        1.5
+      ),
+      fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
+    });
+    const metadataByModelId = await fetchAnthropicOfficialModelMetadataCatalog({
+      overviewUrl: process.env.ANTHROPIC_MODEL_DOCS_OVERVIEW_URL,
+      timeoutMs: Math.min(Number(provider.timeoutMs ?? 30000), 45000)
+    });
+    const items = buildAnthropicCatalogSyncItems(catalog.rows, {
+      conversion,
+      priceVersion: body.price_version ? String(body.price_version) : undefined,
+      metadataByModelId
+    });
+    const missingMetadataModelIds = catalog.rows
+      .map((model) => model.id)
+      .filter((modelId) => !metadataByModelId.has(modelId));
+    await this.db.query(
+      `update providers
+          set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
+              updated_at = now()
+        where id = $2`,
+      [
+        JSON.stringify({
+          last_anthropic_sync_token_source: catalog.tokenSource,
+          last_anthropic_sync_visible_model_count: catalog.rows.length,
+          last_anthropic_sync_priced_model_count: items.length,
+          last_anthropic_sync_missing_metadata_count: missingMetadataModelIds.length,
+          last_anthropic_sync_missing_metadata_model_ids: missingMetadataModelIds.slice(0, 100)
+        }),
+        provider.id
+      ]
+    );
+    return items as ProviderModelSyncItem[];
+  }
+
+  private async fetchGeminiModelSyncItems(
+    provider: ProviderConfig,
+    body: Record<string, unknown>
+  ): Promise<ProviderModelSyncItem[]> {
+    const catalog = await fetchGeminiModels({
+      credential: provider.credential ?? null,
+      baseUrl: provider.endpoint ?? provider.credential?.endpointUrl ?? null,
+      timeoutMs: provider.timeoutMs
+    });
+    const conversion = await resolveUsdPriceConversion({
+      targetCurrency: process.env.PROVIDER_PRICE_TARGET_CURRENCY ?? process.env.GEMINI_PRICE_TARGET_CURRENCY,
+      explicitUsdToCnyRate: process.env.GEMINI_PRICE_USD_TO_CNY,
+      markupMultiplier: this.positiveNumber(
+        process.env.GEMINI_PRICE_MARKUP_MULTIPLIER ?? process.env.PROVIDER_PRICE_MARKUP_MULTIPLIER,
+        1.5
+      ),
+      fallbackToUsd: process.env.PROVIDER_PRICE_FALLBACK_TO_USD === "true"
+    });
+    const metadataByModelId = await fetchGeminiOfficialPricingCatalog({
+      pricingUrl: process.env.GEMINI_MODEL_PRICING_URL,
+      timeoutMs: Math.min(Number(provider.timeoutMs ?? 30000), 45000)
+    });
+    const items = buildGeminiCatalogSyncItems(catalog.rows, {
+      conversion,
+      priceVersion: body.price_version ? String(body.price_version) : undefined,
+      metadataByModelId
+    });
+    const missingMetadataModelIds = catalog.rows
+      .filter((model) => !resolveGeminiCatalogEntry(model, metadataByModelId))
+      .map((model) => model.name);
+    const missingContextModelIds = catalog.rows
+      .filter((model) => !Number(model.inputTokenLimit) || !Number(model.outputTokenLimit))
+      .map((model) => model.name);
+    await this.db.query(
+      `update providers
+          set metadata = coalesce(metadata, '{}'::jsonb) || $1::jsonb,
+              updated_at = now()
+        where id = $2`,
+      [
+        JSON.stringify({
+          last_gemini_sync_token_source: catalog.tokenSource,
+          last_gemini_sync_visible_model_count: catalog.rows.length,
+          last_gemini_sync_priced_model_count: items.length,
+          last_gemini_sync_missing_metadata_count: missingMetadataModelIds.length,
+          last_gemini_sync_missing_metadata_model_ids: missingMetadataModelIds.slice(0, 100),
+          last_gemini_sync_missing_context_count: missingContextModelIds.length,
+          last_gemini_sync_missing_context_model_ids: missingContextModelIds.slice(0, 100)
+        }),
+        provider.id
+      ]
+    );
+    return items as ProviderModelSyncItem[];
   }
 
   private async fetchGoogleVertexModelSyncItems(
@@ -3210,6 +3451,13 @@ export class AdminService {
     const authMethod = String((provider.credential?.authMethod ?? credentialType) || providerAuthMode || "iam_role").toLowerCase();
     if (authMethod === "openai_api_key" || credentialType === "openai_api_key") return "openai_api_key";
     if (authMethod === "api_key" && this.normalizeProviderType(provider.providerType) === "openai") return "openai_api_key";
+    if (authMethod === "anthropic_api_key" || credentialType === "anthropic_api_key") return "anthropic_api_key";
+    if (authMethod === "api_key" && this.normalizeProviderType(provider.providerType) === "anthropic") return "anthropic_api_key";
+    if (authMethod === "gemini_api_key" || credentialType === "gemini_api_key") return "gemini_api_key";
+    if (authMethod === "api_key" && this.normalizeProviderType(provider.providerType) === "gemini") return "gemini_api_key";
+    if (authMethod === "openai_compatible_api_key" || credentialType === "openai_compatible_api_key") return "openai_compatible_api_key";
+    if (authMethod === "api_key" && this.normalizeProviderType(provider.providerType) === "openai_compatible") return "openai_compatible_api_key";
+    if (authMethod === "api_key" || credentialType === "api_key") return "api_key";
     if (authMethod === "iam_role" || credentialType === "iam_role") return "iam_role";
     if (authMethod === "iam_access_key" || credentialType === "iam_access_key") return "iam_access_key";
     if (authMethod === "assume_role" || credentialType === "assume_role") return "assume_role";
@@ -3217,10 +3465,7 @@ export class AdminService {
   }
 
   private normalizeProviderType(providerType: string) {
-    const normalized = String(providerType ?? "").toLowerCase();
-    if (normalized === "vertex_ai" || normalized === "google_vertex") return "google_vertex_ai";
-    if (normalized === "openai_official" || normalized === "openai_api") return "openai";
-    return normalized;
+    return normalizeAiProviderType(providerType);
   }
 
   private resolveBedrockControlEndpoint(provider: ProviderConfig, region: string) {
@@ -4179,7 +4424,16 @@ export class AdminService {
   private async archiveUnpricedSyncedModels(providerId: string, providerType: string, sourceModelIds: string[]) {
     const uniqueSourceModelIds = [...new Set(sourceModelIds.filter(Boolean))];
     if (!uniqueSourceModelIds.length) return 0;
-    const sourceName = providerType === "google_vertex_ai" ? "google_vertex_ai" : providerType === "openai" ? "openai" : "aws_bedrock";
+    const sourceName =
+      providerType === "google_vertex_ai"
+        ? "google_vertex_ai"
+        : providerType === "openai"
+          ? "openai"
+          : providerType === "anthropic"
+            ? "anthropic"
+            : providerType === "gemini"
+              ? "gemini"
+              : "aws_bedrock";
     const archived = await this.db.query<{ id: string }>(
       `with candidates as (
          select distinct m.id
@@ -4466,6 +4720,8 @@ export class AdminService {
   private providerPriceSource(priceVersion: string) {
     if (priceVersion.startsWith("google-vertex")) return "google_vertex_price_catalog";
     if (priceVersion.startsWith("openai-")) return "openai_price_catalog";
+    if (priceVersion.startsWith("anthropic-")) return "anthropic_price_catalog";
+    if (priceVersion.startsWith("gemini-")) return "gemini_price_catalog";
     return "aws_bedrock_price_list";
   }
 
@@ -4473,6 +4729,8 @@ export class AdminService {
     const source = String(summary.raw?.source ?? "").toLowerCase();
     if (source === "google_vertex_ai") return "google_vertex_sync";
     if (source === "openai") return "openai_sync";
+    if (source === "anthropic") return "anthropic_sync";
+    if (source === "gemini") return "gemini_sync";
     return "aws_bedrock_sync";
   }
 
@@ -4737,12 +4995,20 @@ export class AdminService {
     if (providerType === "openai" && !payload.base_url) {
       payload.base_url = "https://api.openai.com/v1";
     }
+    if (providerType === "anthropic" && !payload.base_url) {
+      payload.base_url = "https://api.anthropic.com/v1";
+    }
+    if (providerType === "gemini" && !payload.base_url) {
+      payload.base_url = "https://generativelanguage.googleapis.com/v1beta";
+    }
   }
 
   private generateProviderCode(providerType: string) {
     const prefixByType: Record<string, string> = {
       google_vertex_ai: "google-vertex",
       openai: "openai",
+      anthropic: "anthropic",
+      gemini: "gemini",
       openai_compatible: "openai-compatible"
     };
     const prefix = (prefixByType[providerType] ?? providerType.replace(/_/g, "-")) || "provider";

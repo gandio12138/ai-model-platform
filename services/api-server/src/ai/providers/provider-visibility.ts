@@ -1,11 +1,8 @@
-const defaultEnabledProviderTypes = ["google_vertex_ai", "vertex_ai", "google_vertex", "openai"];
+import { normalizeAiProviderType } from "./provider-type.js";
 
-export function normalizeProviderTypeForVisibility(value: unknown) {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (normalized === "vertex_ai" || normalized === "google_vertex") return "google_vertex_ai";
-  if (normalized === "openai_official" || normalized === "openai_api") return "openai";
-  return normalized;
-}
+const defaultEnabledProviderTypes = ["google_vertex_ai", "vertex_ai", "google_vertex", "openai", "anthropic", "gemini"];
+
+export const normalizeProviderTypeForVisibility = normalizeAiProviderType;
 
 export function enabledModelProviderTypes(env: NodeJS.ProcessEnv = process.env) {
   const configured = env.ENABLED_MODEL_PROVIDER_TYPES ?? env.MODEL_PROVIDER_TYPES;

@@ -81,7 +81,7 @@ export interface ProviderTokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
-  source: "bedrock" | "vertex_ai" | "openai" | "fake_provider" | "estimated";
+  source: "bedrock" | "vertex_ai" | "openai" | "anthropic" | "gemini" | "fake_provider" | "estimated";
   estimated?: boolean;
 }
 

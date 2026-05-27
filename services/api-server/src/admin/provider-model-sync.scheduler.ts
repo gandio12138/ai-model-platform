@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { enabledModelProviderTypes } from "../ai/providers/provider-visibility.js";
+import { isCredentialRequiredForModelSync, normalizeAiProviderType } from "../ai/providers/provider-type.js";
 import { DatabaseService } from "../database/database.service.js";
 import { AdminService } from "./admin.service.js";
 
@@ -97,7 +98,7 @@ export class ProviderModelSyncScheduler implements OnModuleInit, OnModuleDestroy
     },
     trigger: string
   ) {
-    const providerType = String(provider.provider_type ?? "").toLowerCase();
+    const providerType = normalizeAiProviderType(provider.provider_type);
     const metadata = provider.metadata ?? {};
     const body: Record<string, unknown> = {
       reason: `automatic provider model sync: ${trigger}`
@@ -112,6 +113,9 @@ export class ProviderModelSyncScheduler implements OnModuleInit, OnModuleDestroy
       if (provider.credential_id) body.credential_id = provider.credential_id;
       body.gcp_project_id = metadata.gcp_project_id ?? metadata.project_id ?? process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT;
       body.vertex_regions = metadata.vertex_regions ?? metadata.regions;
+    }
+    if (isCredentialRequiredForModelSync(providerType)) {
+      if (provider.credential_id) body.credential_id = provider.credential_id;
     }
     return body;
   }

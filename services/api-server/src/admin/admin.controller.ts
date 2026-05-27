@@ -381,6 +381,12 @@ export class AdminController {
     return this.admin.list("providerCredentials", query, req.user);
   }
 
+  @RequirePermissions("provider.credential.write")
+  @Delete("provider-credentials/:id")
+  deleteProviderCredential(@Param("id") id: string, @Body() body: Record<string, unknown>, @Req() req: ReqWithUser) {
+    return this.admin.deleteProviderCredential(id, body, req.user, actor(req));
+  }
+
   @RequirePermissions("model.read")
   @Get("models")
   models(@Query() query: Record<string, unknown>, @Req() req: ReqWithUser) {

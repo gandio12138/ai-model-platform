@@ -6,20 +6,31 @@ import ResourcePage from "./ResourcePage";
 
 const providerTypeOptions = [
   {
-    value: "google_vertex_ai",
-    label: "Google Vertex AI",
-    meta: {
-      default_code: "google-vertex-main",
-      default_region: "global",
-      default_currency: "USD"
-    }
-  },
-  {
     value: "openai",
     label: "OpenAI 官方 API",
     meta: {
       default_code: "openai-main",
       default_base_url: "https://api.openai.com/v1",
+      default_region: "global",
+      default_currency: "USD"
+    }
+  },
+  {
+    value: "anthropic",
+    label: "Anthropic 官方 API",
+    meta: {
+      default_code: "anthropic-main",
+      default_base_url: "https://api.anthropic.com/v1",
+      default_region: "global",
+      default_currency: "USD"
+    }
+  },
+  {
+    value: "gemini",
+    label: "Gemini 官方 API",
+    meta: {
+      default_code: "gemini-main",
+      default_base_url: "https://generativelanguage.googleapis.com/v1beta",
       default_region: "global",
       default_currency: "USD"
     }
@@ -34,21 +45,6 @@ const providerTypeOptions = [
       default_currency: "USD"
     }
   }
-];
-
-const credentialTypeOptions = [
-  { value: "openai_api_key", label: "OpenAI API Key" },
-  { value: "azure_openai_api_key", label: "Azure OpenAI API Key" },
-  { value: "vertex_service_account", label: "Vertex AI Service Account JSON" },
-  { value: "openai_compatible_api_key", label: "OpenAI-Compatible API Key" },
-  { value: "anthropic_api_key", label: "Anthropic API Key" },
-  { value: "gemini_api_key", label: "Gemini API Key" }
-];
-
-const authMethodOptions = [
-  { value: "openai_api_key", label: "OpenAI API Key" },
-  { value: "service_account_json", label: "GCP Service Account JSON" },
-  { value: "api_key", label: "通用 API Key / Bearer Token" }
 ];
 
 const providerRegionOptions = [
@@ -117,6 +113,15 @@ const currencyOptions = [
   { value: "GBP", label: "GBP" }
 ];
 
+function providerTypeLabel(providerType: string) {
+  if (providerType === "openai") return "OpenAI";
+  if (providerType === "anthropic") return "Anthropic";
+  if (providerType === "gemini") return "Gemini";
+  if (providerType === "openai_compatible") return "OpenAI-Compatible";
+  if (providerType === "google_vertex_ai" || providerType === "vertex_ai") return "Google Vertex";
+  return "Provider";
+}
+
 const defaultVertexRegionList = [
   "global",
   "us-central1",
@@ -178,17 +183,19 @@ export default function ProviderPage({
   const [credentialForm] = Form.useForm();
   const [syncForm] = Form.useForm();
   const [testForm] = Form.useForm();
-  const credentialType = Form.useWatch("credential_type", credentialForm);
-  const authMethod = Form.useWatch("auth_method", credentialForm);
+  const credentialProviderId = Form.useWatch("provider_id", credentialForm);
   const syncProviderId = Form.useWatch("provider_id", syncForm);
   const testProviderId = Form.useWatch("provider_id", testForm);
-  const isVertexServiceAccount = credentialType === "vertex_service_account" || authMethod === "service_account_json";
+  const credentialProvider = providerOptions.find((provider) => provider.value === credentialProviderId);
+  const credentialProviderType = String(credentialProvider?.meta?.provider_type ?? "");
   const syncProvider = providerOptions.find((provider) => provider.value === syncProviderId);
   const testProvider = providerOptions.find((provider) => provider.value === testProviderId);
   const syncProviderType = String(syncProvider?.meta?.provider_type ?? "");
   const testProviderType = String(testProvider?.meta?.provider_type ?? "");
   const isSyncGoogleVertex = syncProviderType === "google_vertex_ai" || syncProviderType === "vertex_ai";
   const isSyncOpenAi = syncProviderType === "openai";
+  const isSyncAnthropic = syncProviderType === "anthropic";
+  const isSyncGemini = syncProviderType === "gemini";
 
   function loadOptions() {
     return Promise.all([
@@ -196,6 +203,12 @@ export default function ProviderPage({
       apiFetch<ApiList>("/api/admin/provider-credentials?pageSize=100")
     ])
       .then(([providers, credentials]) => {
+        const providerLabelsById = new Map(
+          providers.data.map((provider) => [
+            String(provider.value ?? provider.id),
+            String(provider.label ?? provider.name ?? provider.code ?? provider.id)
+          ])
+        );
         setProviderOptions(
           providers.data.map((provider) => ({
             value: String(provider.value ?? provider.id),
@@ -206,7 +219,7 @@ export default function ProviderPage({
         setCredentialOptions(
           credentials.data.map((credential) => ({
             value: credential.id,
-            label: `${credential.name} / ${credential.credential_type}`
+            label: `${credential.name} / ${providerLabelsById.get(String(credential.provider_id)) ?? "Provider 密钥"}`
           }))
         );
       });
@@ -220,7 +233,12 @@ export default function ProviderPage({
     try {
       await apiFetch(`/api/admin/providers/${values.provider_id}/credentials`, {
         method: "POST",
-        body: JSON.stringify(values)
+        body: JSON.stringify({
+          provider_id: values.provider_id,
+          name: values.name,
+          secret: values.secret,
+          status: "active"
+        })
       });
       message.success("密钥已加密保存，不会再次明文展示");
       setOpen(false);
@@ -277,7 +295,8 @@ export default function ProviderPage({
       organization_id: undefined,
       openai_project_id: undefined,
       vertex_regions: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? region || defaultVertexRegionList : undefined,
-      publishers: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? "google,anthropic,mistralai,xai,meta" : undefined
+      publishers: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? "google,anthropic,mistralai,xai,meta" : undefined,
+      anthropic_version: providerType === "anthropic" ? "2023-06-01" : undefined
     });
   }
 
@@ -345,15 +364,15 @@ export default function ProviderPage({
               region: "default_region",
               cost_currency: "default_currency"
             },
-            help: "选择上游供应商类型。当前主线只保留 Google Vertex、OpenAI 官方和 OpenAI-Compatible。"
+            help: "选择上游供应商类型。模型同步会先按对应账号密钥获取可访问模型，再匹配官方可验证的价格和上下文。"
           },
           {
             key: "base_url",
             label: "API Endpoint",
             kind: "url",
-            visibleWhen: { provider_type: ["openai", "openai_compatible", "azure_openai"] },
+            visibleWhen: { provider_type: ["openai", "gemini", "openai_compatible", "azure_openai"] },
             placeholder: "https://api.openai.com/v1",
-            help: "OpenAI 官方 API 默认使用 https://api.openai.com/v1；OpenAI-Compatible 按供应商填写。"
+            help: "官方 Provider 会自动填入默认 Endpoint；OpenAI-Compatible 按供应商填写。"
           },
           { key: "region", label: "区域", kind: "select", options: providerRegionOptions, defaultValue: "global", required: true },
           { key: "legal_scope", label: "合规范围", kind: "select", options: legalScopeOptions, defaultValue: "global" },
@@ -382,21 +401,23 @@ export default function ProviderPage({
         columns={[
           ["provider_id", "Provider", "select", "/api/admin/options/providers", "label"],
           ["name", "名称"],
-          ["credential_type", "密钥类型", "select", undefined, undefined, credentialTypeOptions],
-          ["auth_method", "认证方式"],
-          ["secret_last4", "密钥后四位"],
           ["status", "状态"],
           ["rpm_limit", "RPM"],
           ["tpm_limit", "TPM"],
           ["last_used_at", "最后使用"]
         ]}
+        canDelete={canWriteCredential}
+        deleteConfirmTitle="删除这个 Provider 密钥？"
+        deleteConfirmDescription="删除后不会再保留密钥明文或密文；绑定该密钥的模型路由会同步删除。如果这是该 Provider 的最后一把可用密钥，对应 Provider 同步出来且没有其他路由引用的模型和价格也会一起删除。"
+        deleteReason="delete provider credential"
+        onAfterSave={loadOptions}
       />
       <Modal title="添加 Provider 密钥" open={open} onCancel={() => setOpen(false)} footer={null} destroyOnClose>
         <Form
           form={credentialForm}
           layout="vertical"
           onFinish={submitCredential}
-          initialValues={{ credential_type: "vertex_service_account", auth_method: "service_account_json" }}
+          initialValues={{ status: "active" }}
         >
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} />
@@ -404,17 +425,11 @@ export default function ProviderPage({
           <Form.Item label="密钥名称" name="name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item label="密钥类型" name="credential_type" rules={[{ required: true }]}>
-            <Select options={credentialTypeOptions} />
-          </Form.Item>
-          <Form.Item label="认证方式" name="auth_method" rules={[{ required: true }]}>
-            <Select options={authMethodOptions} />
-          </Form.Item>
           <Form.Item
-            label={isVertexServiceAccount ? "Service Account JSON" : "API Key / Bearer Token"}
+            label="API Key / Bearer Token"
             name="secret"
             rules={[{ required: true }]}
-            extra={isVertexServiceAccount ? "请粘贴完整 GCP Service Account JSON。密钥加密保存，保存后不会回显。" : "密钥加密保存，保存后不会回显。"}
+            extra={`密钥加密保存，保存后不会回显。系统会按 ${providerTypeLabel(credentialProviderType)} 自动识别调用方式。`}
           >
             <Input.Password autoComplete="new-password" />
           </Form.Item>
@@ -430,7 +445,12 @@ export default function ProviderPage({
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleSyncProviderChange} />
           </Form.Item>
-          <Form.Item label="使用的密钥" name="credential_id" extra={isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON。" : isSyncOpenAi ? "OpenAI 官方 API 请选择 OpenAI API Key。" : "选择该 Provider 对应密钥。"}>
+          <Form.Item
+            label="使用的密钥"
+            name="credential_id"
+            rules={[{ required: isSyncGoogleVertex || isSyncOpenAi || isSyncAnthropic || isSyncGemini, message: "请选择该 Provider 的密钥" }]}
+            extra={isSyncGoogleVertex ? "Google Vertex 请选择 Service Account JSON。" : isSyncOpenAi ? "OpenAI 官方 API 请选择 OpenAI API Key。" : isSyncAnthropic ? "Anthropic 官方 API 请选择 Anthropic API Key。" : isSyncGemini ? "Gemini 官方 API 请选择 Gemini API Key。" : "选择该 Provider 对应密钥。"}
+          >
             <Select allowClear showSearch optionFilterProp="label" options={credentialOptions} />
           </Form.Item>
           {isSyncOpenAi && (
@@ -448,6 +468,27 @@ export default function ProviderPage({
                 <Input placeholder="proj_xxx" />
               </Form.Item>
             </>
+          )}
+          {isSyncAnthropic && (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Anthropic 同步会先调用 /v1/models 获取当前 API Key 可访问的模型，再从 Anthropic 官方模型文档匹配价格和上下文；缺少价格或上下文的模型不会写入客户可见目录。"
+              />
+              <Form.Item label="Anthropic API Version" name="anthropic_version" extra="默认使用 Anthropic 官方推荐版本 2023-06-01。">
+                <Input placeholder="2023-06-01" />
+              </Form.Item>
+            </>
+          )}
+          {isSyncGemini && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Gemini 同步会先调用 models.list 获取当前 API Key 可访问模型，再从 Google 官方 Gemini API pricing 页面匹配价格；缺少价格或上下文的模型不会写入客户可见目录。"
+            />
           )}
           {isSyncGoogleVertex && (
             <>
