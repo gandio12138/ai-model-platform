@@ -2956,13 +2956,16 @@ export class AdminService {
     let verifiedCount = 0;
     let cachedVerifiedCount = 0;
     let unavailableCount = 0;
+    let quotaLimitedCount = 0;
     const runtimeValidationErrors: Array<{ model: string; error: string | null }> = [];
     const runtimeItems = shouldValidateRuntime
       ? await (async () => {
+          const forceRuntimeValidation = this.booleanFlag(body.force_runtime_validation, false);
           const cachedValidations = await this.getCachedVertexRuntimeValidations(provider.id ?? null, items);
           const itemsToValidate = items.filter((item) => {
             const status = cachedValidations.get(item.providerModelCode)?.status;
-            return status !== "verified" && status !== "unavailable";
+            if (forceRuntimeValidation) return true;
+            return status !== "verified" && status !== "unavailable" && status !== "quota_limited";
           });
           const validations = itemsToValidate.length
             ? await validateGoogleVertexRuntimeModels({
@@ -3003,6 +3006,22 @@ export class AdminService {
                   }
                 };
               }
+              if (cached?.status === "quota_limited") {
+                quotaLimitedCount += 1;
+                runtimeValidationErrors.push({
+                  model: item.providerModelCode,
+                  error: "cached runtime quota limited"
+                });
+                return {
+                  ...item,
+                  raw: {
+                    ...item.raw,
+                    runtime_validation_status: "quota_limited",
+                    runtime_validation_cached: true,
+                    runtime_validated_at: cached.checkedAt
+                  }
+                };
+              }
               const validation = validations.get(item.providerModelCode);
               if (!validation) return item;
               if (validation.status === "verified") verifiedCount += 1;
@@ -3011,6 +3030,13 @@ export class AdminService {
                 runtimeValidationErrors.push({
                   model: item.providerModelCode,
                   error: validation.errorMessage ?? null
+                });
+              }
+              if (validation.status === "quota_limited") {
+                quotaLimitedCount += 1;
+                runtimeValidationErrors.push({
+                  model: item.providerModelCode,
+                  error: validation.errorMessage ?? "runtime quota limited"
                 });
               }
               return {
@@ -3047,6 +3073,7 @@ export class AdminService {
           last_vertex_runtime_verified_count: verifiedCount,
           last_vertex_runtime_cached_verified_count: cachedVerifiedCount,
           last_vertex_runtime_unavailable_count: unavailableCount,
+          last_vertex_runtime_quota_limited_count: quotaLimitedCount,
           last_vertex_runtime_validation_errors: runtimeValidationErrors.slice(0, 20)
         }),
         provider.id
@@ -3077,7 +3104,7 @@ export class AdminService {
          from model_routes mr
          join models m on m.id = mr.model_id
         where mr.provider_id = $1
-          and coalesce(m.metadata->>'runtime_validation_status', mr.metadata->>'runtime_validation_status') in ('verified', 'unavailable')
+          and coalesce(m.metadata->>'runtime_validation_status', mr.metadata->>'runtime_validation_status') in ('verified', 'unavailable', 'quota_limited')
           and (
             mr.provider_model_code = any($2::text[])
             or coalesce(m.metadata->>'source_model_id', mr.metadata->>'source_model_id') = any($2::text[])

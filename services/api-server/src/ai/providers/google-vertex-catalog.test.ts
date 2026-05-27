@@ -4,7 +4,8 @@ import {
   buildGoogleVertexCatalogSyncItems,
   resolveGoogleVertexModelContext,
   resolveGoogleVertexPricing,
-  resolveVertexModelCategory
+  resolveVertexModelCategory,
+  validateGoogleVertexRuntimeModels
 } from "./google-vertex-catalog.js";
 
 const testConversion = {
@@ -163,5 +164,57 @@ describe("Google Vertex model catalog parsing", () => {
       }),
       "video"
     );
+  });
+
+  it("classifies Vertex Claude quota errors as quota-limited instead of unavailable", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message:
+              "Quota exceeded for aiplatform.googleapis.com/global_online_prediction_requests_per_base_model with base model: anthropic-claude-sonnet-4-5."
+          }
+        }),
+        { status: 429, headers: { "content-type": "application/json" } }
+      );
+    try {
+      const result = await validateGoogleVertexRuntimeModels({
+        projectId: "test-project",
+        credential: {
+          credentialType: "vertex_access_token",
+          authMethod: "access_token",
+          decryptedSecret: "test-token"
+        },
+        items: [
+          {
+            publicModelCode: "claude-sonnet-4-5",
+            providerModelCode: "claude-sonnet-4-5@20250929",
+            displayName: "Claude Sonnet 4.5",
+            providerName: "Anthropic",
+            modelFamily: "Anthropic",
+            inputModalities: ["TEXT"],
+            outputModalities: ["TEXT"],
+            inferenceTypesSupported: ["MANAGED_API"],
+            supportsStream: true,
+            supportsTools: false,
+            sourceModelId: "claude-sonnet-4-5",
+            invocationType: "vertex_managed_api",
+            maxContextTokens: 200000,
+            defaultMaxOutputTokens: 8192,
+            pricing: null,
+            raw: {
+              publisher: "anthropic",
+              preferred_region: "global",
+              runtime_adapter: "anthropic_raw_predict",
+              model_category: "text_chat"
+            }
+          }
+        ]
+      });
+      assert.equal(result.get("claude-sonnet-4-5@20250929")?.status, "quota_limited");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

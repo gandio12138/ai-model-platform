@@ -68,7 +68,7 @@ export interface VertexCatalogSyncItem {
 
 export interface VertexRuntimeValidationResult {
   providerModelCode: string;
-  status: "verified" | "unavailable" | "not_checked";
+  status: "verified" | "unavailable" | "quota_limited" | "not_checked";
   httpStatus?: number;
   totalTokens?: number | null;
   errorMessage?: string | null;
@@ -240,9 +240,10 @@ export async function validateGoogleVertexRuntimeModels(input: {
         signal: AbortSignal.timeout(15000)
       });
       const json = (await response.json().catch(() => ({}))) as any;
+      const status = vertexRuntimeStatusFromResponse(response.status, response.ok, json);
       results.set(item.providerModelCode, {
         providerModelCode: item.providerModelCode,
-        status: response.ok && !json.error ? "verified" : "unavailable",
+        status,
         httpStatus: response.status,
         totalTokens: validationTotalTokens(json),
         errorMessage: json.error?.message ? String(json.error.message).slice(0, 500) : null,
@@ -251,13 +252,32 @@ export async function validateGoogleVertexRuntimeModels(input: {
     } catch (error) {
       results.set(item.providerModelCode, {
         providerModelCode: item.providerModelCode,
-        status: "unavailable",
+        status: "not_checked",
         errorMessage: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
         checkedAt
       });
     }
   }
   return results;
+}
+
+function vertexRuntimeStatusFromResponse(
+  httpStatus: number,
+  ok: boolean,
+  response: any
+): VertexRuntimeValidationResult["status"] {
+  if (ok && !response.error) return "verified";
+  const message = String(response.error?.message ?? "").toLowerCase();
+  if (httpStatus === 429 || message.includes("quota exceeded")) return "quota_limited";
+  if (
+    httpStatus === 403 ||
+    httpStatus === 404 ||
+    message.includes("was not found") ||
+    message.includes("does not have access")
+  ) {
+    return "unavailable";
+  }
+  return "not_checked";
 }
 
 function vertexRuntimeValidationRequest(input: {
