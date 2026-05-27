@@ -1287,6 +1287,7 @@ export class AiGatewayService {
             limit 1
          ) mp on true
         where m.status = 'active'
+          and coalesce(m.metadata->>'model_category', 'text_chat') <> 'deploy_only'
           and coalesce(m.metadata->>'model_category', 'text_chat') = $3
           and m.public_model_code = $2
           and exists (

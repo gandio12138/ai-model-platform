@@ -329,6 +329,7 @@ export function buildGoogleVertexCatalogSyncItems(
   for (const model of unique) {
     const modelId = extractVertexModelId(model.name);
     const category = resolveVertexModelCategory(model);
+    if (category === "deploy_only") continue;
     const runtime = resolveVertexRuntime(model.publisher, modelId, model.versionId);
     const context = resolveGoogleVertexModelContext(model.publisher, modelId, category);
     const pricing = resolveGoogleVertexPricing(model.publisher, modelId, {

@@ -447,6 +447,7 @@ export class PublicService {
               limit 1
            ) mp on true
           where m.status = 'active'
+            and coalesce(m.metadata->>'model_category', 'text_chat') <> 'deploy_only'
             and coalesce(tmp.price_version, mp.price_version) is not null
             and exists (
               select 1
@@ -1943,6 +1944,19 @@ export class PublicService {
 
   private resolveModelCategory(row: any): ModelCategoryKey {
     const metadata = row.model_metadata ?? {};
+    const storedCategory = String(metadata.model_category ?? "").toLowerCase();
+    if (storedCategory === "deploy_only") return "legacy_inference_profile";
+    if (
+      storedCategory === "text_chat" ||
+      storedCategory === "embedding" ||
+      storedCategory === "image" ||
+      storedCategory === "video" ||
+      storedCategory === "audio" ||
+      storedCategory === "rerank" ||
+      storedCategory === "legacy_inference_profile"
+    ) {
+      return storedCategory;
+    }
     const code = String(row.public_model_code ?? "").toLowerCase();
     const name = String(row.display_name ?? "").toLowerCase();
     const family = String(row.model_family ?? "").toLowerCase();
