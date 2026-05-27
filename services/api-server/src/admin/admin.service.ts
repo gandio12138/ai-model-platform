@@ -2978,7 +2978,7 @@ export class AdminService {
           return items
             .map((item) => {
               const cached = cachedValidations.get(item.providerModelCode);
-              if (cached?.status === "verified") {
+              if (!forceRuntimeValidation && cached?.status === "verified") {
                 cachedVerifiedCount += 1;
                 return {
                   ...item,
@@ -2990,7 +2990,7 @@ export class AdminService {
                   }
                 };
               }
-              if (cached?.status === "unavailable") {
+              if (!forceRuntimeValidation && cached?.status === "unavailable") {
                 unavailableCount += 1;
                 runtimeValidationErrors.push({
                   model: item.providerModelCode,
@@ -3006,7 +3006,7 @@ export class AdminService {
                   }
                 };
               }
-              if (cached?.status === "quota_limited") {
+              if (!forceRuntimeValidation && cached?.status === "quota_limited") {
                 quotaLimitedCount += 1;
                 runtimeValidationErrors.push({
                   model: item.providerModelCode,
