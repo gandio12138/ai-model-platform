@@ -94,6 +94,10 @@ export interface ModelInfo {
     output_per_1k?: number | null;
     input_per_1m?: number | null;
     output_per_1m?: number | null;
+    billing_unit?: string | null;
+    unit_price_amount?: number | null;
+    unit_label?: string | null;
+    display?: string | null;
   } | null;
 }
 

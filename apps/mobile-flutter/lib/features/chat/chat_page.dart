@@ -48,15 +48,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _load() async {
     try {
       final api = ref.read(apiProvider);
-      final models = await api.fetchModels();
+      final models = (await api.fetchModels())
+          .where(_isChatSelectableModel)
+          .toList();
+      if (models.isEmpty) {
+        throw const AppException('当前没有可用于对话的文本模型');
+      }
       final sessions = await api.fetchChatSessions();
       final session = sessions.isNotEmpty
           ? sessions.first
           : await api.createChatSession(models.first.code);
+      final sessionModelAvailable = models.any(
+        (model) => model.code == session.modelCode,
+      );
       setState(() {
         _models = models;
         _session = session;
-        _modelCode = session.modelCode.isNotEmpty
+        _modelCode = session.modelCode.isNotEmpty && sessionModelAvailable
             ? session.modelCode
             : models.first.code;
         _messages = session.messages;
@@ -594,10 +602,11 @@ class _ModelPickerSheetState extends State<ModelPickerSheet> {
                                         label:
                                             '输出 ${modelTokenPricePer1k(centsPer1m: model.outputPer1m, centsPer1k: model.outputPer1k)}',
                                       ),
-                                      if (model.maxContextTokens > 0)
+                                      if (model.maxContextTokens != null &&
+                                          model.maxContextTokens! > 0)
                                         AppBadge(
                                           label:
-                                              '${compactNumber(model.maxContextTokens)} 上下文',
+                                              '${compactNumber(model.maxContextTokens!)} 上下文',
                                         ),
                                       if (model.supportsStream)
                                         const AppBadge(label: '流式'),
@@ -813,14 +822,23 @@ List<String> _modelCategories(List<ModelInfo> models) {
     '文本模型',
     '图片模型',
     '视频模型',
+    '音频模型',
+    'Embedding 模型',
   ]);
 }
 
 List<String> _modelCompanies(List<ModelInfo> models) {
   return orderedModelFilterValues(
     models.map((model) => model.providerName),
-    const ['Claude', 'OpenAI', 'Gemini'],
+    const ['Claude', 'OpenAI', 'Gemini', 'Mistral AI', 'xAI', 'Meta'],
   );
+}
+
+bool _isChatSelectableModel(ModelInfo model) {
+  final category = model.category.toLowerCase();
+  return category.contains('文本') ||
+      category.contains('对话') ||
+      category == 'text_chat';
 }
 
 List<String> orderedModelFilterValues(

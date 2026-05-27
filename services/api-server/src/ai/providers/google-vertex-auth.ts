@@ -1,8 +1,4 @@
-import { execFile } from "node:child_process";
 import crypto from "node:crypto";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export interface GoogleVertexCredentialConfig {
   credentialType?: string | null;
@@ -13,7 +9,7 @@ export interface GoogleVertexCredentialConfig {
 
 export interface GoogleVertexToken {
   accessToken: string;
-  source: "service_account_json" | "access_token" | "metadata_server" | "gcloud_adc";
+  source: "service_account_json" | "access_token" | "metadata_server";
 }
 
 interface ServiceAccountJson {
@@ -43,13 +39,6 @@ export async function resolveGoogleVertexAccessToken(
   const metadataToken = await tryMetadataServerToken();
   if (metadataToken) {
     return { accessToken: metadataToken, source: "metadata_server" };
-  }
-
-  if (process.env.NODE_ENV !== "production") {
-    const gcloudToken = await tryGcloudAdcToken();
-    if (gcloudToken) {
-      return { accessToken: gcloudToken, source: "gcloud_adc" };
-    }
   }
 
   throw new Error("Google Vertex credential is not configured");
@@ -123,19 +112,6 @@ async function tryMetadataServerToken() {
     if (!response.ok) return null;
     const json = (await response.json()) as any;
     return typeof json.access_token === "string" ? json.access_token : null;
-  } catch {
-    return null;
-  }
-}
-
-async function tryGcloudAdcToken() {
-  try {
-    const { stdout } = await execFileAsync("gcloud", ["auth", "application-default", "print-access-token"], {
-      timeout: 5000,
-      maxBuffer: 1024 * 1024
-    });
-    const token = stdout.trim();
-    return token || null;
   } catch {
     return null;
   }

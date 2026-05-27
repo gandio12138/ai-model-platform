@@ -38,6 +38,45 @@ export interface ProviderCompletionInput {
   stream?: boolean;
 }
 
+export interface ProviderImageGenerationInput {
+  publicModelCode: string;
+  providerModelCode: string;
+  prompt: string;
+  n: number;
+  size?: string | null;
+  aspectRatio?: string | null;
+}
+
+export interface ProviderImageGenerationResult {
+  images: Array<{
+    b64Json?: string | null;
+    url?: string | null;
+    mimeType?: string | null;
+    revisedPrompt?: string | null;
+  }>;
+  providerRequestId?: string | null;
+  usage: ProviderTokenUsage;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderVideoGenerationInput {
+  publicModelCode: string;
+  providerModelCode: string;
+  prompt: string;
+  n: number;
+  durationSeconds: number;
+  aspectRatio?: string | null;
+  outputGcsUri?: string | null;
+}
+
+export interface ProviderVideoGenerationResult {
+  operationName: string;
+  status: "submitted";
+  providerRequestId?: string | null;
+  usage: ProviderTokenUsage;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ProviderTokenUsage {
   inputTokens: number;
   outputTokens: number;
@@ -105,4 +144,6 @@ export interface ProviderAdapter {
   stream(provider: ProviderConfig, input: ProviderCompletionInput): AsyncIterable<ProviderStreamChunk>;
   validateCredentials(input: ProviderHealthCheckInput): Promise<ProviderHealthCheckResult>;
   validateToolUse?(input: ProviderToolValidationInput): Promise<ProviderToolValidationResult>;
+  generateImage?(provider: ProviderConfig, input: ProviderImageGenerationInput): Promise<ProviderImageGenerationResult>;
+  generateVideo?(provider: ProviderConfig, input: ProviderVideoGenerationInput): Promise<ProviderVideoGenerationResult>;
 }

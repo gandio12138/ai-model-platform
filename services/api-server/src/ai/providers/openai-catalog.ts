@@ -33,6 +33,11 @@ export interface OpenAiResolvedPricing {
   cacheWriteUsdPer1k: number;
   sourceModelName: string;
   sourceProviderName: string;
+  billingUnit?: "token_1m" | "token_1k" | "image" | "video_second" | "audio_second" | "unknown";
+  unitUsdPrice?: number | null;
+  unitPriceCents?: number | null;
+  unitLabel?: string | null;
+  priceDisplay?: string | null;
 }
 
 export interface OpenAiCatalogSyncItem {
@@ -60,13 +65,17 @@ export interface OpenAiModelMetadata {
   inputUsdPer1m: number;
   outputUsdPer1m: number;
   cachedInputUsdPer1m?: number;
-  maxContextTokens: number;
-  defaultMaxOutputTokens: number;
+  maxContextTokens: number | null;
+  defaultMaxOutputTokens: number | null;
   inputModalities: string[];
   outputModalities: string[];
   supportsStream?: boolean;
   supportsTools: boolean;
-  category: "text_chat";
+  category: "text_chat" | "embedding" | "image" | "video" | "audio";
+  billingUnit?: OpenAiResolvedPricing["billingUnit"];
+  unitUsdPrice?: number | null;
+  unitLabel?: string | null;
+  priceDisplay?: string | null;
   sourceUrl?: string;
   fetchedAt?: string;
 }
@@ -229,33 +238,63 @@ export function parseOpenAiOfficialModelPage(
     matchMetaTitle(html) ??
     firstNonEmptyLine(text) ??
     displayNameFromModelId(modelId);
+  const category = openAiModelCategory(modelId);
   const contextTokens = parseTokenCount(text, /([\d,]+)\s+context window/iu);
   const outputTokens = parseTokenCount(text, /([\d,]+)\s+max output tokens/iu);
   const inputPrice = parseUsdPriceAfterLabel(text, "Input");
   const cachedInputPrice = parseUsdPriceAfterLabel(text, "Cached input");
   const outputPrice = parseUsdPriceAfterLabel(text, "Output");
-  if (!contextTokens || !outputTokens || inputPrice === null || outputPrice === null) {
+  if ((category === "text_chat" && (!contextTokens || !outputTokens || outputPrice === null)) || inputPrice === null) {
     return null;
   }
-  const supportsStream = parseFeatureStatus(text, "Streaming") !== "not_supported";
-  const supportsTools = parseFeatureStatus(text, "Function calling") === "supported";
+  const supportsStream = category === "text_chat" && parseFeatureStatus(text, "Streaming") !== "not_supported";
+  const supportsTools = category === "text_chat" && parseFeatureStatus(text, "Function calling") === "supported";
   const hasImageInput = /Image\s+Input only/iu.test(text);
   return {
     id: modelId,
     displayName,
     inputUsdPer1m: inputPrice,
     cachedInputUsdPer1m: cachedInputPrice ?? undefined,
-    outputUsdPer1m: outputPrice,
+    outputUsdPer1m: outputPrice ?? 0,
     maxContextTokens: contextTokens,
     defaultMaxOutputTokens: outputTokens,
-    inputModalities: hasImageInput ? ["TEXT", "IMAGE"] : ["TEXT"],
-    outputModalities: ["TEXT"],
+    inputModalities: openAiInputModalities(category, hasImageInput),
+    outputModalities: openAiOutputModalities(category),
     supportsStream,
     supportsTools,
-    category: "text_chat",
+    category,
+    billingUnit: "token_1m",
+    priceDisplay: outputPrice === null
+      ? `Input $${inputPrice}/1M tokens`
+      : `Input $${inputPrice}/1M tokens, output $${outputPrice}/1M tokens`,
     sourceUrl: sourceUrl ?? undefined,
     fetchedAt: new Date().toISOString()
   };
+}
+
+function openAiModelCategory(modelId: string): OpenAiModelMetadata["category"] {
+  const normalized = modelId.toLowerCase();
+  if (/embedding/.test(normalized)) return "embedding";
+  if (/sora|video/.test(normalized)) return "video";
+  if (/image|dall-e/.test(normalized)) return "image";
+  if (/audio|transcribe|tts|realtime|speech|whisper/.test(normalized)) return "audio";
+  return "text_chat";
+}
+
+function openAiInputModalities(category: OpenAiModelMetadata["category"], hasImageInput: boolean) {
+  if (category === "image") return ["TEXT", "IMAGE"];
+  if (category === "video") return ["TEXT", "IMAGE"];
+  if (category === "audio") return ["TEXT", "AUDIO"];
+  if (category === "embedding") return ["TEXT"];
+  return hasImageInput ? ["TEXT", "IMAGE"] : ["TEXT"];
+}
+
+function openAiOutputModalities(category: OpenAiModelMetadata["category"]) {
+  if (category === "image") return ["IMAGE"];
+  if (category === "video") return ["VIDEO"];
+  if (category === "audio") return ["AUDIO"];
+  if (category === "embedding") return ["EMBEDDING"];
+  return ["TEXT"];
 }
 
 export function resolveOpenAiCatalogEntry(modelId: string, metadataByModelId: Map<string, OpenAiModelMetadata>) {
@@ -303,13 +342,25 @@ function resolveOpenAiPricing(
     cacheReadUsdPer1k: (entry.cachedInputUsdPer1m ?? 0) / 1000,
     cacheWriteUsdPer1k: 0,
     sourceModelName: entry.displayName,
-    sourceProviderName: "OpenAI"
+    sourceProviderName: "OpenAI",
+    billingUnit: entry.billingUnit ?? "token_1m",
+    unitUsdPrice: entry.unitUsdPrice ?? null,
+    unitPriceCents: entry.unitUsdPrice
+      ? usdUnitToTargetCents(entry.unitUsdPrice, options.conversion)
+      : null,
+    unitLabel: entry.unitLabel ?? null,
+    priceDisplay: entry.priceDisplay ?? null
   };
 }
 
 function usdPer1mToTargetCentsPer1m(usdPer1m: number, conversion: ProviderPriceConversion) {
   if (!Number.isFinite(usdPer1m) || usdPer1m <= 0) return 0;
   return Math.ceil(usdPer1m * conversion.usdToTargetRate * conversion.markupMultiplier * 100);
+}
+
+function usdUnitToTargetCents(usdPrice: number, conversion: ProviderPriceConversion) {
+  if (!Number.isFinite(usdPrice) || usdPrice <= 0) return 0;
+  return Math.ceil(usdPrice * conversion.usdToTargetRate * conversion.markupMultiplier * 100);
 }
 
 function displayNameForOpenAiModel(modelId: string, entry: OpenAiModelMetadata) {

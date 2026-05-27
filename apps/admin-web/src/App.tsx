@@ -656,7 +656,7 @@ function Shell({
                     adminOnly,
                     <ResourcePage
                       title="租户模型覆盖"
-                      description="所有租户默认可使用全部已上架、已定价、有上下文的模型；只有需要对某个业务租户改小上下文或预算时才在这里配置覆盖。"
+                      description="所有租户默认可使用全部已上架、已定价的模型；只有需要对某个业务租户改小上下文或预算时才在这里配置覆盖。"
                       endpoint="/api/admin/tenant-model-authorizations"
                       rowKey="id"
                       columns={[
@@ -1180,6 +1180,8 @@ function Shell({
                     ["effective_max_context_tokens", "对外上下文"],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                    ["unit_price_yuan", "独立单位价格", "token_price"],
+                    ["unit_label", "计费单位"],
                     ["status", "状态"]
                   ]}
                   detailFields={[
@@ -1192,6 +1194,10 @@ function Shell({
                     ["default_max_output_tokens", "默认输出"],
                     ["input_price_per_1k_yuan", "输入/1K tokens", "token_price"],
                     ["output_price_per_1k_yuan", "输出/1K tokens", "token_price"],
+                    ["billing_unit", "计费类型"],
+                    ["unit_price_yuan", "独立单位价格", "token_price"],
+                    ["unit_label", "计费单位"],
+                    ["price_display", "供应商原始价格说明"],
                     ["reserve_multiplier", "平台倍率"],
                     ["status", "状态"]
                   ]}

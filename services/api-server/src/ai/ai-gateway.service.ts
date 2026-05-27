@@ -12,9 +12,16 @@ import { CryptoService } from "../common/crypto.service.js";
 import { DatabaseService } from "../database/database.service.js";
 import { PublicRequestUser } from "../public/public-auth.guard.js";
 import { PublicService } from "../public/public.service.js";
-import { ProviderAdapterRegistry } from "./providers/provider-adapter.registry.js";
-import { ProviderAdapter, ProviderCompletionResult, ProviderCompletionInput, ProviderConfig } from "./providers/types.js";
 import { enabledModelProviderTypes } from "./providers/provider-visibility.js";
+import { ProviderAdapterRegistry } from "./providers/provider-adapter.registry.js";
+import {
+  ProviderAdapter,
+  ProviderCompletionInput,
+  ProviderCompletionResult,
+  ProviderConfig,
+  ProviderImageGenerationResult,
+  ProviderVideoGenerationResult
+} from "./providers/types.js";
 
 type ChatRole = "system" | "user" | "assistant";
 
@@ -36,6 +43,7 @@ interface ModelPricing {
   model_id: string;
   public_model_code: string;
   display_name: string;
+  model_category: string;
   default_max_output_tokens: number | null;
   input_price_per_1k: number;
   output_price_per_1k: number;
@@ -43,6 +51,10 @@ interface ModelPricing {
   output_price_per_1m: number | null;
   price_version: string | null;
   currency: string;
+  billing_unit: string | null;
+  unit_price_amount: number | null;
+  unit_label: string | null;
+  price_display: string | null;
 }
 
 interface CompletionResult {
@@ -78,6 +90,13 @@ interface ModelRouteConfig {
   aws_region: string | null;
   endpoint_url: string | null;
   credential_metadata: Record<string, unknown> | null;
+}
+
+interface MediaBillingRecord {
+  requestLogId: string;
+  requestId: string;
+  chargedAt: string;
+  actualCost: number;
 }
 
 @Injectable()
@@ -209,7 +228,7 @@ export class AiGatewayService {
               limit 1
            ) tmp on true
           where m.status = 'active'
-            and m.max_context_tokens is not null
+            and coalesce(m.metadata->>'model_category', 'text_chat') = 'text_chat'
             and coalesce(tmp.price_version, mp.price_version) is not null
             and exists (
               select 1
@@ -412,6 +431,207 @@ export class AiGatewayService {
       created_at: assistantMessage.created_at,
       user_message_id: userMessage.id,
       usage: completion.usage
+    };
+  }
+
+  async generateImage(input: {
+    context: GatewayContext;
+    model: string;
+    prompt: string;
+    n?: unknown;
+    size?: unknown;
+    aspectRatio?: unknown;
+  }) {
+    if (!input.model) throw new BadRequestException("model is required");
+    const prompt = String(input.prompt ?? "").trim();
+    if (!prompt) throw new BadRequestException("prompt is required");
+    this.assertApiKeyModelAccess(input.context, input.model);
+    const count = Math.min(Math.max(Math.floor(Number(input.n ?? 1)), 1), 4);
+    const pricing = await this.getPricing(input.context.tenantId, input.model, "image");
+    const route = await this.selectRoute(pricing.model_id);
+    if (!route) throw new HttpException("Provider route is not configured for this image model", 503);
+    const providerConfig = this.buildProviderConfig(route);
+    const adapter = this.providerAdapters.resolve(providerConfig.providerType);
+    if (!adapter.generateImage) {
+      throw new HttpException("Image generation is not implemented for this provider", 501);
+    }
+    const estimatedCost = this.calculateUnitCost(pricing, count, this.estimateTokens(prompt));
+    const balance = await this.getAvailableBalance(input.context);
+    if (balance < estimatedCost) throw new HttpException("Insufficient wallet balance", 402);
+    const requestId = `req_${randomUUID().replace(/-/g, "")}`;
+    const started = Date.now();
+    let providerResult: ProviderImageGenerationResult;
+    try {
+      providerResult = await adapter.generateImage(providerConfig, {
+        publicModelCode: input.model,
+        providerModelCode: route.provider_model_code,
+        prompt,
+        n: count,
+        size: input.size ? String(input.size) : null,
+        aspectRatio: input.aspectRatio ? String(input.aspectRatio) : null
+      });
+    } catch (error) {
+      await this.recordProviderFailure({
+        requestId,
+        context: input.context,
+        source: "developer_api",
+        model: input.model,
+        stream: false,
+        route,
+        estimatedPromptTokens: this.estimateTokens(prompt),
+        estimatedCompletionTokens: count,
+        estimatedCost,
+        currency: pricing.currency,
+        started,
+        idempotencyKey: null,
+        error
+      });
+      throw new HttpException(`Provider unavailable: ${this.redactErrorMessage(error)}`, 503);
+    }
+    const actualCost = this.calculateUnitCost(pricing, providerResult.images.length || count, providerResult.usage.inputTokens);
+    const billing = await this.recordGenerationSuccess({
+      requestId,
+      context: input.context,
+      model: input.model,
+      pricing,
+      route,
+      providerConfig,
+      providerRequestId: providerResult.providerRequestId ?? null,
+      started,
+      estimatedPromptTokens: this.estimateTokens(prompt),
+      estimatedCompletionTokens: count,
+      actualPromptTokens: providerResult.usage.inputTokens,
+      actualCompletionTokens: providerResult.images.length || count,
+      totalTokens: providerResult.usage.totalTokens,
+      usageSource: providerResult.usage.source,
+      estimatedCost,
+      actualCost,
+      finishReason: "stop",
+      metadata: {
+        generation_type: "image",
+        image_count: providerResult.images.length,
+        billing_unit: pricing.billing_unit,
+        unit_label: pricing.unit_label,
+        provider_metadata: providerResult.metadata ?? {}
+      }
+    });
+    return {
+      created: Math.floor(Date.now() / 1000),
+      data: providerResult.images.map((image) => ({
+        b64_json: image.b64Json ?? undefined,
+        url: image.url ?? undefined,
+        mime_type: image.mimeType ?? undefined,
+        revised_prompt: image.revisedPrompt ?? undefined
+      })),
+      usage: {
+        input_tokens: providerResult.usage.inputTokens,
+        output_units: providerResult.images.length || count,
+        actual_cost: billing.actualCost,
+        model: input.model,
+        charged_at: billing.chargedAt
+      }
+    };
+  }
+
+  async generateVideo(input: {
+    context: GatewayContext;
+    model: string;
+    prompt: string;
+    n?: unknown;
+    durationSeconds?: unknown;
+    aspectRatio?: unknown;
+    outputGcsUri?: unknown;
+  }) {
+    if (!input.model) throw new BadRequestException("model is required");
+    const prompt = String(input.prompt ?? "").trim();
+    if (!prompt) throw new BadRequestException("prompt is required");
+    this.assertApiKeyModelAccess(input.context, input.model);
+    const count = Math.min(Math.max(Math.floor(Number(input.n ?? 1)), 1), 2);
+    const durationSeconds = Math.min(Math.max(Math.floor(Number(input.durationSeconds ?? 5)), 1), 8);
+    const pricing = await this.getPricing(input.context.tenantId, input.model, "video");
+    const route = await this.selectRoute(pricing.model_id);
+    if (!route) throw new HttpException("Provider route is not configured for this video model", 503);
+    const providerConfig = this.buildProviderConfig(route);
+    const adapter = this.providerAdapters.resolve(providerConfig.providerType);
+    if (!adapter.generateVideo) {
+      throw new HttpException("Video generation is not implemented for this provider", 501);
+    }
+    const units = count * durationSeconds;
+    const estimatedCost = this.calculateUnitCost(pricing, units, this.estimateTokens(prompt));
+    const balance = await this.getAvailableBalance(input.context);
+    if (balance < estimatedCost) throw new HttpException("Insufficient wallet balance", 402);
+    const requestId = `req_${randomUUID().replace(/-/g, "")}`;
+    const started = Date.now();
+    let providerResult: ProviderVideoGenerationResult;
+    try {
+      providerResult = await adapter.generateVideo(providerConfig, {
+        publicModelCode: input.model,
+        providerModelCode: route.provider_model_code,
+        prompt,
+        n: count,
+        durationSeconds,
+        aspectRatio: input.aspectRatio ? String(input.aspectRatio) : null,
+        outputGcsUri: input.outputGcsUri ? String(input.outputGcsUri) : null
+      });
+    } catch (error) {
+      await this.recordProviderFailure({
+        requestId,
+        context: input.context,
+        source: "developer_api",
+        model: input.model,
+        stream: false,
+        route,
+        estimatedPromptTokens: this.estimateTokens(prompt),
+        estimatedCompletionTokens: units,
+        estimatedCost,
+        currency: pricing.currency,
+        started,
+        idempotencyKey: null,
+        error
+      });
+      throw new HttpException(`Provider unavailable: ${this.redactErrorMessage(error)}`, 503);
+    }
+    const billing = await this.recordGenerationSuccess({
+      requestId,
+      context: input.context,
+      model: input.model,
+      pricing,
+      route,
+      providerConfig,
+      providerRequestId: providerResult.providerRequestId ?? null,
+      started,
+      estimatedPromptTokens: this.estimateTokens(prompt),
+      estimatedCompletionTokens: units,
+      actualPromptTokens: providerResult.usage.inputTokens,
+      actualCompletionTokens: units,
+      totalTokens: providerResult.usage.totalTokens,
+      usageSource: providerResult.usage.source,
+      estimatedCost,
+      actualCost: estimatedCost,
+      finishReason: "operation_submitted",
+      metadata: {
+        generation_type: "video",
+        operation_name: providerResult.operationName,
+        duration_seconds: durationSeconds,
+        video_count: count,
+        billing_unit: pricing.billing_unit,
+        unit_label: pricing.unit_label,
+        billing_note: "charged_on_operation_submission",
+        provider_metadata: providerResult.metadata ?? {}
+      }
+    });
+    return {
+      id: billing.requestId,
+      object: "video.generation",
+      status: providerResult.status,
+      operation_name: providerResult.operationName,
+      model: input.model,
+      usage: {
+        input_tokens: providerResult.usage.inputTokens,
+        output_units: units,
+        actual_cost: billing.actualCost,
+        charged_at: billing.chargedAt
+      }
     };
   }
 
@@ -683,6 +903,148 @@ export class AiGatewayService {
     };
   }
 
+  private async recordGenerationSuccess(input: {
+    requestId: string;
+    context: GatewayContext;
+    model: string;
+    pricing: ModelPricing;
+    route: ModelRouteConfig;
+    providerConfig: ProviderConfig;
+    providerRequestId: string | null;
+    started: number;
+    estimatedPromptTokens: number;
+    estimatedCompletionTokens: number;
+    actualPromptTokens: number;
+    actualCompletionTokens: number;
+    totalTokens: number;
+    usageSource: string;
+    estimatedCost: number;
+    actualCost: number;
+    finishReason: string;
+    metadata: Record<string, unknown>;
+  }): Promise<MediaBillingRecord> {
+    const result = await this.db.transaction(async (client) => {
+      const wallet = await this.lockWallet(client, input.context);
+      const available =
+        Number(wallet.cash_balance) + Number(wallet.bonus_balance) + Number(wallet.credit_limit);
+      if (available < input.actualCost) {
+        throw new HttpException("Insufficient wallet balance", 402);
+      }
+      const requestLog = await client.query<{ id: string; created_at: string }>(
+        `insert into request_logs
+          (request_id, tenant_id, project_id, tenant_customer_id, user_id, api_key_id,
+           source, public_model_code, provider_id, route_id, provider_request_id, status, stream,
+           estimated_prompt_tokens, estimated_completion_tokens, actual_prompt_tokens,
+           actual_completion_tokens, total_tokens, usage_source, estimated_cost_amount,
+           actual_cost_amount, currency, latency_ms, finish_reason, redacted_prompt,
+           redacted_completion, metadata, completed_at, stream_status, billing_status)
+         values
+          ($1, $2, $3, $4, $5, $6,
+           'developer_api', $7, $8, $9, $10, 'success', false,
+           $11, $12, $13,
+           $14, $15, $16, $17,
+           $18, $19, $20, $21, '[redacted]',
+           '[redacted]', $22::jsonb, now(), 'none', 'settled')
+         returning id, created_at`,
+        [
+          input.requestId,
+          input.context.tenantId,
+          input.context.projectId,
+          input.context.tenantCustomerId,
+          input.context.userId,
+          input.context.apiKeyId,
+          input.model,
+          input.route.provider_id,
+          input.route.id,
+          input.providerRequestId,
+          input.estimatedPromptTokens,
+          input.estimatedCompletionTokens,
+          input.actualPromptTokens,
+          input.actualCompletionTokens,
+          input.totalTokens,
+          input.usageSource,
+          input.estimatedCost,
+          input.actualCost,
+          input.pricing.currency,
+          Date.now() - input.started,
+          input.finishReason,
+          JSON.stringify({
+            provider_type: input.providerConfig.providerType,
+            provider_model_code: input.route.provider_model_code,
+            provider_request_id: input.providerRequestId,
+            model: input.model,
+            ...input.metadata
+          })
+        ]
+      );
+      await client.query(
+        `insert into provider_request_attempts
+          (request_log_id, tenant_id, provider_id, route_id, provider_model_code,
+           attempt_no, status, latency_ms, metadata, completed_at)
+         values ($1, $2, $3, $4, $5, 1, 'success', $6, $7::jsonb, now())`,
+        [
+          requestLog.rows[0].id,
+          input.context.tenantId,
+          input.route.provider_id,
+          input.route.id,
+          input.route.provider_model_code,
+          Date.now() - input.started,
+          JSON.stringify({
+            adapter: input.providerConfig.providerType,
+            usage_source: input.usageSource,
+            provider_request_id: input.providerRequestId,
+            generation_type: input.metadata.generation_type
+          })
+        ]
+      );
+      const ledgerId = await this.debitWallet(
+        client,
+        wallet,
+        input.context,
+        input.actualCost,
+        input.pricing.currency,
+        requestLog.rows[0].id
+      );
+      await client.query(
+        `insert into billing_records
+          (request_log_id, user_id, wallet_id, tenant_id, tenant_customer_id, model_id,
+           price_version, amount, currency, billing_status, wallet_ledger_id, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'settled', $10, $11::jsonb)`,
+        [
+          requestLog.rows[0].id,
+          input.context.userId,
+          wallet.id,
+          input.context.tenantId,
+          input.context.tenantCustomerId,
+          input.pricing.model_id,
+          input.pricing.price_version,
+          input.actualCost,
+          input.pricing.currency,
+          ledgerId,
+          JSON.stringify({
+            source: "developer_api",
+            model: input.model,
+            provider_type: input.providerConfig.providerType,
+            provider_model_code: input.route.provider_model_code,
+            generation_type: input.metadata.generation_type,
+            billing_unit: input.pricing.billing_unit,
+            unit_label: input.pricing.unit_label
+          })
+        ]
+      );
+      return {
+        requestLogId: requestLog.rows[0].id,
+        chargedAt: requestLog.rows[0].created_at
+      };
+    });
+    return {
+      requestLogId: result.requestLogId,
+      requestId: input.requestId,
+      chargedAt: result.chargedAt,
+      actualCost: input.actualCost
+    };
+  }
+
   private async recordProviderFailure(input: {
     requestId: string;
     context: GatewayContext;
@@ -866,19 +1228,28 @@ export class AiGatewayService {
     return messages;
   }
 
-  private async getPricing(tenantId: string, modelCode: string): Promise<ModelPricing> {
+  private async getPricing(tenantId: string, modelCode: string, modelCategory = "text_chat"): Promise<ModelPricing> {
     const providerTypes = enabledModelProviderTypes();
     const { rows } = await this.db.query<ModelPricing>(
       `select m.id as model_id,
               m.public_model_code,
               m.display_name,
+              coalesce(m.metadata->>'model_category', 'text_chat') as model_category,
               coalesce(mp.default_max_output_tokens, m.default_max_output_tokens) as default_max_output_tokens,
               coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
               coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
               coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
               coalesce(tmp.output_price_per_1m, mp.output_price_per_1m, tmp.output_price_per_1k * 1000, mp.output_price_per_1k * 1000) as output_price_per_1m,
               coalesce(tmp.price_version, mp.price_version) as price_version,
-              coalesce(tmp.currency, mp.currency) as currency
+              coalesce(tmp.currency, mp.currency) as currency,
+              coalesce(tmp.metadata, mp.metadata, '{}'::jsonb)->>'billing_unit' as billing_unit,
+              case
+                when coalesce(tmp.metadata, mp.metadata, '{}'::jsonb) ? 'unit_price_amount'
+                then (coalesce(tmp.metadata, mp.metadata, '{}'::jsonb)->>'unit_price_amount')::bigint
+                else null
+              end as unit_price_amount,
+              coalesce(tmp.metadata, mp.metadata, '{}'::jsonb)->>'unit_label' as unit_label,
+              coalesce(tmp.metadata, mp.metadata, '{}'::jsonb)->>'price_display' as price_display
          from models m
          join tenants tenant on tenant.id = $1
          left join lateral (
@@ -887,7 +1258,8 @@ export class AiGatewayService {
                   input_price_per_1m,
                   output_price_per_1m,
                   price_version,
-                  currency
+                  currency,
+                  metadata
              from tenant_model_prices
             where tenant_id = tenant.id
               and model_id = m.id
@@ -904,7 +1276,8 @@ export class AiGatewayService {
                   output_price_per_1m,
                   price_version,
                   currency,
-                  default_max_output_tokens
+                  default_max_output_tokens,
+                  metadata
              from model_prices
             where model_id = m.id
               and status = 'active'
@@ -914,7 +1287,7 @@ export class AiGatewayService {
             limit 1
          ) mp on true
         where m.status = 'active'
-          and m.max_context_tokens is not null
+          and coalesce(m.metadata->>'model_category', 'text_chat') = $3
           and m.public_model_code = $2
           and exists (
             select 1
@@ -924,10 +1297,10 @@ export class AiGatewayService {
                and mr.enabled = true
                and coalesce(mr.metadata->>'runtime_validation_status', '') <> 'unavailable'
                and p.status = 'active'
-               and p.provider_type = any($3::text[])
+               and p.provider_type = any($4::text[])
           )
         limit 1`,
-      [tenantId, modelCode, providerTypes]
+      [tenantId, modelCode, modelCategory, providerTypes]
     );
     const row = rows[0];
     if (!row) {
@@ -944,7 +1317,11 @@ export class AiGatewayService {
       output_price_per_1k: Number(row.output_price_per_1k ?? 0),
       input_price_per_1m: row.input_price_per_1m === null ? null : Number(row.input_price_per_1m ?? 0),
       output_price_per_1m: row.output_price_per_1m === null ? null : Number(row.output_price_per_1m ?? 0),
-      currency: row.currency ?? "CNY"
+      currency: row.currency ?? "CNY",
+      billing_unit: row.billing_unit ?? "token_1m",
+      unit_price_amount: row.unit_price_amount === null ? null : Number(row.unit_price_amount ?? 0),
+      unit_label: row.unit_label ?? null,
+      price_display: row.price_display ?? null
     };
   }
 
@@ -967,6 +1344,14 @@ export class AiGatewayService {
       Math.ceil((inputTokens * Number(inputPer1m ?? 0) + outputTokens * Number(outputPer1m ?? 0)) / 1_000_000),
       1
     );
+  }
+
+  private calculateUnitCost(pricing: ModelPricing, units: number, fallbackPromptTokens: number) {
+    const billingUnit = String(pricing.billing_unit ?? "token_1m");
+    if (!billingUnit.startsWith("token") && pricing.unit_price_amount && pricing.unit_price_amount > 0) {
+      return Math.max(Math.ceil(pricing.unit_price_amount * Math.max(units, 1)), 1);
+    }
+    return this.calculateCost(pricing, fallbackPromptTokens, Math.max(units, 1));
   }
 
   private optionalNumber(value: unknown) {

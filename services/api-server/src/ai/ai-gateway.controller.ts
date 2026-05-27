@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Headers,
+  HttpException,
   Inject,
   Param,
   Post,
@@ -97,6 +98,57 @@ export class AiGatewayController {
         total_tokens: completion.usage.total_tokens
       }
     });
+  }
+
+  @Post("/v1/images/generations")
+  async imageGenerations(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: Record<string, unknown>
+  ) {
+    const context = await this.ai.authenticateApiKey(authorization);
+    return this.ai.generateImage({
+      context,
+      model: String(body.model ?? ""),
+      prompt: String(body.prompt ?? ""),
+      n: body.n,
+      size: body.size,
+      aspectRatio: body.aspect_ratio
+    });
+  }
+
+  @Post("/v1/videos/generations")
+  async videoGenerations(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: Record<string, unknown>
+  ) {
+    const context = await this.ai.authenticateApiKey(authorization);
+    return this.ai.generateVideo({
+      context,
+      model: String(body.model ?? ""),
+      prompt: String(body.prompt ?? ""),
+      n: body.n,
+      durationSeconds: body.duration_seconds,
+      aspectRatio: body.aspect_ratio,
+      outputGcsUri: body.output_gcs_uri
+    });
+  }
+
+  @Post("/v1/embeddings")
+  async embeddings(@Headers("authorization") authorization: string | undefined) {
+    await this.ai.authenticateApiKey(authorization);
+    throw new HttpException("Embedding API is planned but not implemented yet", 501);
+  }
+
+  @Post("/v1/audio/speech")
+  async audioSpeech(@Headers("authorization") authorization: string | undefined) {
+    await this.ai.authenticateApiKey(authorization);
+    throw new HttpException("Audio API is planned but not implemented yet", 501);
+  }
+
+  @Post("/v1/audio/transcriptions")
+  async audioTranscriptions(@Headers("authorization") authorization: string | undefined) {
+    await this.ai.authenticateApiKey(authorization);
+    throw new HttpException("Audio API is planned but not implemented yet", 501);
   }
 
   @UseGuards(PublicAuthGuard)

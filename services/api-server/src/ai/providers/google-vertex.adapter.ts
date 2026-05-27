@@ -8,8 +8,12 @@ import {
   ProviderConfig,
   ProviderHealthCheckInput,
   ProviderHealthCheckResult,
+  ProviderImageGenerationInput,
+  ProviderImageGenerationResult,
   ProviderStreamChunk,
-  ProviderTokenUsage
+  ProviderTokenUsage,
+  ProviderVideoGenerationInput,
+  ProviderVideoGenerationResult
 } from "./types.js";
 
 @Injectable()
@@ -95,6 +99,120 @@ export class GoogleVertexProviderAdapter implements ProviderAdapter {
         checkedAt: new Date().toISOString()
       };
     }
+  }
+
+  async generateImage(
+    provider: ProviderConfig,
+    input: ProviderImageGenerationInput
+  ): Promise<ProviderImageGenerationResult> {
+    const started = Date.now();
+    const runtime = this.resolveRuntime(provider, input.providerModelCode);
+    if (runtime.publisher !== "google") {
+      throw new Error("Google Vertex image generation is only implemented for Google publisher models");
+    }
+    if (runtime.adapter === "gemini_generate_content") {
+      const response = await this.vertexFetch(provider, runtime, "generateContent", {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: input.prompt }]
+          }
+        ],
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"]
+        }
+      });
+      const images = extractGeminiImages(response).slice(0, input.n);
+      if (!images.length) {
+        throw new Error("Google Vertex image generation returned no image data");
+      }
+      return {
+        images,
+        providerRequestId: response.__requestId ?? null,
+        usage: {
+          inputTokens: Number(response.usageMetadata?.promptTokenCount ?? estimateTokens(input.prompt)),
+          outputTokens: images.length,
+          totalTokens: Number(response.usageMetadata?.totalTokenCount ?? estimateTokens(input.prompt) + images.length),
+          source: response.usageMetadata ? "vertex_ai" : "estimated",
+          estimated: !response.usageMetadata
+        },
+        metadata: { latency_ms: Date.now() - started, provider_runtime: runtime.adapter }
+      };
+    }
+
+    if (runtime.adapter === "vertex_predict_image") {
+      const response = await this.vertexFetch(provider, runtime, "predict", {
+        instances: [{ prompt: input.prompt }],
+        parameters: {
+          sampleCount: input.n,
+          aspectRatio: input.aspectRatio ?? aspectRatioFromSize(input.size),
+          personGeneration: provider.metadata?.person_generation ?? "allow_adult"
+        }
+      });
+      const images = extractPredictImages(response).slice(0, input.n);
+      if (!images.length) {
+        throw new Error("Google Vertex image prediction returned no image data");
+      }
+      return {
+        images,
+        providerRequestId: response.__requestId ?? null,
+        usage: {
+          inputTokens: estimateTokens(input.prompt),
+          outputTokens: images.length,
+          totalTokens: estimateTokens(input.prompt) + images.length,
+          source: "estimated",
+          estimated: true
+        },
+        metadata: { latency_ms: Date.now() - started, provider_runtime: runtime.adapter }
+      };
+    }
+
+    throw new Error(`Google Vertex image runtime is not implemented: ${runtime.adapter}`);
+  }
+
+  async generateVideo(
+    provider: ProviderConfig,
+    input: ProviderVideoGenerationInput
+  ): Promise<ProviderVideoGenerationResult> {
+    const started = Date.now();
+    const runtime = this.resolveRuntime(provider, input.providerModelCode);
+    if (runtime.publisher !== "google" || runtime.adapter !== "vertex_predict_video") {
+      throw new Error(`Google Vertex video runtime is not implemented: ${runtime.publisher}/${runtime.adapter}`);
+    }
+    const parameters: Record<string, unknown> = {
+      sampleCount: input.n,
+      durationSeconds: input.durationSeconds,
+      aspectRatio: input.aspectRatio ?? "16:9",
+      personGeneration: provider.metadata?.person_generation ?? "allow_adult"
+    };
+    if (input.outputGcsUri) {
+      parameters.storageUri = input.outputGcsUri;
+    }
+    const response = await this.vertexFetch(provider, runtime, "predictLongRunning", {
+      instances: [{ prompt: input.prompt }],
+      parameters
+    });
+    const operationName = String(response.name ?? "");
+    if (!operationName) {
+      throw new Error("Google Vertex video generation did not return an operation name");
+    }
+    return {
+      operationName,
+      status: "submitted",
+      providerRequestId: response.__requestId ?? null,
+      usage: {
+        inputTokens: estimateTokens(input.prompt),
+        outputTokens: input.n * input.durationSeconds,
+        totalTokens: estimateTokens(input.prompt) + input.n * input.durationSeconds,
+        source: "estimated",
+        estimated: true
+      },
+      metadata: {
+        latency_ms: Date.now() - started,
+        provider_runtime: runtime.adapter,
+        operation_name: operationName
+      }
+    };
   }
 
   private async completeGemini(
@@ -207,7 +325,12 @@ export class GoogleVertexProviderAdapter implements ProviderAdapter {
     };
   }
 
-  private async vertexFetch(provider: ProviderConfig, runtime: VertexRuntime, method: "generateContent" | "rawPredict", body: Record<string, unknown>) {
+  private async vertexFetch(
+    provider: ProviderConfig,
+    runtime: VertexRuntime,
+    method: "generateContent" | "rawPredict" | "predict" | "predictLongRunning",
+    body: Record<string, unknown>
+  ) {
     const token = await resolveGoogleVertexAccessToken(provider.credential ?? null);
     const url = this.buildVertexUrl(provider, runtime, method);
     const response = await fetch(url, {
@@ -240,7 +363,8 @@ export class GoogleVertexProviderAdapter implements ProviderAdapter {
     const metadata = provider.metadata ?? {};
     const publisher = String(metadata.publisher ?? metadata.vertex_publisher ?? inferPublisher(providerModelCode)).toLowerCase();
     const location = String(metadata.location ?? metadata.vertex_location ?? metadata.preferred_region ?? provider.region ?? "global");
-    return { publisher, location, providerModelCode };
+    const adapter = String(metadata.runtime_adapter ?? inferRuntimeAdapter(publisher, providerModelCode)).toLowerCase();
+    return { publisher, location, providerModelCode, adapter };
   }
 
   private resolveProjectId(provider: ProviderConfig) {
@@ -258,6 +382,7 @@ interface VertexRuntime {
   publisher: string;
   location: string;
   providerModelCode: string;
+  adapter: string;
 }
 
 function systemInstruction(messages: ProviderChatMessage[]) {
@@ -272,6 +397,15 @@ function inferPublisher(providerModelCode: string) {
   return "google";
 }
 
+function inferRuntimeAdapter(publisher: string, providerModelCode: string) {
+  const code = providerModelCode.toLowerCase();
+  if (publisher === "google" && (/imagen|imagegeneration|image-|virtual-try-on/.test(code))) return "vertex_predict_image";
+  if (publisher === "google" && (/veo|video/.test(code))) return "vertex_predict_video";
+  if (publisher === "google") return "gemini_generate_content";
+  if (publisher === "anthropic" || publisher === "mistralai") return "rawPredict";
+  return "unsupported";
+}
+
 function geminiThinkingBudget(provider: ProviderConfig, providerModelCode: string) {
   const configured = provider.metadata?.thinking_budget ?? provider.metadata?.gemini_thinking_budget;
   if (configured !== undefined && configured !== null && configured !== "") {
@@ -283,6 +417,40 @@ function geminiThinkingBudget(provider: ProviderConfig, providerModelCode: strin
 
 function estimateTokens(text: string) {
   return Math.max(1, Math.ceil(text.length / 4));
+}
+
+function extractGeminiImages(response: any): ProviderImageGenerationResult["images"] {
+  const parts = response.candidates?.flatMap((candidate: any) => candidate.content?.parts ?? []) ?? [];
+  return parts
+    .map((part: any) => ({
+      b64Json: part.inlineData?.data ?? part.inline_data?.data ?? null,
+      mimeType: part.inlineData?.mimeType ?? part.inline_data?.mime_type ?? part.inline_data?.mimeType ?? "image/png",
+      revisedPrompt: part.text ?? null
+    }))
+    .filter((item: any) => item.b64Json);
+}
+
+function extractPredictImages(response: any): ProviderImageGenerationResult["images"] {
+  const predictions = Array.isArray(response.predictions) ? response.predictions : [];
+  return predictions
+    .map((prediction: any) => ({
+      b64Json: prediction.bytesBase64Encoded ?? prediction.image?.bytesBase64Encoded ?? null,
+      url: prediction.gcsUri ?? prediction.image?.gcsUri ?? null,
+      mimeType: prediction.mimeType ?? prediction.image?.mimeType ?? "image/png",
+      revisedPrompt: prediction.prompt ?? prediction.revisedPrompt ?? null
+    }))
+    .filter((item: any) => item.b64Json || item.url);
+}
+
+function aspectRatioFromSize(size?: string | null) {
+  if (!size) return "1:1";
+  const match = /^(\d+)x(\d+)$/u.exec(size.trim());
+  if (!match) return size;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) return "1:1";
+  if (Math.abs(width / height - 1) < 0.05) return "1:1";
+  return width > height ? "16:9" : "9:16";
 }
 
 function errorName(error: unknown) {

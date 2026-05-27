@@ -54,10 +54,44 @@ const authMethodOptions = [
 const providerRegionOptions = [
   { value: "global", label: "Global" },
   { value: "us-central1", label: "Vertex us-central1" },
+  { value: "us-east1", label: "Vertex us-east1" },
+  { value: "us-east4", label: "Vertex us-east4" },
   { value: "us-east5", label: "Vertex us-east5" },
+  { value: "us-south1", label: "Vertex us-south1" },
+  { value: "us-west1", label: "Vertex us-west1" },
+  { value: "us-west2", label: "Vertex us-west2" },
+  { value: "us-west3", label: "Vertex us-west3" },
+  { value: "us-west4", label: "Vertex us-west4" },
+  { value: "northamerica-northeast1", label: "Vertex northamerica-northeast1" },
+  { value: "northamerica-northeast2", label: "Vertex northamerica-northeast2" },
+  { value: "southamerica-east1", label: "Vertex southamerica-east1" },
+  { value: "southamerica-west1", label: "Vertex southamerica-west1" },
+  { value: "africa-south1", label: "Vertex africa-south1" },
+  { value: "europe-central2", label: "Vertex europe-central2" },
+  { value: "europe-west1", label: "Vertex europe-west1" },
+  { value: "europe-west2", label: "Vertex europe-west2" },
+  { value: "europe-west3", label: "Vertex europe-west3" },
   { value: "europe-west4", label: "Vertex europe-west4" },
+  { value: "europe-west6", label: "Vertex europe-west6" },
+  { value: "europe-west8", label: "Vertex europe-west8" },
+  { value: "europe-west9", label: "Vertex europe-west9" },
+  { value: "europe-west12", label: "Vertex europe-west12" },
+  { value: "europe-north1", label: "Vertex europe-north1" },
+  { value: "europe-southwest1", label: "Vertex europe-southwest1" },
+  { value: "asia-east1", label: "Vertex asia-east1" },
+  { value: "asia-east2", label: "Vertex asia-east2" },
   { value: "asia-northeast1", label: "Vertex asia-northeast1" },
-  { value: "asia-southeast1", label: "Vertex asia-southeast1" }
+  { value: "asia-northeast2", label: "Vertex asia-northeast2" },
+  { value: "asia-northeast3", label: "Vertex asia-northeast3" },
+  { value: "asia-south1", label: "Vertex asia-south1" },
+  { value: "asia-south2", label: "Vertex asia-south2" },
+  { value: "asia-southeast1", label: "Vertex asia-southeast1" },
+  { value: "asia-southeast2", label: "Vertex asia-southeast2" },
+  { value: "australia-southeast1", label: "Vertex australia-southeast1" },
+  { value: "australia-southeast2", label: "Vertex australia-southeast2" },
+  { value: "me-central1", label: "Vertex me-central1" },
+  { value: "me-central2", label: "Vertex me-central2" },
+  { value: "me-west1", label: "Vertex me-west1" }
 ];
 
 const legalScopeOptions = [
@@ -82,6 +116,49 @@ const currencyOptions = [
   { value: "JPY", label: "JPY" },
   { value: "GBP", label: "GBP" }
 ];
+
+const defaultVertexRegionList = [
+  "global",
+  "us-central1",
+  "us-east1",
+  "us-east4",
+  "us-east5",
+  "us-south1",
+  "us-west1",
+  "us-west2",
+  "us-west3",
+  "us-west4",
+  "northamerica-northeast1",
+  "northamerica-northeast2",
+  "southamerica-east1",
+  "southamerica-west1",
+  "africa-south1",
+  "europe-central2",
+  "europe-west1",
+  "europe-west2",
+  "europe-west3",
+  "europe-west4",
+  "europe-west6",
+  "europe-west8",
+  "europe-west9",
+  "europe-west12",
+  "europe-north1",
+  "europe-southwest1",
+  "asia-east1",
+  "asia-east2",
+  "asia-northeast1",
+  "asia-northeast2",
+  "asia-northeast3",
+  "asia-south1",
+  "asia-south2",
+  "asia-southeast1",
+  "asia-southeast2",
+  "australia-southeast1",
+  "australia-southeast2",
+  "me-central1",
+  "me-central2",
+  "me-west1"
+].join(",");
 
 export default function ProviderPage({
   canWrite,
@@ -199,7 +276,7 @@ export default function ProviderPage({
       gcp_project_id: undefined,
       organization_id: undefined,
       openai_project_id: undefined,
-      vertex_regions: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? region || "global,us-central1,us-east5" : undefined,
+      vertex_regions: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? region || defaultVertexRegionList : undefined,
       publishers: providerType === "google_vertex_ai" || providerType === "vertex_ai" ? "google,anthropic,mistralai,xai,meta" : undefined
     });
   }
@@ -349,7 +426,7 @@ export default function ProviderPage({
         </Form>
       </Modal>
       <Modal title="同步模型目录" open={syncOpen} onCancel={() => setSyncOpen(false)} footer={null} destroyOnClose>
-        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ vertex_regions: "global,us-central1,us-east5", validate_runtime: true }}>
+        <Form form={syncForm} layout="vertical" onFinish={syncModels} initialValues={{ vertex_regions: defaultVertexRegionList, validate_runtime: true }}>
           <Form.Item label="Provider" name="provider_id" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={providerOptions} onChange={handleSyncProviderChange} />
           </Form.Item>

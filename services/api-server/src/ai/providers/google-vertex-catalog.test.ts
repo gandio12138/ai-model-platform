@@ -61,7 +61,7 @@ describe("Google Vertex model catalog parsing", () => {
     assert.equal(items[0].providerModelCode, "claude-sonnet-4-5@20259999");
   });
 
-  it("filters deploy-only models and models without price or context", () => {
+  it("filters deploy-only or unpriced models and keeps priced contextless models", () => {
     const items = buildGoogleVertexCatalogSyncItems(
       [
         {
@@ -84,12 +84,21 @@ describe("Google Vertex model catalog parsing", () => {
           name: "publishers/google/models/gemini-2.5-flash",
           versionId: "default",
           supportedActions: { openGenerationAiStudio: {} }
+        },
+        {
+          region: "global",
+          publisher: "google",
+          name: "publishers/google/models/text-embedding-005",
+          versionId: "default",
+          supportedActions: { openGenerationAiStudio: {} }
         }
       ],
       { conversion: testConversion, priceVersion: "test-vertex" }
     );
 
-    assert.deepEqual(items.map((item) => item.publicModelCode), ["gemini-2.5-flash"]);
+    assert.deepEqual(items.map((item) => item.publicModelCode), ["gemini-2.5-flash", "text-embedding-005"]);
+    assert.equal(items[1].maxContextTokens, null);
+    assert.equal(items[1].raw.model_category, "embedding");
   });
 
   it("resolves Gemini price and context from catalog rules", () => {
@@ -106,7 +115,7 @@ describe("Google Vertex model catalog parsing", () => {
     assert.equal(context.defaultMaxOutputTokens, 65536);
   });
 
-  it("keeps Gemini image and video models for runtime countTokens validation", () => {
+  it("keeps Gemini image and video models in the priced catalog", () => {
     const items = buildGoogleVertexCatalogSyncItems(
       [
         {

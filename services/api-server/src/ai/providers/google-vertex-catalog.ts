@@ -24,6 +24,11 @@ export interface VertexResolvedPricing {
   cacheWriteUsdPer1k: number;
   sourceModelName: string;
   sourceProviderName: string;
+  billingUnit?: "token_1m" | "token_1k" | "character_1k" | "image" | "video_second" | "audio_second" | "song" | "unknown";
+  unitUsdPrice?: number | null;
+  unitPriceCents?: number | null;
+  unitLabel?: string | null;
+  priceDisplay?: string | null;
 }
 
 export interface VertexModelContext {
@@ -75,10 +80,55 @@ interface VertexUsdPer1mPrice {
   outputUsdPer1m: number;
   cacheReadUsdPer1m?: number;
   cacheWriteUsdPer1m?: number;
+  billingUnit?: VertexResolvedPricing["billingUnit"];
+  unitUsdPrice?: number | null;
+  unitLabel?: string | null;
+  priceDisplay?: string | null;
 }
 
 export const defaultVertexPublishers = ["google", "anthropic", "mistralai", "xai", "meta"];
-export const defaultVertexRegions = ["global", "us-central1", "us-east5"];
+export const defaultVertexRegions = [
+  "global",
+  "us-central1",
+  "us-east1",
+  "us-east4",
+  "us-east5",
+  "us-south1",
+  "us-west1",
+  "us-west2",
+  "us-west3",
+  "us-west4",
+  "northamerica-northeast1",
+  "northamerica-northeast2",
+  "southamerica-east1",
+  "southamerica-west1",
+  "africa-south1",
+  "europe-central2",
+  "europe-west1",
+  "europe-west2",
+  "europe-west3",
+  "europe-west4",
+  "europe-west6",
+  "europe-west8",
+  "europe-west9",
+  "europe-west12",
+  "europe-north1",
+  "europe-southwest1",
+  "asia-east1",
+  "asia-east2",
+  "asia-northeast1",
+  "asia-northeast2",
+  "asia-northeast3",
+  "asia-south1",
+  "asia-south2",
+  "asia-southeast1",
+  "asia-southeast2",
+  "australia-southeast1",
+  "australia-southeast2",
+  "me-central1",
+  "me-central2",
+  "me-west1"
+];
 
 export async function fetchGoogleVertexPublisherModels(input: {
   projectId: string;
@@ -151,7 +201,8 @@ export async function validateGoogleVertexRuntimeModels(input: {
   for (const item of input.items.slice(0, maxModels)) {
     const publisher = String(item.raw.publisher ?? "").toLowerCase();
     const runtimeAdapter = String(item.raw.runtime_adapter ?? "");
-    if (publisher !== "google" || runtimeAdapter !== "gemini_generate_content") {
+    const category = String(item.raw.model_category ?? "");
+    if (publisher !== "google" || runtimeAdapter !== "gemini_generate_content" || category !== "text_chat") {
       results.set(item.providerModelCode, {
         providerModelCode: item.providerModelCode,
         status: "not_checked",
@@ -161,7 +212,7 @@ export async function validateGoogleVertexRuntimeModels(input: {
     }
     const location = String(item.raw.preferred_region ?? "global");
     const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
-    const url = `https://${host}/v1/projects/${encodeURIComponent(input.projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(item.providerModelCode)}:countTokens`;
+    const url = `https://${host}/v1/projects/${encodeURIComponent(input.projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(item.providerModelCode)}:generateContent`;
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -171,7 +222,12 @@ export async function validateGoogleVertexRuntimeModels(input: {
           "content-type": "application/json"
         },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: "ok" }] }]
+          contents: [{ role: "user", parts: [{ text: "Reply with ok." }] }],
+          generationConfig: {
+            maxOutputTokens: 1,
+            temperature: 0,
+            topP: 1
+          }
         }),
         signal: AbortSignal.timeout(15000)
       });
@@ -217,7 +273,7 @@ export function buildGoogleVertexCatalogSyncItems(
       priceVersion: options.priceVersion
     });
     if (!runtime.supported && !options.includeUnsupportedRuntime) continue;
-    if (!pricing || !context.maxContextTokens) continue;
+    if (!pricing) continue;
     const modalities = vertexModalitiesForCategory(category);
     items.push({
       publicModelCode: canonicalVertexPublicModelCode(model.publisher, modelId),
@@ -301,6 +357,10 @@ function regionRank(region: string) {
   if (region === "global") return 0;
   if (region === "us-central1") return 1;
   if (region === "us-east5") return 2;
+  if (region.startsWith("us-")) return 3;
+  if (region.startsWith("northamerica-")) return 4;
+  if (region.startsWith("europe-")) return 5;
+  if (region.startsWith("asia-")) return 6;
   return 10;
 }
 
@@ -308,6 +368,18 @@ function resolveVertexRuntime(publisher: string, modelId: string, versionId?: st
   const normalized = modelId.toLowerCase();
   if (publisher === "google" && normalized.startsWith("gemini-")) {
     return { supported: true, adapter: "gemini_generate_content", providerModelCode: modelId, supportsTools: false };
+  }
+  if (publisher === "google" && (/embedding|text-embedding/.test(normalized))) {
+    return { supported: true, adapter: "gemini_embed_content", providerModelCode: modelId, supportsTools: false };
+  }
+  if (publisher === "google" && (/imagen|imagegeneration|image-|virtual-try-on/.test(normalized))) {
+    return { supported: true, adapter: "vertex_predict_image", providerModelCode: modelId, supportsTools: false };
+  }
+  if (publisher === "google" && (/veo|video/.test(normalized))) {
+    return { supported: true, adapter: "vertex_predict_video", providerModelCode: modelId, supportsTools: false };
+  }
+  if (publisher === "google" && (/chirp|lyria|audio|tts/.test(normalized))) {
+    return { supported: true, adapter: "vertex_predict_audio", providerModelCode: modelId, supportsTools: false };
   }
   if (publisher === "anthropic" && normalized.startsWith("claude-")) {
     return { supported: true, adapter: "anthropic_raw_predict", providerModelCode: withPublisherModelVersion(modelId, versionId), supportsTools: false };
@@ -348,7 +420,7 @@ export function resolveGoogleVertexModelContext(
   modelId: string,
   category: VertexModelCategory = "text_chat"
 ): VertexModelContext {
-  if (!["text_chat", "image", "video"].includes(category)) {
+  if (!["text_chat"].includes(category)) {
     return { maxContextTokens: null, defaultMaxOutputTokens: null, contextSource: "admin_required" };
   }
   const normalized = modelId.toLowerCase();
@@ -403,7 +475,12 @@ export function resolveGoogleVertexPricing(
     cacheReadUsdPer1k: (price.cacheReadUsdPer1m ?? 0) / 1000,
     cacheWriteUsdPer1k: (price.cacheWriteUsdPer1m ?? 0) / 1000,
     sourceModelName: displayNameForVertexModel(publisher, modelId),
-    sourceProviderName: vertexProviderDisplayName(publisher)
+    sourceProviderName: vertexProviderDisplayName(publisher),
+    billingUnit: price.billingUnit ?? "token_1m",
+    unitUsdPrice: price.unitUsdPrice ?? null,
+    unitPriceCents: price.unitUsdPrice ? usdUnitToTargetCents(price.unitUsdPrice, options.conversion) : null,
+    unitLabel: price.unitLabel ?? null,
+    priceDisplay: price.priceDisplay ?? null
   };
 }
 
@@ -416,6 +493,16 @@ function vertexUsdPer1mPrice(publisher: string, modelId: string, region: string)
 }
 
 function googleGeminiUsdPer1m(modelId: string): VertexUsdPer1mPrice | null {
+  if (/embedding/.test(modelId)) return { inputUsdPer1m: 0.15, outputUsdPer1m: 0, billingUnit: "token_1k", priceDisplay: "$0.00015 / 1K input tokens" };
+  if (/imagen-4.*ultra/.test(modelId)) return unitPrice(0.06, "image", "image", "$0.06 / image");
+  if (/imagen-4.*fast/.test(modelId)) return unitPrice(0.02, "image", "image", "$0.02 / image");
+  if (/imagen-4|imagen-3|imagegeneration/.test(modelId)) return unitPrice(0.04, "image", "image", "$0.04 / image");
+  if (/gemini-.*image/.test(modelId)) return googleGeminiImageUsdPer1m(modelId);
+  if (/veo-3\.1.*fast/.test(modelId)) return unitPrice(0.08, "video_second", "second", "$0.08 / second");
+  if (/veo-3\.1.*lite/.test(modelId)) return unitPrice(0.03, "video_second", "second", "$0.03 / second");
+  if (/veo-3|veo-2|video/.test(modelId)) return unitPrice(0.2, "video_second", "second", "$0.20 / second");
+  if (/lyria-3-pro/.test(modelId)) return unitPrice(0.08, "song", "song", "$0.08 / song");
+  if (/lyria-3|lyria-2/.test(modelId)) return unitPrice(0.04, "song", "clip", "$0.04 / clip");
   if (/gemini-3\.5-flash/.test(modelId)) return { inputUsdPer1m: 1.5, outputUsdPer1m: 9 };
   if (/gemini-3\.1-flash-lite/.test(modelId)) return { inputUsdPer1m: 0.25, outputUsdPer1m: 1.5 };
   if (/gemini-3-flash/.test(modelId)) return { inputUsdPer1m: 0.5, outputUsdPer1m: 3 };
@@ -426,6 +513,33 @@ function googleGeminiUsdPer1m(modelId: string): VertexUsdPer1mPrice | null {
   if (/gemini-2\.0-flash/.test(modelId)) return { inputUsdPer1m: 0.15, outputUsdPer1m: 0.6 };
   if (/gemini-1\.5-pro/.test(modelId)) return { inputUsdPer1m: 0.3125, outputUsdPer1m: 1.25 };
   return null;
+}
+
+function googleGeminiImageUsdPer1m(modelId: string): VertexUsdPer1mPrice {
+  const tokenPrice = /gemini-3/.test(modelId)
+    ? { inputUsdPer1m: 0.5, outputUsdPer1m: 3 }
+    : { inputUsdPer1m: 0.3, outputUsdPer1m: 2.5 };
+  return {
+    ...tokenPrice,
+    billingUnit: "token_1m",
+    priceDisplay: `Input $${tokenPrice.inputUsdPer1m}/1M tokens, output $${tokenPrice.outputUsdPer1m}/1M tokens`
+  };
+}
+
+function unitPrice(
+  unitUsdPrice: number,
+  billingUnit: NonNullable<VertexResolvedPricing["billingUnit"]>,
+  unitLabel: string,
+  priceDisplay: string
+): VertexUsdPer1mPrice {
+  return {
+    inputUsdPer1m: 0,
+    outputUsdPer1m: 0,
+    billingUnit,
+    unitUsdPrice,
+    unitLabel,
+    priceDisplay
+  };
 }
 
 function anthropicUsdPer1m(modelId: string, region: string): VertexUsdPer1mPrice | null {
@@ -462,6 +576,14 @@ function usdPer1mToTargetCentsPer1m(
 ) {
   if (!Number.isFinite(usdPer1m) || usdPer1m <= 0) return 0;
   return Math.ceil(usdPer1m * conversion.usdToTargetRate * conversion.markupMultiplier * 100);
+}
+
+function usdUnitToTargetCents(
+  usdPrice: number,
+  conversion: ProviderPriceConversion
+) {
+  if (!Number.isFinite(usdPrice) || usdPrice <= 0) return 0;
+  return Math.ceil(usdPrice * conversion.usdToTargetRate * conversion.markupMultiplier * 100);
 }
 
 function vertexProviderDisplayName(publisher: string) {

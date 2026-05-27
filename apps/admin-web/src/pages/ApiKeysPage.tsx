@@ -228,7 +228,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
             type="info"
             showIcon
             message="模型权限"
-            description="API Key 默认可调用全部已上架、已定价、有上下文的模型，不在单个 Key 上重复勾选模型。不同模型按各自价格扣费。"
+            description="API Key 默认可调用全部已上架、已定价的文本对话模型，不在单个 Key 上重复勾选模型。不同模型按各自价格扣费。"
           />
           <Form.Item label="IP 白名单" name="ip_whitelist">
             <Input.TextArea rows={3} placeholder="多个 IP 用逗号或换行分隔" />
@@ -251,7 +251,7 @@ export default function ApiKeysPage({ canWrite, canRevoke }: { canWrite: boolean
             <Descriptions.Item label="Key 前缀">{detail.key_prefix}</Descriptions.Item>
             <Descriptions.Item label="Key 后缀">{detail.key_suffix}</Descriptions.Item>
             <Descriptions.Item label="状态">{detail.status}</Descriptions.Item>
-            <Descriptions.Item label="模型权限">全部已上架、已定价、有上下文的模型</Descriptions.Item>
+            <Descriptions.Item label="模型权限">全部已上架、已定价的文本对话模型</Descriptions.Item>
             <Descriptions.Item label="IP 白名单">{renderArray(detail.ip_whitelist)}</Descriptions.Item>
             <Descriptions.Item label="过期时间">{formatTime(detail.expires_at)}</Descriptions.Item>
             <Descriptions.Item label="最后使用">{formatTime(detail.last_used_at)}</Descriptions.Item>

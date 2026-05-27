@@ -1143,7 +1143,6 @@ export class AdminService {
     }
 
     if (resource === "models") {
-      filters.push("max_context_tokens is not null");
       filters.push(
         `exists (
           select 1
@@ -1453,8 +1452,7 @@ export class AdminService {
     const params: unknown[] = [];
     const filters: string[] = [
       "tenant.tenant_type <> 'platform_default'",
-      "tenant.tenant_code <> 'platform_default_tenant'",
-      "m.max_context_tokens is not null"
+      "tenant.tenant_code <> 'platform_default_tenant'"
     ];
     if (!this.isSuperAdmin(user)) {
       const tenantIds = await this.getScopedTenantIds(user);
@@ -1522,8 +1520,7 @@ export class AdminService {
     const params: unknown[] = [];
     const filters: string[] = [
       "tenant.tenant_type <> 'platform_default'",
-      "tenant.tenant_code <> 'platform_default_tenant'",
-      "m.max_context_tokens is not null"
+      "tenant.tenant_code <> 'platform_default_tenant'"
     ];
     if (!this.isSuperAdmin(user)) {
       const tenantIds = await this.getScopedTenantIds(user);
@@ -1591,7 +1588,7 @@ export class AdminService {
   private async listModelPrices(query: Record<string, unknown>) {
     const { page, pageSize, offset } = parsePagination(query);
     const params: unknown[] = [];
-    const filters: string[] = ["m.max_context_tokens is not null"];
+    const filters: string[] = [];
     params.push(enabledModelProviderTypes());
     filters.push(
       `exists (
@@ -1644,7 +1641,15 @@ export class AdminService {
                 round(coalesce(mp.input_price_per_1m, mp.input_price_per_1k * 1000)::numeric / 100000, 6) as input_price_per_1k_yuan,
                 round(coalesce(mp.output_price_per_1m, mp.output_price_per_1k * 1000)::numeric / 100000, 6) as output_price_per_1k_yuan,
                 round(coalesce(mp.cache_read_price_per_1m, mp.cache_read_price_per_1k * 1000, 0)::numeric / 100000, 6) as cache_read_price_per_1k_yuan,
-                round(coalesce(mp.cache_write_price_per_1m, mp.cache_write_price_per_1k * 1000, 0)::numeric / 100000, 6) as cache_write_price_per_1k_yuan
+                round(coalesce(mp.cache_write_price_per_1m, mp.cache_write_price_per_1k * 1000, 0)::numeric / 100000, 6) as cache_write_price_per_1k_yuan,
+                mp.metadata->>'billing_unit' as billing_unit,
+                mp.metadata->>'unit_label' as unit_label,
+                mp.metadata->>'price_display' as price_display,
+                case
+                  when mp.metadata ? 'unit_price_amount'
+                  then round((mp.metadata->>'unit_price_amount')::numeric / 100, 6)
+                  else null
+                end as unit_price_yuan
            from model_prices mp
            join models m on m.id = mp.model_id
           ${where}
@@ -1674,7 +1679,6 @@ export class AdminService {
     const params: unknown[] = [tenantId];
     const filters: string[] = [
       "m.status = 'active'",
-      "m.max_context_tokens is not null",
       "coalesce(tmp.price_version, mp.price_version) is not null"
     ];
     params.push(enabledModelProviderTypes());
@@ -2590,12 +2594,12 @@ export class AdminService {
         runtimeUnavailableSourceModelIds.push(item.sourceModelId);
         continue;
       }
-      if (["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType) && (!item.pricing || !item.maxContextTokens)) {
+      if (["aws_bedrock", "google_vertex_ai", "openai"].includes(providerType) && !item.pricing) {
         if (!item.pricing) pricingMissing += 1;
-        if (!item.maxContextTokens) contextMissing += 1;
         unpricedSourceModelIds.push(item.sourceModelId);
         continue;
       }
+      if (!item.maxContextTokens) contextMissing += 1;
       const model = await this.upsertSyncedModel(item);
       if (item.pricing) {
         await this.upsertSyncedModelPrice(
@@ -4158,8 +4162,7 @@ export class AdminService {
             and coalesce(m.metadata->>'source_model_id', m.public_model_code) = any($2::text[])
             and coalesce(m.metadata->>'source', '') = $3
             and (
-              m.max_context_tokens is null
-              or not exists (
+              not exists (
               select 1
                 from model_prices mp
                where mp.model_id = m.id
@@ -4172,7 +4175,7 @@ export class AdminService {
        update models m
           set status = 'archived',
               metadata = coalesce(m.metadata, '{}'::jsonb) || jsonb_build_object(
-                'archived_reason', 'provider_price_or_context_missing',
+                'archived_reason', 'provider_price_missing',
                 'archived_at', now()
               ),
               updated_at = now()
@@ -4186,7 +4189,7 @@ export class AdminService {
         `update model_routes
             set enabled = false,
                 metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
-                  'disabled_reason', 'provider_price_or_context_missing',
+                  'disabled_reason', 'provider_price_missing',
                   'disabled_at', now()
                 ),
                 updated_at = now()
@@ -4384,7 +4387,12 @@ export class AdminService {
           fx_rate_source: pricing.fxRateSource,
           fx_rate_fetched_at: pricing.fxRateFetchedAt,
           markup_multiplier: pricing.markupMultiplier,
-          precision: `${pricing.currency.toLowerCase()}_cents_per_1m_tokens`
+          precision: `${pricing.currency.toLowerCase()}_cents_per_1m_tokens`,
+          billing_unit: (pricing as any).billingUnit ?? "token_1m",
+          unit_price_amount: (pricing as any).unitPriceCents ?? null,
+          unit_label: (pricing as any).unitLabel ?? null,
+          price_display: (pricing as any).priceDisplay ?? null,
+          unit_usd_price: (pricing as any).unitUsdPrice ?? null
         })
       ]
     );
@@ -5062,7 +5070,7 @@ export class AdminService {
         labelSql: "concat(m.display_name, ' / ', m.public_model_code)",
         descriptionSql: "concat(coalesce(m.model_family, '-'), ' · 对外上下文 ', coalesce(coalesce(mp.max_context_tokens, m.max_context_tokens)::text, '-'), case when mp.price_version is null then ' · 未配置价格' else concat(' · ', mp.price_version) end)",
         disabledSql: "m.status <> 'active'",
-        fixedWhere: "m.status = 'active' and m.max_context_tokens is not null and mp.price_version is not null",
+        fixedWhere: "m.status = 'active' and mp.price_version is not null",
         metaSql:
           "jsonb_build_object('public_model_code', m.public_model_code, 'model_family', m.model_family, 'source_max_context_tokens', m.max_context_tokens, 'max_context_tokens', coalesce(mp.max_context_tokens, m.max_context_tokens), 'default_max_output_tokens', coalesce(mp.default_max_output_tokens, m.default_max_output_tokens), 'price_version', mp.price_version, 'currency', mp.currency, 'input_price_per_1m', mp.input_price_per_1m, 'output_price_per_1m', mp.output_price_per_1m, 'input_price_per_1k_yuan', round(coalesce(mp.input_price_per_1m, 0)::numeric / 100000, 6), 'output_price_per_1k_yuan', round(coalesce(mp.output_price_per_1m, 0)::numeric / 100000, 6))",
         search: ["m.display_name", "m.public_model_code", "m.model_family", "m.status"],
@@ -5282,7 +5290,6 @@ export class AdminService {
       `select m.public_model_code
          from models m
         where m.status = 'active'
-          and m.max_context_tokens is not null
           and m.public_model_code = any($1::text[])
           and exists (
             select 1

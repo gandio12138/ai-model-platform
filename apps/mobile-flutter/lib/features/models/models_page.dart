@@ -108,14 +108,14 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
   List<String> _modelCompanies(List<ModelInfo> models) {
     return orderedModelFilterValues(
       models.map((model) => model.providerName),
-      const ['Claude', 'OpenAI', 'Gemini'],
+      const ['Claude', 'OpenAI', 'Gemini', 'Mistral AI', 'xAI', 'Meta'],
     );
   }
 
   List<String> _modelCategories(List<ModelInfo> models) {
     return orderedModelFilterValues(
       models.map((model) => model.category),
-      const ['文本模型', '图片模型', '视频模型'],
+      const ['文本模型', '图片模型', '视频模型', '音频模型', 'Embedding 模型'],
     );
   }
 }
@@ -325,7 +325,9 @@ class ModelCard extends StatelessWidget {
               AppBadge(label: model.category, color: AppColors.primary),
               AppBadge(label: model.supportsStream ? '流式' : '非流式'),
               AppBadge(
-                label: '${compactNumber(model.maxContextTokens)} context',
+                label: model.maxContextTokens == null
+                    ? '无上下文限制'
+                    : '${compactNumber(model.maxContextTokens!)} context',
                 color: AppColors.cyan,
               ),
             ],
@@ -335,23 +337,13 @@ class ModelCard extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              _MetricTile(
-                label: '输入',
-                value: modelTokenPricePer1k(
-                  centsPer1m: model.inputPer1m,
-                  centsPer1k: model.inputPer1k,
-                ),
-              ),
-              _MetricTile(
-                label: '补全',
-                value: modelTokenPricePer1k(
-                  centsPer1m: model.outputPer1m,
-                  centsPer1k: model.outputPer1k,
-                ),
-              ),
+              _MetricTile(label: '输入', value: _modelPriceText(model, 'input')),
+              _MetricTile(label: '补全', value: _modelPriceText(model, 'output')),
               _MetricTile(
                 label: '上下文',
-                value: compactNumber(model.maxContextTokens),
+                value: model.maxContextTokens == null
+                    ? '无'
+                    : compactNumber(model.maxContextTokens!),
               ),
             ],
           ),
@@ -373,6 +365,26 @@ class ModelCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _modelPriceText(ModelInfo model, String direction) {
+  final billingUnit = model.billingUnit ?? 'token_1m';
+  if (!billingUnit.startsWith('token')) {
+    return modelUnitPrice(
+      unitPriceAmount: model.unitPriceAmount,
+      unitLabel: model.unitLabel,
+      display: model.priceDisplay,
+    );
+  }
+  return direction == 'input'
+      ? modelTokenPricePer1k(
+          centsPer1m: model.inputPer1m,
+          centsPer1k: model.inputPer1k,
+        )
+      : modelTokenPricePer1k(
+          centsPer1m: model.outputPer1m,
+          centsPer1k: model.outputPer1k,
+        );
 }
 
 class _MetricTile extends StatelessWidget {

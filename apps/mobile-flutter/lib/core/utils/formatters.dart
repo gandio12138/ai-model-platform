@@ -25,6 +25,18 @@ String modelTokenPricePer1k({int? centsPer1m, required int centsPer1k}) {
   return centsPer1kToCurrencyPer1k(centsPer1k);
 }
 
+String modelUnitPrice({
+  int? unitPriceAmount,
+  String? unitLabel,
+  String? display,
+}) {
+  if (unitPriceAmount != null && unitPriceAmount > 0) {
+    final label = unitLabel == null || unitLabel.isEmpty ? '' : ' / $unitLabel';
+    return '¥${(unitPriceAmount / 100).toStringAsFixed(6).replaceFirst(RegExp(r'\.?0+$'), '')}$label';
+  }
+  return display == null || display.isEmpty ? '-' : display;
+}
+
 String compactNumber(num value) => _number.format(value);
 
 String formatDate(DateTime value) => _date.format(value);

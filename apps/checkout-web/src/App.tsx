@@ -179,7 +179,9 @@ function modelCompany(model: Pick<ModelInfo, "display_name" | "family" | "model_
   if (raw.includes("openai") || raw.includes("gpt-")) return "OpenAI";
   if (raw.includes("anthropic") || raw.includes("claude")) return "Claude";
   if (raw.includes("gemini") || raw.includes("google")) return "Gemini";
+  if (raw.includes("mistral")) return "Mistral AI";
   if (raw.includes("qwen") || raw.includes("alibaba") || raw.includes("阿里")) return "阿里巴巴";
+  if (raw.includes("llama") || raw.includes("meta")) return "Meta";
   if (raw.includes("midjourney")) return "Midjourney";
   if (raw.includes("grok") || raw.includes("xai")) return "xAI";
   return model.model_company ?? model.family ?? "其他";
@@ -204,14 +206,79 @@ function modelCategoryLabel(model: ModelInfo) {
 function simplifiedModelCategory(model: ModelInfo) {
   const key = String(model.model_category ?? "").toLowerCase();
   const label = modelCategoryLabel(model);
+  if (key === "embedding" || label.toLowerCase().includes("embedding")) return "Embedding 模型";
   if (key === "image" || label.includes("图像") || label.includes("图片")) return "图片模型";
   if (key === "video" || label.includes("视频")) return "视频模型";
+  if (key === "audio" || label.includes("音频")) return "音频模型";
   if (key === "text_chat" || label.includes("文本") || label.includes("对话")) return "文本模型";
   return "其他模型";
 }
 
 function modelIntegrationExample(model: ModelInfo, siteConfig: SiteConfigPayload | null) {
   const apiBase = configuredApiBase(siteConfig);
+  const category = simplifiedModelCategory(model);
+  if (category === "图片模型") {
+    return `# ${category} 计费信息
+BASE_URL=${apiBase}
+API_KEY=你的 oToken API Key
+MODEL=${model.model_code}
+类型=${category}
+价格=${modelDisplayPriceText(model.price, "input")}
+
+# 图片模型请使用专用接口，不要用于 /v1/chat/completions。
+curl "$BASE_URL/images/generations" \\
+  -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${model.model_code}",
+    "prompt": "一张干净的企业级 AI 平台产品海报",
+    "n": 1,
+    "size": "1024x1024"
+  }'`;
+  }
+  if (category === "视频模型") {
+    return `# ${category} 计费信息
+BASE_URL=${apiBase}
+API_KEY=你的 oToken API Key
+MODEL=${model.model_code}
+类型=${category}
+价格=${modelDisplayPriceText(model.price, "input")}
+
+# 视频模型请使用专用接口，不要用于 /v1/chat/completions。
+# 当前接口会提交生成任务并返回 provider operation，后续可按订单/任务状态查询。
+curl "$BASE_URL/videos/generations" \\
+  -H "Authorization: Bearer $AI_TOKEN_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${model.model_code}",
+    "prompt": "一个极简科技感蓝色粒子流动的视频片段",
+    "n": 1,
+    "duration_seconds": 5,
+    "aspect_ratio": "16:9"
+  }'`;
+  }
+  if (category === "Embedding 模型") {
+    return `# Embedding 模型
+BASE_URL=${apiBase}
+API_KEY=你的 oToken API Key
+MODEL=${model.model_code}
+类型=${category}
+价格=${modelDisplayPriceText(model.price, "input")}
+
+# /v1/embeddings 已预留，当前阶段返回待实现。
+# 接入完成前不要把 Embedding 模型用于 /v1/chat/completions。`;
+  }
+  if (category === "音频模型") {
+    return `# 音频模型
+BASE_URL=${apiBase}
+API_KEY=你的 oToken API Key
+MODEL=${model.model_code}
+类型=${category}
+价格=${modelDisplayPriceText(model.price, "input")}
+
+# /v1/audio/speech 和 /v1/audio/transcriptions 已预留，当前阶段返回待实现。
+# 接入完成前不要把音频模型用于 /v1/chat/completions。`;
+  }
   return `# oToken OpenAI-compatible configuration
 BASE_URL=${apiBase}
 API_KEY=你的 oToken API Key
@@ -984,8 +1051,14 @@ function HomePage({
   const companyCount = new Set(models.map((model) => modelCompany(model))).size;
   const categoryCount = new Set(models.map((model) => simplifiedModelCategory(model))).size;
   const providerBadges = Array.from(new Set(models.map((model) => modelCompany(model))))
-    .filter((name) => ["Claude", "OpenAI", "Gemini", "DeepSeek", "阿里巴巴"].includes(name))
-    .slice(0, 5);
+    .sort((left, right) => {
+      const preferred = ["Claude", "OpenAI", "Gemini", "Mistral AI", "xAI", "Meta", "DeepSeek", "阿里巴巴"];
+      const leftIndex = preferred.indexOf(left);
+      const rightIndex = preferred.indexOf(right);
+      if (leftIndex >= 0 || rightIndex >= 0) return (leftIndex >= 0 ? leftIndex : 99) - (rightIndex >= 0 ? rightIndex : 99);
+      return left.localeCompare(right);
+    })
+    .slice(0, 6);
 
   return (
     <section className="home-page landing-home">
@@ -1012,7 +1085,7 @@ function HomePage({
               </Button>
             </div>
             <div className="landing-provider-strip" aria-label="模型供应商">
-              {(providerBadges.length ? providerBadges : ["Claude", "OpenAI", "Gemini", "DeepSeek"]).map((provider) => (
+              {(providerBadges.length ? providerBadges : ["Claude", "OpenAI", "Gemini"]).map((provider) => (
                 <span key={provider}>{provider}</span>
               ))}
             </div>
@@ -1772,10 +1845,19 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
   const [keyword, setKeyword] = useState("");
   const [exampleModel, setExampleModel] = useState<ModelInfo | null>(null);
   const companies = useMemo(() => {
-    const visibleCompanies = ["Claude", "OpenAI", "Gemini"] as const;
+    const preferredCompanies = ["Claude", "OpenAI", "Gemini", "Mistral AI", "xAI", "Meta"] as const;
+    const counts = new Map<string, number>();
+    for (const model of models) {
+      const name = modelCompany(model);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    const orderedCompanies = [
+      ...preferredCompanies.filter((name) => counts.has(name)),
+      ...[...counts.keys()].filter((name) => !(preferredCompanies as readonly string[]).includes(name)).sort((left, right) => left.localeCompare(right))
+    ];
     return [
       ["全部公司", models.length] as const,
-      ...visibleCompanies.map((name) => [name, models.filter((model) => modelCompany(model) === name).length] as const)
+      ...orderedCompanies.map((name) => [name, counts.get(name) ?? 0] as const)
     ];
   }, [models]);
   const categories = useMemo(() => {
@@ -1783,7 +1865,9 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
       ["全部模型", models.length] as const,
       ["文本模型", models.filter((model) => simplifiedModelCategory(model) === "文本模型").length] as const,
       ["图片模型", models.filter((model) => simplifiedModelCategory(model) === "图片模型").length] as const,
-      ["视频模型", models.filter((model) => simplifiedModelCategory(model) === "视频模型").length] as const
+      ["视频模型", models.filter((model) => simplifiedModelCategory(model) === "视频模型").length] as const,
+      ["音频模型", models.filter((model) => simplifiedModelCategory(model) === "音频模型").length] as const,
+      ["Embedding 模型", models.filter((model) => simplifiedModelCategory(model) === "Embedding 模型").length] as const
     ];
   }, [models]);
   const filtered = models.filter((model) => {
@@ -1855,15 +1939,15 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                     <dl className="model-price-grid">
                       <div>
                         <dt>输入</dt>
-                        <dd>{modelPriceText(model.price?.input_per_1m, model.price?.input_per_1k)}</dd>
+                        <dd>{modelDisplayPriceText(model.price, "input")}</dd>
                       </div>
                       <div>
                         <dt>补全</dt>
-                        <dd>{modelPriceText(model.price?.output_per_1m, model.price?.output_per_1k)}</dd>
+                        <dd>{modelDisplayPriceText(model.price, "output")}</dd>
                       </div>
                       <div>
                         <dt>上下文</dt>
-                        <dd>{numberText(model.max_context_tokens)}</dd>
+                        <dd>{numberText(model.max_context_tokens, "无")}</dd>
                       </div>
                     </dl>
                     <div className="tag-row">
@@ -1871,7 +1955,7 @@ function ModelMarket({ copyText, models, siteConfig }: { copyText: (text: string
                       <Tag color="blue">{simplifiedModelCategory(model)}</Tag>
                       {model.capabilities.stream ? <Tag>流式</Tag> : null}
                       {model.capabilities.json_mode ? <Tag>JSON</Tag> : null}
-                      <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "待配置价格"}</Tag>
+                      <Tag color={model.price ? "green" : "default"}>{model.price ? "当前账户可调用" : "价格未开放"}</Tag>
                     </div>
                     <div className="model-card-actions">
                       <Button size="small" icon={<Copy size={14} />} onClick={() => copyText(model.model_code)}>
@@ -2916,13 +3000,27 @@ function modelPriceText(valuePer1m?: number | null, valuePer1k?: number | null) 
   return "-";
 }
 
+function modelDisplayPriceText(price: ModelInfo["price"] | undefined | null, direction: "input" | "output") {
+  if (!price) return "-";
+  if (price.display && price.billing_unit && !price.billing_unit.startsWith("token")) {
+    const unitLabel = price.unit_label ? ` / ${price.unit_label}` : "";
+    if (price.unit_price_amount !== undefined && price.unit_price_amount !== null) {
+      return `¥${trimDecimal(price.unit_price_amount / 100)}${unitLabel}`;
+    }
+    return price.display;
+  }
+  return direction === "input"
+    ? modelPriceText(price.input_per_1m, price.input_per_1k)
+    : modelPriceText(price.output_per_1m, price.output_per_1k);
+}
+
 function trimDecimal(value: number) {
   if (!Number.isFinite(value)) return "0";
   return value.toFixed(6).replace(/\.?0+$/, "");
 }
 
-function numberText(value?: number | null) {
-  return value === undefined || value === null ? "-" : new Intl.NumberFormat("zh-CN").format(value);
+function numberText(value?: number | null, empty = "-") {
+  return value === undefined || value === null ? empty : new Intl.NumberFormat("zh-CN").format(value);
 }
 
 function dateText(value?: string | null) {

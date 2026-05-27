@@ -29,6 +29,12 @@ String _string(Object? value, [String fallback = '']) {
   return String.fromCharCodes(value.toString().runes);
 }
 
+String? _nullableString(Object? value) {
+  if (value == null) return null;
+  final text = String.fromCharCodes(value.toString().runes).trim();
+  return text.isEmpty ? null : text;
+}
+
 List<String> _stringList(Object? value) {
   if (value is List) return value.map((item) => item.toString()).toList();
   return const [];
@@ -244,7 +250,11 @@ class ModelInfo {
     required this.outputPer1k,
     this.inputPer1m,
     this.outputPer1m,
-    required this.maxContextTokens,
+    this.maxContextTokens,
+    this.priceDisplay,
+    this.billingUnit,
+    this.unitPriceAmount,
+    this.unitLabel,
     required this.supportsStream,
     required this.supportsTools,
     this.category = '文本模型',
@@ -260,7 +270,11 @@ class ModelInfo {
   final int outputPer1k;
   final int? inputPer1m;
   final int? outputPer1m;
-  final int maxContextTokens;
+  final int? maxContextTokens;
+  final String? priceDisplay;
+  final String? billingUnit;
+  final int? unitPriceAmount;
+  final String? unitLabel;
   final bool supportsStream;
   final bool supportsTools;
 
@@ -292,7 +306,15 @@ class ModelInfo {
       outputPer1m: price.containsKey('output_per_1m')
           ? _int(price['output_per_1m'])
           : null,
-      maxContextTokens: _int(json['max_context_tokens']),
+      maxContextTokens: json['max_context_tokens'] == null
+          ? null
+          : _int(json['max_context_tokens']),
+      priceDisplay: _nullableString(price['display']),
+      billingUnit: _nullableString(price['billing_unit']),
+      unitPriceAmount: price['unit_price_amount'] == null
+          ? null
+          : _int(price['unit_price_amount']),
+      unitLabel: _nullableString(price['unit_label']),
       supportsStream: _bool(capabilities['stream']),
       supportsTools: _bool(capabilities['tools']),
       category: _publicModelCategory(
@@ -341,6 +363,9 @@ String _publicProviderName(String raw) {
   if (value.contains('anthropic') || value.contains('claude')) return 'Claude';
   if (value.contains('google') || value.contains('gemini')) return 'Gemini';
   if (value.contains('openai') || value.contains('gpt')) return 'OpenAI';
+  if (value.contains('mistral')) return 'Mistral AI';
+  if (value.contains('xai') || value.contains('grok')) return 'xAI';
+  if (value.contains('meta') || value.contains('llama')) return 'Meta';
   return raw.trim().isEmpty ? '其他' : raw.trim();
 }
 
@@ -353,6 +378,13 @@ String _publicModelCategory(String key, String label) {
   }
   if (normalizedKey == 'video' || label.contains('视频')) {
     return '视频模型';
+  }
+  if (normalizedKey == 'audio' || label.contains('音频')) {
+    return '音频模型';
+  }
+  if (normalizedKey == 'embedding' ||
+      label.toLowerCase().contains('embedding')) {
+    return 'Embedding 模型';
   }
   if (normalizedKey == 'text_chat' ||
       label.contains('文本') ||

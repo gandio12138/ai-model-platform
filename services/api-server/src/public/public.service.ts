@@ -38,7 +38,7 @@ interface CustomerUserRow {
 
 const platforms: Platform[] = ["ios", "android", "web", "api"];
 
-type ModelCategoryKey = "text_chat" | "embedding" | "image" | "video" | "rerank" | "legacy_inference_profile";
+type ModelCategoryKey = "text_chat" | "embedding" | "image" | "video" | "audio" | "rerank" | "legacy_inference_profile";
 type ToolsStatusKey = "supported" | "unsupported" | "unverified";
 
 const modelCategoryLabels: Record<ModelCategoryKey, string> = {
@@ -46,6 +46,7 @@ const modelCategoryLabels: Record<ModelCategoryKey, string> = {
   embedding: "Embedding 模型",
   image: "图像模型",
   video: "视频模型",
+  audio: "音频模型",
   rerank: "Rerank 模型",
   legacy_inference_profile: "Legacy / Inference Profile 模型"
 };
@@ -398,6 +399,7 @@ export class PublicService {
                 coalesce(tmp.price_version, mp.price_version) as price_version,
                 coalesce(tmp.currency, mp.currency) as currency,
                 coalesce(tmp.pricing_mode, 'catalog_price') as pricing_mode,
+                coalesce(tmp.metadata, mp.metadata, '{}'::jsonb) as price_metadata,
                 coalesce(tmp.input_price_per_1k, mp.input_price_per_1k) as input_price_per_1k,
                 coalesce(tmp.output_price_per_1k, mp.output_price_per_1k) as output_price_per_1k,
                 coalesce(tmp.input_price_per_1m, mp.input_price_per_1m, tmp.input_price_per_1k * 1000, mp.input_price_per_1k * 1000) as input_price_per_1m,
@@ -415,7 +417,8 @@ export class PublicService {
                     input_price_per_1k,
                     output_price_per_1k,
                     input_price_per_1m,
-                    output_price_per_1m
+                    output_price_per_1m,
+                    metadata
                from tenant_model_prices
               where tenant_id = context_tenant.id
                 and model_id = m.id
@@ -433,7 +436,8 @@ export class PublicService {
                     input_price_per_1m,
                     output_price_per_1m,
                     max_context_tokens,
-                    default_max_output_tokens
+                    default_max_output_tokens,
+                    metadata
                from model_prices
               where model_id = m.id
                 and status = 'active'
@@ -443,7 +447,6 @@ export class PublicService {
               limit 1
            ) mp on true
           where m.status = 'active'
-            and m.max_context_tokens is not null
             and coalesce(tmp.price_version, mp.price_version) is not null
             and exists (
               select 1
@@ -1688,9 +1691,8 @@ export class PublicService {
   private async validateModelWhitelist(_tenantId: string, modelCodes: string[]) {
     const { rows } = await this.db.query<{ public_model_code: string }>(
       `select m.public_model_code
-         from models m
+        from models m
         where m.status = 'active'
-          and m.max_context_tokens is not null
           and m.public_model_code = any($1::text[])
           and exists (
             select 1
@@ -1873,6 +1875,9 @@ export class PublicService {
   private toModelResponse(row: any) {
     const modelCategory = this.resolveModelCategory(row);
     const toolsStatus = this.resolveToolsStatus(row, modelCategory);
+    const isAuthorized = this.isPlatformDefaultTenant(row) || Boolean(row.authorization_id);
+    const isPriced = Boolean(row.price_version);
+    const isChatModel = modelCategory === "text_chat";
     return {
       id: row.id,
       model_code: row.public_model_code,
@@ -1907,13 +1912,17 @@ export class PublicService {
             input_per_1k: row.input_price_per_1k === null ? null : Number(row.input_price_per_1k),
             output_per_1k: row.output_price_per_1k === null ? null : Number(row.output_price_per_1k),
             input_per_1m: row.input_price_per_1m === null ? null : Number(row.input_price_per_1m),
-            output_per_1m: row.output_price_per_1m === null ? null : Number(row.output_price_per_1m)
+            output_per_1m: row.output_price_per_1m === null ? null : Number(row.output_price_per_1m),
+            billing_unit: row.price_metadata?.billing_unit ?? "token_1m",
+            unit_price_amount: row.price_metadata?.unit_price_amount ?? null,
+            unit_label: row.price_metadata?.unit_label ?? null,
+            display: row.price_metadata?.price_display ?? null
           }
         : null,
       availability: {
-        authorized: this.isPlatformDefaultTenant(row) || Boolean(row.authorization_id),
-        priced: Boolean(row.price_version),
-        chat_enabled: (this.isPlatformDefaultTenant(row) || Boolean(row.authorization_id)) && Boolean(row.price_version)
+        authorized: isAuthorized,
+        priced: isPriced,
+        chat_enabled: isChatModel && isAuthorized && isPriced
       },
       metadata: row.model_metadata ?? {}
     };
@@ -1960,6 +1969,9 @@ export class PublicService {
     ) {
       return "image";
     }
+    if (this.hasModality(outputModalities, "AUDIO") || /\b(audio|tts|transcribe|speech|chirp|lyria|music)\b/.test(searchable)) {
+      return "audio";
+    }
 
     return "text_chat";
   }
@@ -1973,7 +1985,7 @@ export class PublicService {
     if (Boolean(row.supports_tools) || metadata.tools_verified === true || metadata.tool_use_verified === true) {
       return "supported";
     }
-    if (category === "embedding" || category === "image" || category === "video" || category === "rerank") {
+    if (category === "embedding" || category === "image" || category === "video" || category === "audio" || category === "rerank") {
       return "unsupported";
     }
     return "unverified";
